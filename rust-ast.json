@@ -1,0 +1,453 @@
+{
+  "source": "examples/test.html",
+  "rootNodes": [
+    {
+      "type": "Text",
+      "value": "DOCTYPE html\n"
+    },
+    {
+      "type": "Element",
+      "name": "html",
+      "attrs": [
+        {
+          "name": "lang",
+          "value": "en"
+        }
+      ],
+      "children": [
+        {
+          "type": "Element",
+          "name": "head",
+          "attrs": [],
+          "children": [
+            {
+              "type": "Element",
+              "name": "meta",
+              "attrs": [
+                {
+                  "name": "charset",
+                  "value": "UTF-8"
+                }
+              ],
+              "children": []
+            },
+            {
+              "type": "Element",
+              "name": "meta",
+              "attrs": [
+                {
+                  "name": "name",
+                  "value": "viewport"
+                },
+                {
+                  "name": "content",
+                  "value": "width=device-width, initial-scale=1.0"
+                }
+              ],
+              "children": []
+            },
+            {
+              "type": "Element",
+              "name": "title",
+              "attrs": [],
+              "children": [
+                {
+                  "type": "Text",
+                  "value": "{{ pageTitle }}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Element",
+          "name": "body",
+          "attrs": [],
+          "children": [
+            {
+              "type": "Element",
+              "name": "div",
+              "attrs": [
+                {
+                  "name": "class",
+                  "value": "container"
+                },
+                {
+                  "name": "[hidden]",
+                  "value": "isHidden"
+                }
+              ],
+              "children": [
+                {
+                  "type": "Element",
+                  "name": "header",
+                  "attrs": [],
+                  "children": [
+                    {
+                      "type": "Element",
+                      "name": "h1",
+                      "attrs": [],
+                      "children": [
+                        {
+                          "type": "Text",
+                          "value": "Welcome {{ userName }}!"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "Element",
+                      "name": "nav",
+                      "attrs": [],
+                      "children": [
+                        {
+                          "type": "Element",
+                          "name": "a",
+                          "attrs": [
+                            {
+                              "name": "href",
+                              "value": "/home"
+                            }
+                          ],
+                          "children": [
+                            {
+                              "type": "Text",
+                              "value": "Home"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "Element",
+                          "name": "a",
+                          "attrs": [
+                            {
+                              "name": "href",
+                              "value": "/about"
+                            }
+                          ],
+                          "children": [
+                            {
+                              "type": "Text",
+                              "value": "About"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "Element",
+                  "name": "main",
+                  "attrs": [],
+                  "children": [
+                    {
+                      "type": "Block",
+                      "name": "if",
+                      "parameters": [
+                        {
+                          "expression": "showContent"
+                        }
+                      ],
+                      "children": [
+                        {
+                          "type": "Element",
+                          "name": "section",
+                          "attrs": [
+                            {
+                              "name": "class",
+                              "value": "content"
+                            }
+                          ],
+                          "children": [
+                            {
+                              "type": "Element",
+                              "name": "h2",
+                              "attrs": [],
+                              "children": [
+                                {
+                                  "type": "Text",
+                                  "value": "Content Section"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "Element",
+                              "name": "p",
+                              "attrs": [],
+                              "children": [
+                                {
+                                  "type": "Text",
+                                  "value": "This content is visible when showContent is true."
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "Block",
+                      "name": "else",
+                      "parameters": [],
+                      "children": [
+                        {
+                          "type": "Element",
+                          "name": "section",
+                          "attrs": [
+                            {
+                              "name": "class",
+                              "value": "placeholder"
+                            }
+                          ],
+                          "children": [
+                            {
+                              "type": "Element",
+                              "name": "p",
+                              "attrs": [],
+                              "children": [
+                                {
+                                  "type": "Text",
+                                  "value": "Content is hidden."
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "Block",
+                      "name": "for",
+                      "parameters": [
+                        {
+                          "expression": "item of items"
+                        },
+                        {
+                          "expression": "track item.id"
+                        },
+                        {
+                          "expression": "let idx = $index"
+                        }
+                      ],
+                      "children": [
+                        {
+                          "type": "Element",
+                          "name": "div",
+                          "attrs": [
+                            {
+                              "name": "class",
+                              "value": "item-{{ idx }}"
+                            }
+                          ],
+                          "children": [
+                            {
+                              "type": "Element",
+                              "name": "h3",
+                              "attrs": [],
+                              "children": [
+                                {
+                                  "type": "Text",
+                                  "value": "{{ item.title }}"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "Element",
+                              "name": "p",
+                              "attrs": [],
+                              "children": [
+                                {
+                                  "type": "Text",
+                                  "value": "{{ item.description }}"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "Element",
+                              "name": "span",
+                              "attrs": [
+                                {
+                                  "name": "class",
+                                  "value": "price"
+                                }
+                              ],
+                              "children": [
+                                {
+                                  "type": "Text",
+                                  "value": "{{ item.price | currency }}"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "LetDeclaration",
+                      "name": "totalItems",
+                      "value": "items.length"
+                    },
+                    {
+                      "type": "LetDeclaration",
+                      "name": "totalPrice",
+                      "value": "calculateTotal(items)"
+                    },
+                    {
+                      "type": "Element",
+                      "name": "div",
+                      "attrs": [
+                        {
+                          "name": "class",
+                          "value": "summary"
+                        }
+                      ],
+                      "children": [
+                        {
+                          "type": "Element",
+                          "name": "p",
+                          "attrs": [],
+                          "children": [
+                            {
+                              "type": "Text",
+                              "value": "Total Items: {{ totalItems }}"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "Element",
+                          "name": "p",
+                          "attrs": [],
+                          "children": [
+                            {
+                              "type": "Text",
+                              "value": "Total Price: {{ totalPrice | currency }}"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "Element",
+                      "name": "div",
+                      "attrs": [
+                        {
+                          "name": "class",
+                          "value": "messages"
+                        }
+                      ],
+                      "children": [
+                        {
+                          "type": "plural",
+                          "switchValue": "messageCount",
+                          "cases": [
+                            {
+                              "value": "=0",
+                              "expression": [
+                                {
+                                  "type": "Text",
+                                  "value": "No new messages"
+                                }
+                              ]
+                            },
+                            {
+                              "value": "=1",
+                              "expression": [
+                                {
+                                  "type": "Text",
+                                  "value": "One new message"
+                                }
+                              ]
+                            },
+                            {
+                              "value": "other",
+                              "expression": [
+                                {
+                                  "type": "Text",
+                                  "value": "{{messageCount}} new messages"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "Element",
+                  "name": "footer",
+                  "attrs": [],
+                  "children": [
+                    {
+                      "type": "Comment",
+                      "value": null
+                    },
+                    {
+                      "type": "Text",
+                      "value": "- Copyright notice "
+                    },
+                    {
+                      "type": "Element",
+                      "name": "p",
+                      "attrs": [],
+                      "children": [
+                        {
+                          "type": "Text",
+                          "value": "&copy; 2024 My App. All rights reserved."
+                        }
+                      ]
+                    },
+                    {
+                      "type": "Element",
+                      "name": ":svg:svg",
+                      "attrs": [
+                        {
+                          "name": "width",
+                          "value": "100"
+                        },
+                        {
+                          "name": "height",
+                          "value": "100"
+                        }
+                      ],
+                      "children": [
+                        {
+                          "type": "Element",
+                          "name": ":svg:rect",
+                          "attrs": [
+                            {
+                              "name": "x",
+                              "value": "0"
+                            },
+                            {
+                              "name": "y",
+                              "value": "0"
+                            },
+                            {
+                              "name": "width",
+                              "value": "100"
+                            },
+                            {
+                              "name": "height",
+                              "value": "100"
+                            },
+                            {
+                              "name": "fill",
+                              "value": "blue"
+                            }
+                          ],
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": []
+}
