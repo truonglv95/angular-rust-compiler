@@ -16,6 +16,7 @@ use crate::i18n::serializers::xmb::Xmb;
 use crate::i18n::serializers::xtb::Xtb;
 use crate::i18n::translation_bundle::TranslationBundle;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 /// HTML parser with internationalization support
 pub struct I18NHtmlParser {
@@ -42,7 +43,7 @@ impl I18NHtmlParser {
                 TranslationBundle::new(
                     HashMap::new(),
                     None,
-                    digest,
+                    Rc::new(digest),
                     None,
                     missing_translation,
                 )
@@ -51,7 +52,7 @@ impl I18NHtmlParser {
             TranslationBundle::new(
                 HashMap::new(),
                 None,
-                digest,
+                Rc::new(digest),
                 None,
                 missing_translation,
             )
@@ -69,7 +70,7 @@ impl I18NHtmlParser {
         url: &str,
         options: TokenizeOptions,
     ) -> ParseTreeResult {
-        let parse_result = self.html_parser.parse(source, url, options);
+        let parse_result = self.html_parser.parse(source, url, Some(options));
 
         if !parse_result.errors.is_empty() {
             return ParseTreeResult {

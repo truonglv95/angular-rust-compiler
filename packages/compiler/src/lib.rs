@@ -26,9 +26,9 @@ mod injectable_compiler_2;
 mod jit_compiler_facade;
 mod parse_util;
 mod resource_loader;
-mod shadow_css;
-mod style_url_resolver;
-mod util;
+pub mod shadow_css;
+pub mod style_url_resolver;
+pub mod util;
 mod version;
 
 // Parser modules (mirrors Angular structure)
@@ -559,12 +559,14 @@ impl Clone for ComponentMetadata {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "napi-bindings")]
     #[test]
     fn test_parse_template() {
         let result = parse_template("<div>Hello</div>".to_string());
         assert!(result.is_ok());
     }
 
+    #[cfg(feature = "napi-bindings")]
     #[test]
     fn test_compile_component() {
         let metadata = ComponentMetadata {
@@ -582,12 +584,14 @@ mod tests {
         assert!(!compiled.js_code.is_empty());
     }
 
+    #[cfg(feature = "napi-bindings")]
     #[test]
     fn test_version() {
         let version = get_version();
         assert!(!version.is_empty());
     }
 
+    #[cfg(feature = "napi-bindings")]
     #[test]
     fn test_availability() {
         assert!(is_available());

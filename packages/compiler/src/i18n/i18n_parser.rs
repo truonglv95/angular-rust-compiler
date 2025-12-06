@@ -66,7 +66,7 @@ impl I18nVisitor {
         preserve_expression_whitespace: bool,
     ) -> Self {
         I18nVisitor {
-            expression_parser: ExpressionParser::new(ExpressionLexer::new()),
+            expression_parser: ExpressionParser::new(),
             container_blocks,
             retain_empty_tokens,
             preserve_expression_whitespace,

@@ -158,7 +158,9 @@ impl Visitor {
     /// Returns a tree where all translatable nodes are translated
     fn merge(mut self, nodes: &[html::Node], translations: &mut TranslationBundle) -> ParseTreeResult {
         self.init(VisitorMode::Merge);
-        self.translations = Some(translations.clone());
+        // Note: TranslationBundle doesn't implement Clone, so we need to pass reference
+        // This will need to be refactored to work with references instead
+        // self.translations = Some(translations.clone());
 
         // TODO: Construct wrapper element and visit nodes
         // TODO: Return translated nodes

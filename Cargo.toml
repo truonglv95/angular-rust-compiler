@@ -1,15 +1,19 @@
-[package]
-name = "angular-rust-compiler"
+[workspace]
+members = [
+    "packages/compiler",
+    "packages/compiler-cli",
+]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[dependencies]
-# NAPI-RS for Node.js bindings (optional for examples/tests)
-napi = { version = "2.16", optional = true }
-napi-derive = { version = "2.16", optional = true }
+[workspace.dependencies]
+# NAPI-RS for Node.js bindings
+# Note: optional flag is set in individual packages, not here
+napi = "2.16"
+napi-derive = "2.16"
 
 # Serde for serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -25,18 +29,14 @@ anyhow = "1.0"
 thiserror = "1.0"
 
 # Performance
-rayon = "1.10"  # Parallel processing
-smallvec = "1.13"  # Small vector optimization
+rayon = "1.10"
+smallvec = "1.13"
 
-[build-dependencies]
+[workspace.build-dependencies]
 napi-build = "2.1"
-
-[features]
-default = ["napi-bindings"]
-napi-bindings = ["napi", "napi-derive"]
 
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
-strip = true  # Strip symbols for smaller binary
+strip = true

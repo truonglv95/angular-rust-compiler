@@ -1,0 +1,82 @@
+[package]
+name = "angular-compiler"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "angular_compiler"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Workspace dependencies
+serde = { workspace = true }
+serde_json = { workspace = true }
+indexmap = { workspace = true }
+regex = { workspace = true }
+once_cell = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+rayon = { workspace = true }
+smallvec = { workspace = true }
+
+# Lazy static for placeholder serializers
+lazy_static = "1.4"
+
+# NAPI-RS for Node.js bindings (optional)
+napi = { workspace = true, optional = true }
+napi-derive = { workspace = true, optional = true }
+
+[build-dependencies]
+napi-build = "2.1"
+
+[features]
+default = []
+napi-bindings = ["napi", "napi-derive"]
+
+# Integration tests in test/ directory (matching TypeScript structure)
+[[test]]
+name = "util_spec"
+path = "test/util_spec.rs"
+
+       [[test]]
+       name = "style_url_resolver_spec"
+       path = "test/style_url_resolver_spec.rs"
+
+       [[test]]
+       name = "shadow_css_repeat_groups_spec"
+       path = "test/shadow_css/repeat_groups_spec.rs"
+
+       [[test]]
+       name = "shadow_css_process_rules_spec"
+       path = "test/shadow_css/process_rules_spec.rs"
+
+       [[test]]
+       name = "shadow_css_ng_deep_spec"
+       path = "test/shadow_css/ng_deep_spec.rs"
+
+       [[test]]
+       name = "shadow_css_polyfills_spec"
+       path = "test/shadow_css/polyfills_spec.rs"
+
+       [[test]]
+       name = "shadow_css_spec"
+       path = "test/shadow_css/shadow_css_spec.rs"
+
+       [[test]]
+       name = "shadow_css_at_rules_spec"
+       path = "test/shadow_css/at_rules_spec.rs"
+
+       [[test]]
+       name = "shadow_css_host_and_host_context_spec"
+       path = "test/shadow_css/host_and_host_context_spec.rs"
+
+       [[test]]
+       name = "shadow_css_keyframes_spec"
+       path = "test/shadow_css/keyframes_spec.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+

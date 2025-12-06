@@ -1,0 +1,52 @@
+[package]
+name = "angular-compiler-cli"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "angular_compiler_cli"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "ngc"
+path = "src/bin/ngc.rs"
+
+[[bin]]
+name = "ng-xi18n"
+path = "src/bin/ng_xi18n.rs"
+
+[dependencies]
+# Depend on compiler package
+angular-compiler = { path = "../compiler" }
+
+# Workspace dependencies
+serde = { workspace = true }
+serde_json = { workspace = true }
+indexmap = { workspace = true }
+regex = { workspace = true }
+once_cell = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+rayon = { workspace = true }
+smallvec = { workspace = true }
+
+# NAPI-RS for Node.js bindings (optional)
+napi = { workspace = true, optional = true }
+napi-derive = { workspace = true, optional = true }
+
+# CLI-specific dependencies
+clap = { version = "4.5", features = ["derive"] }
+
+[build-dependencies]
+napi-build = "2.1"
+
+[features]
+default = []
+napi-bindings = ["napi", "napi-derive"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
