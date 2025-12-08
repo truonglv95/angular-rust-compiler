@@ -24,7 +24,7 @@ mod directive_matching;
 mod error;
 mod injectable_compiler_2;
 mod jit_compiler_facade;
-mod parse_util;
+pub mod parse_util;
 mod resource_loader;
 pub mod shadow_css;
 pub mod style_url_resolver;
@@ -385,7 +385,9 @@ fn get_ast_type(ast: &expression_parser::AST) -> &'static str {
         AST::Binary(_) => "Binary",
         AST::PropertyRead(_) => "PropertyRead",
         AST::SafePropertyRead(_) => "SafePropertyRead",
+        AST::PropertyWrite(_) => "PropertyWrite",
         AST::KeyedRead(_) => "KeyedRead",
+        AST::KeyedWrite(_) => "KeyedWrite",
         AST::SafeKeyedRead(_) => "SafeKeyedRead",
         AST::Conditional(_) => "Conditional",
         AST::BindingPipe(_) => "BindingPipe",

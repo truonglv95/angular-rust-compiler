@@ -127,13 +127,16 @@ pub trait Stringify {
 /// Stringify any value - single entry point like TypeScript
 /// Usage: stringify(&value) - works for any type that implements Stringify
 /// 
-/// Examples:
-/// ```rust
-/// stringify(&"hello")           // "hello"
-/// stringify(&vec![1, 2, 3])     // "[1, 2, 3]"
-/// stringify(&Some("value"))     // "value"
-/// stringify(&None::<&str>)      // "null"
-/// stringify(&42)                // "42"
+/// # Examples
+/// 
+/// ```
+/// use angular_compiler::util::stringify;
+/// 
+/// assert_eq!(stringify(&"hello"), "hello");
+/// assert_eq!(stringify(&vec![1, 2, 3]), "[1, 2, 3]");
+/// assert_eq!(stringify(&Some("value")), "value");
+/// assert_eq!(stringify(&None::<&str>), "null");
+/// assert_eq!(stringify(&42), "42");
 /// ```
 pub fn stringify<T: Stringify>(token: &T) -> String {
     token.stringify()

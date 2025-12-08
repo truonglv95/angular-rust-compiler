@@ -3,8 +3,6 @@
 //! Corresponds to packages/compiler/src/output/output_jit_trusted_types.ts
 //! A module to facilitate use of Trusted Types within the JIT compiler
 
-use crate::util::get_global;
-
 /// Trusted Script type marker
 ///
 /// While Angular only uses Trusted Types internally for the time being,

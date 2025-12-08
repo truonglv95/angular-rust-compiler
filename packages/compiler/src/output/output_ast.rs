@@ -3,10 +3,9 @@
 //! Corresponds to packages/compiler/src/output/output_ast.ts
 //! Defines the AST for output code generation
 
-use crate::i18n::digest::compute_msg_id;
-use crate::i18n::i18n_ast::Message;
 use crate::parse_util::ParseSourceSpan;
-use std::collections::HashMap;
+use crate::output::abstract_emitter::HasSourceSpan;
+use std::any::Any;
 
 //// Types
 
@@ -70,19 +69,48 @@ pub struct MapType {
     pub modifiers: TypeModifier,
 }
 
-#[derive(Debug, Clone)]
-pub struct TransplantedType<T: Clone> {
+#[derive(Debug)]
+pub struct TransplantedType<T> {
     pub type_: T,
     pub modifiers: TypeModifier,
 }
 
-#[derive(Debug, Clone)]
+impl<T: Clone> Clone for TransplantedType<T> {
+    fn clone(&self) -> Self {
+        TransplantedType {
+            type_: self.type_.clone(),
+            modifiers: self.modifiers,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum Type {
     Builtin(BuiltinType),
     Expression(ExpressionType),
     Array(ArrayType),
     Map(MapType),
     Transplanted(TransplantedType<Box<dyn std::any::Any>>),
+}
+
+impl Clone for Type {
+    fn clone(&self) -> Self {
+        match self {
+            Type::Builtin(t) => Type::Builtin(t.clone()),
+            Type::Expression(t) => Type::Expression(t.clone()),
+            Type::Array(t) => Type::Array(t.clone()),
+            Type::Map(t) => Type::Map(t.clone()),
+            Type::Transplanted(t) => {
+                // For TransplantedType with Box<dyn Any>, we can't clone the inner type
+                // So we create a new TransplantedType with the same modifiers but a new empty Box
+                // This is a limitation - the actual type information is lost on clone
+                Type::Transplanted(TransplantedType {
+                    type_: Box::new(()), // Placeholder - actual type info cannot be cloned
+                    modifiers: t.modifiers,
+                })
+            }
+        }
+    }
 }
 
 // Predefined types
@@ -134,7 +162,7 @@ pub enum UnaryOperator {
     Plus,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOperator {
     Equals,
     NotEquals,
@@ -333,11 +361,21 @@ pub struct ExternalExpr {
     pub source_span: Option<ParseSourceSpan>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ExternalReference {
     pub module_name: Option<String>,
     pub name: Option<String>,
     pub runtime: Option<Box<dyn std::any::Any>>,
+}
+
+impl Clone for ExternalReference {
+    fn clone(&self) -> Self {
+        ExternalReference {
+            module_name: self.module_name.clone(),
+            name: self.name.clone(),
+            runtime: None, // Cannot clone Box<dyn Any>, so set to None
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -462,11 +500,21 @@ pub struct CommaExpr {
     pub source_span: Option<ParseSourceSpan>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct WrappedNodeExpr {
     pub node: Box<dyn std::any::Any>,
     pub type_: Option<Type>,
     pub source_span: Option<ParseSourceSpan>,
+}
+
+impl Clone for WrappedNodeExpr {
+    fn clone(&self) -> Self {
+        WrappedNodeExpr {
+            node: Box::new(()), // Cannot clone Box<dyn Any>, so use placeholder
+            type_: self.type_.clone(),
+            source_span: self.source_span.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -502,7 +550,25 @@ pub trait ExpressionVisitor {
     fn visit_literal_expr(&mut self, expr: &LiteralExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_localized_string(&mut self, expr: &LocalizedString, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_external_expr(&mut self, expr: &ExternalExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
-    // Add more visitor methods as needed...
+    fn visit_binary_operator_expr(&mut self, expr: &BinaryOperatorExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_read_prop_expr(&mut self, expr: &ReadPropExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_read_key_expr(&mut self, expr: &ReadKeyExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_conditional_expr(&mut self, expr: &ConditionalExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_unary_operator_expr(&mut self, expr: &UnaryOperatorExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_function_expr(&mut self, expr: &FunctionExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_arrow_function_expr(&mut self, expr: &ArrowFunctionExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_literal_array_expr(&mut self, expr: &LiteralArrayExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_literal_map_expr(&mut self, expr: &LiteralMapExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_comma_expr(&mut self, expr: &CommaExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_typeof_expr(&mut self, expr: &TypeofExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_void_expr(&mut self, expr: &VoidExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_not_expr(&mut self, expr: &NotExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_if_null_expr(&mut self, expr: &IfNullExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_assert_not_null_expr(&mut self, expr: &AssertNotNullExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_cast_expr(&mut self, expr: &CastExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_dynamic_import_expr(&mut self, expr: &DynamicImportExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_template_literal_expr(&mut self, expr: &TemplateLiteralExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_wrapped_node_expr(&mut self, expr: &WrappedNodeExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
 }
 
 ///// Statements
@@ -775,6 +841,336 @@ impl Expression {
             Expression::TypeOf(e) => Expression::TypeOf(e.clone()),
             Expression::Void(e) => Expression::Void(e.clone()),
             Expression::Unary(e) => Expression::Unary(e.clone()),
+        }
+    }
+}
+
+// Implement HasSourceSpan for all expression and statement types
+impl HasSourceSpan for ReadVarExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for WriteVarExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for WriteKeyExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for WritePropExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for InvokeFunctionExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for InstantiateExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for LiteralExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for ExternalExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for DeclareVarStmt {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for DeclareFunctionStmt {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for ExpressionStatement {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for ReturnStatement {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for IfStmt {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for TaggedTemplateLiteralExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for BinaryOperatorExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for ReadPropExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for ReadKeyExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for ConditionalExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for UnaryOperatorExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for FunctionExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for ArrowFunctionExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for LiteralArrayExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for LiteralMapExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for CommaExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for TypeofExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for VoidExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for NotExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for IfNullExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for AssertNotNullExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for CastExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for DynamicImportExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
+impl HasSourceSpan for TemplateLiteralExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        // TemplateLiteralExpr doesn't have source_span, return None
+        None
+    }
+}
+
+// Implement ExpressionTrait for Expression enum
+impl ExpressionTrait for Expression {
+    fn type_(&self) -> Option<&Type> {
+        match self {
+            Expression::ReadVar(e) => e.type_.as_ref(),
+            Expression::WriteVar(e) => e.type_.as_ref(),
+            Expression::WriteKey(e) => e.type_.as_ref(),
+            Expression::WriteProp(e) => e.type_.as_ref(),
+            Expression::InvokeFn(e) => e.type_.as_ref(),
+            Expression::TaggedTemplate(e) => e.type_.as_ref(),
+            Expression::Instantiate(e) => e.type_.as_ref(),
+            Expression::Literal(e) => e.type_.as_ref(),
+            Expression::TemplateLiteral(_) => None,
+            Expression::Localized(_) => None,
+            Expression::External(e) => e.type_.as_ref(),
+            Expression::ExternalRef(_) => None,
+            Expression::Conditional(e) => e.type_.as_ref(),
+            Expression::DynamicImport(_) => None,
+            Expression::NotExpr(_) => None,
+            Expression::FnParam(_) => None,
+            Expression::IfNull(_) => None,
+            Expression::AssertNotNull(_) => None,
+            Expression::Cast(e) => e.type_.as_ref(),
+            Expression::Fn(e) => e.type_.as_ref(),
+            Expression::ArrowFn(e) => e.type_.as_ref(),
+            Expression::BinaryOp(e) => e.type_.as_ref(),
+            Expression::ReadProp(e) => e.type_.as_ref(),
+            Expression::ReadKey(e) => e.type_.as_ref(),
+            Expression::LiteralArray(e) => e.type_.as_ref(),
+            Expression::LiteralMap(e) => e.type_.as_ref(),
+            Expression::CommaExpr(_) => None,
+            Expression::WrappedNode(e) => e.type_.as_ref(),
+            Expression::TypeOf(e) => e.type_.as_ref(),
+            Expression::Void(e) => e.type_.as_ref(),
+            Expression::Unary(e) => e.type_.as_ref(),
+        }
+    }
+
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        match self {
+            Expression::ReadVar(e) => e.source_span.as_ref(),
+            Expression::WriteVar(e) => e.source_span.as_ref(),
+            Expression::WriteKey(e) => e.source_span.as_ref(),
+            Expression::WriteProp(e) => e.source_span.as_ref(),
+            Expression::InvokeFn(e) => e.source_span.as_ref(),
+            Expression::TaggedTemplate(e) => e.source_span.as_ref(),
+            Expression::Instantiate(e) => e.source_span.as_ref(),
+            Expression::Literal(e) => e.source_span.as_ref(),
+            Expression::TemplateLiteral(_) => None,
+            Expression::Localized(e) => e.source_span.as_ref(),
+            Expression::External(e) => e.source_span.as_ref(),
+            Expression::ExternalRef(_) => None,
+            Expression::Conditional(e) => e.source_span.as_ref(),
+            Expression::DynamicImport(e) => e.source_span.as_ref(),
+            Expression::NotExpr(e) => e.source_span.as_ref(),
+            Expression::FnParam(_) => None,
+            Expression::IfNull(e) => e.source_span.as_ref(),
+            Expression::AssertNotNull(e) => e.source_span.as_ref(),
+            Expression::Cast(e) => e.source_span.as_ref(),
+            Expression::Fn(e) => e.source_span.as_ref(),
+            Expression::ArrowFn(e) => e.source_span.as_ref(),
+            Expression::BinaryOp(e) => e.source_span.as_ref(),
+            Expression::ReadProp(e) => e.source_span.as_ref(),
+            Expression::ReadKey(e) => e.source_span.as_ref(),
+            Expression::LiteralArray(e) => e.source_span.as_ref(),
+            Expression::LiteralMap(e) => e.source_span.as_ref(),
+            Expression::CommaExpr(e) => e.source_span.as_ref(),
+            Expression::WrappedNode(e) => e.source_span.as_ref(),
+            Expression::TypeOf(e) => e.source_span.as_ref(),
+            Expression::Void(e) => e.source_span.as_ref(),
+            Expression::Unary(e) => e.source_span.as_ref(),
+        }
+    }
+
+    fn visit_expression(&self, visitor: &mut dyn ExpressionVisitor, context: &mut dyn Any) -> Box<dyn Any> {
+        match self {
+            Expression::ReadVar(e) => visitor.visit_read_var_expr(e, context),
+            Expression::WriteVar(e) => visitor.visit_write_var_expr(e, context),
+            Expression::WriteKey(e) => visitor.visit_write_key_expr(e, context),
+            Expression::WriteProp(e) => visitor.visit_write_prop_expr(e, context),
+            Expression::InvokeFn(e) => visitor.visit_invoke_function_expr(e, context),
+            Expression::TaggedTemplate(e) => visitor.visit_tagged_template_expr(e, context),
+            Expression::Instantiate(e) => visitor.visit_instantiate_expr(e, context),
+            Expression::Literal(e) => visitor.visit_literal_expr(e, context),
+            Expression::TemplateLiteral(e) => visitor.visit_template_literal_expr(e, context),
+            Expression::Localized(e) => visitor.visit_localized_string(e, context),
+            Expression::External(e) => visitor.visit_external_expr(e, context),
+            Expression::ExternalRef(_) => Box::new(()),
+            Expression::Conditional(e) => visitor.visit_conditional_expr(e, context),
+            Expression::DynamicImport(e) => visitor.visit_dynamic_import_expr(e, context),
+            Expression::NotExpr(e) => visitor.visit_not_expr(e, context),
+            Expression::FnParam(_) => Box::new(()),
+            Expression::IfNull(e) => visitor.visit_if_null_expr(e, context),
+            Expression::AssertNotNull(e) => visitor.visit_assert_not_null_expr(e, context),
+            Expression::Cast(e) => visitor.visit_cast_expr(e, context),
+            Expression::Fn(e) => visitor.visit_function_expr(e, context),
+            Expression::ArrowFn(e) => visitor.visit_arrow_function_expr(e, context),
+            Expression::BinaryOp(e) => visitor.visit_binary_operator_expr(e, context),
+            Expression::ReadProp(e) => visitor.visit_read_prop_expr(e, context),
+            Expression::ReadKey(e) => visitor.visit_read_key_expr(e, context),
+            Expression::LiteralArray(e) => visitor.visit_literal_array_expr(e, context),
+            Expression::LiteralMap(e) => visitor.visit_literal_map_expr(e, context),
+            Expression::CommaExpr(e) => visitor.visit_comma_expr(e, context),
+            Expression::WrappedNode(e) => visitor.visit_wrapped_node_expr(e, context),
+            Expression::TypeOf(e) => visitor.visit_typeof_expr(e, context),
+            Expression::Void(e) => visitor.visit_void_expr(e, context),
+            Expression::Unary(e) => visitor.visit_unary_operator_expr(e, context),
+        }
+    }
+
+    fn is_equivalent(&self, _e: &Expression) -> bool {
+        false // TODO: Implement proper equivalence checking
+    }
+
+    fn is_constant(&self) -> bool {
+        matches!(self, Expression::Literal(_))
+    }
+
+    fn clone_expr(&self) -> Expression {
+        self.clone()
+    }
+}
+
+// Add visit_statement method to Statement enum
+impl Statement {
+    pub fn visit_statement(&self, visitor: &mut dyn StatementVisitor, context: &mut dyn Any) -> Box<dyn Any> {
+        match self {
+            Statement::DeclareVar(s) => visitor.visit_declare_var_stmt(s, context),
+            Statement::DeclareFn(s) => visitor.visit_declare_function_stmt(s, context),
+            Statement::Expression(s) => visitor.visit_expression_stmt(s, context),
+            Statement::Return(s) => visitor.visit_return_stmt(s, context),
+            Statement::IfStmt(s) => visitor.visit_if_stmt(s, context),
         }
     }
 }

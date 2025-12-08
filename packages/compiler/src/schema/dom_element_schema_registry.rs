@@ -2,6 +2,9 @@
 //!
 //! Corresponds to packages/compiler/src/schema/dom_element_schema_registry.ts (557 lines)
 //!
+//! # Security Warning
+//!
+//! ```text
 //! =================================================================================================
 //! =========== S T O P   -  S T O P   -  S T O P   -  S T O P   -  S T O P   -  S T O P  ===========
 //! =================================================================================================
@@ -12,6 +15,7 @@
 //! dom_security_schema.rs. Reach out to mprobst & rjamet for details.
 //!
 //! =================================================================================================
+//! ```
 
 use crate::core::{SchemaMetadata, SecurityContext};
 use crate::ml_parser::tags::{is_ng_container, is_ng_content};
@@ -44,7 +48,7 @@ const OBJECT: &str = "object";
 /// Full DOM schema from Angular (188 entries)
 pub static SCHEMA: Lazy<Vec<&'static str>> = Lazy::new(|| {
     vec![
-        "[Element]|textContent,%ariaAtomic,%ariaAutoComplete,%ariaBusy,%ariaChecked,%ariaColCount,%ariaColIndex,%ariaColSpan,%ariaCurrent,%ariaDescription,%ariaDisabled,%ariaExpanded,%ariaHasPopup,%ariaHidden,%ariaInvalid,%ariaKeyShortcuts,%ariaLabel,%ariaLevel,%ariaLive,%ariaModal,%ariaMultiLine,%ariaMultiSelectable,%ariaOrientation,%ariaPlaceholder,%ariaPosInSet,%ariaPressed,%ariaReadOnly,%ariaRelevant,%ariaRequired,%ariaRoleDescription,%ariaRowCount,%ariaRowIndex,%ariaRowSpan,%ariaSelected,%ariaSetSize,%ariaSort,%ariaValueMax,%ariaValueMin,%ariaValueNow,%ariaValueText,%classList,className,elementTiming,id,innerHTML,*beforecopy,*beforecut,*beforepaste,*fullscreenchange,*fullscreenerror,*search,*webkitfullscreenchange,*webkitfullscreenerror,outerHTML,%part,#scrollLeft,#scrollTop,slot,*message,*mozfullscreenchange,*mozfullscreenerror,*mozpointerlockchange,*mozpointerlockerror,*webglcontextcreationerror,*webglcontextlost,*webglcontextrestored",
+        "[Element]|textContent,%ariaActiveDescendantElement,%ariaAtomic,%ariaAutoComplete,%ariaBusy,%ariaChecked,%ariaColCount,%ariaColIndex,%ariaColIndexText,%ariaColSpan,%ariaControlsElements,%ariaCurrent,%ariaDescribedByElements,%ariaDescription,%ariaDetailsElements,%ariaDisabled,%ariaErrorMessageElements,%ariaExpanded,%ariaFlowToElements,%ariaHasPopup,%ariaHidden,%ariaInvalid,%ariaKeyShortcuts,%ariaLabel,%ariaLabelledByElements,%ariaLevel,%ariaLive,%ariaModal,%ariaMultiLine,%ariaMultiSelectable,%ariaOrientation,%ariaOwnsElements,%ariaPlaceholder,%ariaPosInSet,%ariaPressed,%ariaReadOnly,%ariaRelevant,%ariaRequired,%ariaRoleDescription,%ariaRowCount,%ariaRowIndex,%ariaRowIndexText,%ariaRowSpan,%ariaSelected,%ariaSetSize,%ariaSort,%ariaValueMax,%ariaValueMin,%ariaValueNow,%ariaValueText,%classList,className,elementTiming,id,innerHTML,*beforecopy,*beforecut,*beforepaste,*fullscreenchange,*fullscreenerror,*search,*webkitfullscreenchange,*webkitfullscreenerror,outerHTML,%part,#scrollLeft,#scrollTop,slot,*message,*mozfullscreenchange,*mozfullscreenerror,*mozpointerlockchange,*mozpointerlockerror,*webglcontextcreationerror,*webglcontextlost,*webglcontextrestored",
         "[HTMLElement]^[Element]|accessKey,autocapitalize,!autofocus,contentEditable,dir,!draggable,enterKeyHint,!hidden,!inert,innerText,inputMode,lang,nonce,*abort,*animationend,*animationiteration,*animationstart,*auxclick,*beforexrselect,*blur,*cancel,*canplay,*canplaythrough,*change,*click,*close,*contextmenu,*copy,*cuechange,*cut,*dblclick,*drag,*dragend,*dragenter,*dragleave,*dragover,*dragstart,*drop,*durationchange,*emptied,*ended,*error,*focus,*formdata,*gotpointercapture,*input,*invalid,*keydown,*keypress,*keyup,*load,*loadeddata,*loadedmetadata,*loadstart,*lostpointercapture,*mousedown,*mouseenter,*mouseleave,*mousemove,*mouseout,*mouseover,*mouseup,*mousewheel,*paste,*pause,*play,*playing,*pointercancel,*pointerdown,*pointerenter,*pointerleave,*pointermove,*pointerout,*pointerover,*pointerrawupdate,*pointerup,*progress,*ratechange,*reset,*resize,*scroll,*securitypolicyviolation,*seeked,*seeking,*select,*selectionchange,*selectstart,*slotchange,*stalled,*submit,*suspend,*timeupdate,*toggle,*transitioncancel,*transitionend,*transitionrun,*transitionstart,*volumechange,*waiting,*webkitanimationend,*webkitanimationiteration,*webkitanimationstart,*webkittransitionend,*wheel,outerText,!spellcheck,%style,#tabIndex,title,!translate,virtualKeyboardPolicy",
         "abbr,address,article,aside,b,bdi,bdo,cite,content,code,dd,dfn,dt,em,figcaption,figure,footer,header,hgroup,i,kbd,main,mark,nav,noscript,rb,rp,rt,rtc,ruby,s,samp,search,section,small,strong,sub,sup,u,var,wbr^[HTMLElement]|accessKey,autocapitalize,!autofocus,contentEditable,dir,!draggable,enterKeyHint,!hidden,innerText,inputMode,lang,nonce,*abort,*animationend,*animationiteration,*animationstart,*auxclick,*beforexrselect,*blur,*cancel,*canplay,*canplaythrough,*change,*click,*close,*contextmenu,*copy,*cuechange,*cut,*dblclick,*drag,*dragend,*dragenter,*dragleave,*dragover,*dragstart,*drop,*durationchange,*emptied,*ended,*error,*focus,*formdata,*gotpointercapture,*input,*invalid,*keydown,*keypress,*keyup,*load,*loadeddata,*loadedmetadata,*loadstart,*lostpointercapture,*mousedown,*mouseenter,*mouseleave,*mousemove,*mouseout,*mouseover,*mouseup,*mousewheel,*paste,*pause,*play,*playing,*pointercancel,*pointerdown,*pointerenter,*pointerleave,*pointermove,*pointerout,*pointerover,*pointerrawupdate,*pointerup,*progress,*ratechange,*reset,*resize,*scroll,*securitypolicyviolation,*seeked,*seeking,*select,*selectionchange,*selectstart,*slotchange,*stalled,*submit,*suspend,*timeupdate,*toggle,*transitioncancel,*transitionend,*transitionrun,*transitionstart,*volumechange,*waiting,*webkitanimationend,*webkitanimationiteration,*webkitanimationstart,*webkittransitionend,*wheel,outerText,!spellcheck,%style,#tabIndex,title,!translate,virtualKeyboardPolicy",
         "media^[HTMLElement]|!autoplay,!controls,%controlsList,%crossOrigin,#currentTime,!defaultMuted,#defaultPlaybackRate,!disableRemotePlayback,!loop,!muted,*encrypted,*waitingforkey,#playbackRate,preload,!preservesPitch,src,%srcObject,#volume",
@@ -232,7 +236,7 @@ pub static SCHEMA: Lazy<Vec<&'static str>> = Lazy::new(|| {
 });
 
 /// Map from attribute names to property names
-/// Full mapping from Angular (40 entries)
+/// Full mapping from Angular (52 entries)
 pub static ATTR_TO_PROP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     let mut map = HashMap::new();
 
@@ -240,32 +244,42 @@ pub static ATTR_TO_PROP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     map.insert("class", "className");
     map.insert("for", "htmlFor");
     map.insert("formaction", "formAction");
-    map.insert("innerhtml", "innerHTML");
+    map.insert("innerHtml", "innerHTML");
     map.insert("readonly", "readOnly");
     map.insert("tabindex", "tabIndex");
 
-    // ARIA attributes (https://www.w3.org/TR/wai-aria-1.2/#accessibilityroleandproperties-correspondence)
+    // ARIA attributes (https://www.w3.org/TR/wai-aria-1.3/#accessibilityroleandproperties-correspondence)
+    map.insert("aria-activedescendant", "ariaActiveDescendantElement");
     map.insert("aria-atomic", "ariaAtomic");
     map.insert("aria-autocomplete", "ariaAutoComplete");
     map.insert("aria-busy", "ariaBusy");
     map.insert("aria-checked", "ariaChecked");
     map.insert("aria-colcount", "ariaColCount");
     map.insert("aria-colindex", "ariaColIndex");
+    map.insert("aria-colindextext", "ariaColIndexText");
     map.insert("aria-colspan", "ariaColSpan");
+    map.insert("aria-controls", "ariaControlsElements");
     map.insert("aria-current", "ariaCurrent");
+    map.insert("aria-describedby", "ariaDescribedByElements");
+    map.insert("aria-description", "ariaDescription");
+    map.insert("aria-details", "ariaDetailsElements");
     map.insert("aria-disabled", "ariaDisabled");
+    map.insert("aria-errormessage", "ariaErrorMessageElements");
     map.insert("aria-expanded", "ariaExpanded");
+    map.insert("aria-flowto", "ariaFlowToElements");
     map.insert("aria-haspopup", "ariaHasPopup");
     map.insert("aria-hidden", "ariaHidden");
     map.insert("aria-invalid", "ariaInvalid");
     map.insert("aria-keyshortcuts", "ariaKeyShortcuts");
     map.insert("aria-label", "ariaLabel");
+    map.insert("aria-labelledby", "ariaLabelledByElements");
     map.insert("aria-level", "ariaLevel");
     map.insert("aria-live", "ariaLive");
     map.insert("aria-modal", "ariaModal");
     map.insert("aria-multiline", "ariaMultiLine");
     map.insert("aria-multiselectable", "ariaMultiSelectable");
     map.insert("aria-orientation", "ariaOrientation");
+    map.insert("aria-owns", "ariaOwnsElements");
     map.insert("aria-placeholder", "ariaPlaceholder");
     map.insert("aria-posinset", "ariaPosInSet");
     map.insert("aria-pressed", "ariaPressed");
@@ -274,6 +288,7 @@ pub static ATTR_TO_PROP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     map.insert("aria-roledescription", "ariaRoleDescription");
     map.insert("aria-rowcount", "ariaRowCount");
     map.insert("aria-rowindex", "ariaRowIndex");
+    map.insert("aria-rowindextext", "ariaRowIndexText");
     map.insert("aria-rowspan", "ariaRowSpan");
     map.insert("aria-selected", "ariaSelected");
     map.insert("aria-setsize", "ariaSetSize");

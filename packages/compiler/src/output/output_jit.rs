@@ -3,11 +3,9 @@
 //! Corresponds to packages/compiler/src/output/output_jit.ts
 //! JIT compilation and evaluation support
 
-use crate::parse_util::identifier_name;
 use crate::output::abstract_emitter::EmitterVisitorContext;
 use crate::output::abstract_js_emitter::AbstractJsEmitterVisitor;
 use crate::output::output_ast as o;
-use crate::output::output_jit_trusted_types::new_trusted_function_for_jit;
 use std::collections::HashMap;
 
 /// External reference resolver trait
@@ -58,13 +56,15 @@ impl JitEvaluator {
         vars: &HashMap<String, Box<dyn std::any::Any>>,
         create_source_map: bool,
     ) -> HashMap<String, Box<dyn std::any::Any>> {
-        let mut fn_body = format!("\"use strict\";{}\n//# sourceURL={}", ctx.to_source(), source_url);
+        let _fn_body = format!("\"use strict\";{}\n//# sourceURL={}", ctx.to_source(), source_url);
 
         let mut fn_arg_names: Vec<String> = Vec::new();
-        let mut fn_arg_values: Vec<Box<dyn std::any::Any>> = Vec::new();
+        let _fn_arg_values: Vec<Box<dyn std::any::Any>> = Vec::new();
 
-        for (arg_name, arg_value) in vars {
-            fn_arg_values.push(arg_value.clone());
+        for (arg_name, _arg_value) in vars {
+            // Note: Cannot clone Box<dyn Any>, so we skip adding values
+            // This is a placeholder implementation - actual JIT execution would need
+            // a different approach (e.g., using Rc/Arc or changing the API)
             fn_arg_names.push(arg_name.clone());
         }
 
@@ -120,13 +120,12 @@ impl<'a> JitEmitterVisitor<'a> {
     }
 
     pub fn get_args(&self) -> HashMap<String, Box<dyn std::any::Any>> {
-        let mut result = HashMap::new();
-        for (i, name) in self.eval_arg_names.iter().enumerate() {
-            if let Some(value) = self.eval_arg_values.get(i) {
-                result.insert(name.clone(), value.clone());
-            }
-        }
-        result
+        // Note: Cannot clone Box<dyn Any>, so we return empty HashMap
+        // This is a placeholder implementation - actual implementation would need
+        // a different approach (e.g., using Rc/Arc or changing the API)
+        let _ = &self.eval_arg_names; // Suppress unused variable warning
+        let _ = &self.eval_arg_values; // Suppress unused variable warning
+        HashMap::new()
     }
 
     // TODO: Implement visitor methods:

@@ -35,6 +35,22 @@ napi-bindings = ["napi", "napi-derive"]
 
 # Integration tests in test/ directory (matching TypeScript structure)
 [[test]]
+name = "expression_parser_lexer"
+path = "test/expression_parser/lexer_tests.rs"
+
+[[test]]
+name = "expression_parser_parser"
+path = "test/expression_parser/parser_tests.rs"
+
+[[test]]
+name = "expression_parser_ast"
+path = "test/expression_parser/ast_tests.rs"
+
+[[test]]
+name = "expression_parser_serializer"
+path = "test/expression_parser/serializer_tests.rs"
+
+[[test]]
 name = "util_spec"
 path = "test/util_spec.rs"
 

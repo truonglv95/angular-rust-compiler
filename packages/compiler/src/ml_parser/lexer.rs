@@ -46,7 +46,7 @@ pub struct TokenizeOptions {
 impl Default for TokenizeOptions {
     fn default() -> Self {
         TokenizeOptions {
-            tokenize_expansion_forms: true,  // ICU tokenization fixed!
+            tokenize_expansion_forms: false,
             range: None,
             escaped_string: false,
             i18n_normalize_line_endings_in_icus: false,
@@ -1461,6 +1461,7 @@ fn merge_text_tokens(src_tokens: Vec<Token>) -> Vec<Token> {
 
 // Helper functions
 
+#[allow(dead_code)]
 fn unexpected_character_error_msg(char_code: char) -> String {
     let ch = if char_code == chars::EOF {
         "EOF".to_string()
@@ -1470,10 +1471,12 @@ fn unexpected_character_error_msg(char_code: char) -> String {
     format!("Unexpected character \"{}\"", ch)
 }
 
+#[allow(dead_code)]
 fn unknown_entity_error_msg(entity_src: &str) -> String {
     format!("Unknown entity \"{}\" - use the \"&#<decimal>;\" or  \"&#x<hex>;\" syntax", entity_src)
 }
 
+#[allow(dead_code)]
 fn unparsable_entity_error_msg(ref_type: CharacterReferenceType, entity_str: &str) -> String {
     let type_str = match ref_type {
         CharacterReferenceType::Hex => "hexadecimal",

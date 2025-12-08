@@ -67,6 +67,7 @@ pub fn custom_elements_schema() -> SchemaMetadata {
     }
 }
 
+#[allow(dead_code)]
 pub fn no_errors_schema() -> SchemaMetadata {
     SchemaMetadata {
         name: "no-errors-schema".to_string(),
