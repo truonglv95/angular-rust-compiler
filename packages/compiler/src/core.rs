@@ -74,7 +74,7 @@ pub fn no_errors_schema() -> SchemaMetadata {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Ord, PartialOrd)]
 #[repr(u8)]
 pub enum SecurityContext {
     NONE = 0,
