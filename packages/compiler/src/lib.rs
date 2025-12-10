@@ -20,7 +20,7 @@ pub mod compiler_facade_interface;
 mod config;
 pub mod constant_pool;
 mod core;
-mod directive_matching;
+pub mod directive_matching;
 mod error;
 mod injectable_compiler_2;
 mod jit_compiler_facade;

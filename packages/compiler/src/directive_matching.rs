@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 /// Regex for parsing CSS selectors
 static SELECTOR_REGEXP: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(\:not\()|(([\.\#]?)[-\w]+)|(?:\[([-.\w*\\$]+)(?:=(["']?)([^\]"']*))?)\]|(\))|(\s*,\s*)"#).unwrap()
+    Regex::new(r#"(\:not\()|(([\.\#]?)[-\w]+)|(?:\[([-.\w*\\$]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\]]*)))?\])|(\))|(\s*,\s*)"#).unwrap()
 });
 
 /// Match groups in the selector regex
@@ -23,10 +23,11 @@ enum SelectorRegexp {
     Tag = 2,
     Prefix = 3,
     Attribute = 4,
-    AttributeString = 5,
-    AttributeValue = 6,
-    NotEnd = 7,
-    Separator = 8,
+    AttributeValueDouble = 5,
+    AttributeValueSingle = 6,
+    AttributeValueUnquoted = 7,
+    NotEnd = 8,
+    Separator = 9,
 }
 
 /// CSS Selector representation
@@ -93,9 +94,15 @@ impl CssSelector {
             // Check for attribute
             if let Some(attr_match) = cap.get(SelectorRegexp::Attribute as usize) {
                 let attr = attr_match.as_str();
-                let value = cap.get(SelectorRegexp::AttributeValue as usize)
-                    .map(|m| m.as_str())
-                    .unwrap_or("");
+                let value = if let Some(m) = cap.get(SelectorRegexp::AttributeValueDouble as usize) {
+                    m.as_str()
+                } else if let Some(m) = cap.get(SelectorRegexp::AttributeValueSingle as usize) {
+                    m.as_str()
+                } else if let Some(m) = cap.get(SelectorRegexp::AttributeValueUnquoted as usize) {
+                    m.as_str()
+                } else {
+                    ""
+                };
 
                 let current = if in_not {
                     css_selector.not_selectors.last_mut().unwrap()
@@ -177,8 +184,8 @@ impl CssSelector {
     }
 
     pub fn add_attribute(&mut self, name: &str, value: &str) {
-        self.attrs.push(name.to_lowercase());
-        self.attrs.push(value.to_string());
+        self.attrs.push(name.to_string());
+        self.attrs.push(value.to_lowercase());
     }
 
     pub fn add_class_name(&mut self, name: &str) {
@@ -228,12 +235,14 @@ pub struct SelectorMatcher<T> {
     element_map: HashMap<String, Vec<SelectorContext<T>>>,
     class_map: HashMap<String, Vec<SelectorContext<T>>>,
     attr_map: HashMap<String, HashMap<String, Vec<SelectorContext<T>>>>,
+    counter: usize,
 }
 
 #[derive(Clone)]
 struct SelectorContext<T> {
     selector: CssSelector,
     callback_data: T,
+    id: usize,
 }
 
 impl<T: Clone> SelectorMatcher<T> {
@@ -242,6 +251,7 @@ impl<T: Clone> SelectorMatcher<T> {
             element_map: HashMap::new(),
             class_map: HashMap::new(),
             attr_map: HashMap::new(),
+            counter: 0,
         }
     }
 
@@ -250,16 +260,17 @@ impl<T: Clone> SelectorMatcher<T> {
         let context = SelectorContext {
             selector: css_selector.clone(),
             callback_data,
+            id: self.counter,
         };
+        self.counter += 1;
 
         // Index by element
         if let Some(ref element) = css_selector.element {
-            if element != "*" {
-                self.element_map
-                    .entry(element.clone())
-                    .or_insert_with(Vec::new)
-                    .push(context.clone());
-            }
+             // Always index by element, even * (for universal lookup)
+             self.element_map
+                .entry(element.clone())
+                .or_insert_with(Vec::new)
+                .push(context.clone());
         }
 
         // Index by class names
@@ -290,15 +301,38 @@ impl<T: Clone> SelectorMatcher<T> {
         F: FnMut(&CssSelector, &T),
     {
         let mut matched = false;
+        let mut matched_ids = std::collections::HashSet::new();
 
-        // Match by element
+        self.match_selector_visit(css_selector, |sel, data, id| {
+             if matched_ids.insert(id) {
+                callback(sel, data);
+                matched = true;
+            }
+        });
+
+        matched
+    }
+
+    fn match_selector_visit<F>(&self, css_selector: &CssSelector, mut callback: F)
+    where
+        F: FnMut(&CssSelector, &T, usize),
+    {
+         // Match by element
         if let Some(ref element) = css_selector.element {
             if let Some(contexts) = self.element_map.get(element) {
                 for context in contexts {
                     if self.is_match(css_selector, &context.selector) {
-                        callback(&context.selector, &context.callback_data);
-                        matched = true;
+                        callback(&context.selector, &context.callback_data, context.id);
                     }
+                }
+            }
+        }
+        
+        // Always match universal selector *
+        if let Some(contexts) = self.element_map.get("*") {
+             for context in contexts {
+                if self.is_match(css_selector, &context.selector) {
+                    callback(&context.selector, &context.callback_data, context.id);
                 }
             }
         }
@@ -307,9 +341,8 @@ impl<T: Clone> SelectorMatcher<T> {
         for class_name in &css_selector.class_names {
             if let Some(contexts) = self.class_map.get(class_name) {
                 for context in contexts {
-                    if self.is_match(css_selector, &context.selector) {
-                        callback(&context.selector, &context.callback_data);
-                        matched = true;
+                     if self.is_match(css_selector, &context.selector) {
+                        callback(&context.selector, &context.callback_data, context.id);
                     }
                 }
             }
@@ -321,19 +354,29 @@ impl<T: Clone> SelectorMatcher<T> {
             let value = &css_selector.attrs[i + 1];
 
             if let Some(attr_values) = self.attr_map.get(name) {
+                // Check exact value match
                 if let Some(contexts) = attr_values.get(value) {
-                    for context in contexts {
-                        if self.is_match(css_selector, &context.selector) {
-                            callback(&context.selector, &context.callback_data);
-                            matched = true;
+                     for context in contexts {
+                         if self.is_match(css_selector, &context.selector) {
+                            callback(&context.selector, &context.callback_data, context.id);
+                        }
+                    }
+                }
+                // Check generic attribute match (selector has [attr] without value, indexed as "")
+                if !value.is_empty() {
+                     if let Some(contexts) = attr_values.get("") {
+                         for context in contexts {
+                             if self.is_match(css_selector, &context.selector) {
+                                callback(&context.selector, &context.callback_data, context.id);
+                            }
                         }
                     }
                 }
             }
         }
-
-        matched
     }
+
+
 
     /// Check if two selectors match
     fn is_match(&self, selector: &CssSelector, pattern: &CssSelector) -> bool {
@@ -359,7 +402,9 @@ impl<T: Clone> SelectorMatcher<T> {
             let mut found = false;
             for j in (0..selector.attrs.len()).step_by(2) {
                 if &selector.attrs[j] == pat_name {
-                    if pat_value.is_empty() || &selector.attrs[j + 1] == pat_value {
+                    // Value matching rules:
+                    // Test `should_select_by_attr_name_case_sensitive_and_value_case_insensitive` implies case-insensitive value match.
+                    if pat_value.is_empty() || selector.attrs[j + 1].eq_ignore_ascii_case(pat_value) {
                         found = true;
                         break;
                     }
@@ -367,6 +412,13 @@ impl<T: Clone> SelectorMatcher<T> {
             }
 
             if !found {
+                return false;
+            }
+        }
+        
+        // Check :not selectors
+        for not_selector in &pattern.not_selectors {
+            if self.is_match(selector, not_selector) {
                 return false;
             }
         }
