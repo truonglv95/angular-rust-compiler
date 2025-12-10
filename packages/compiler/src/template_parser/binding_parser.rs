@@ -1011,8 +1011,8 @@ pub fn calc_possible_security_contexts(
     if ctxs.is_empty() {
         vec![SecurityContext::NONE]
     } else {
-        // ctxs.sort();
-        // ctxs.dedup();
+        ctxs.sort();
+        ctxs.dedup();
         ctxs
     }
 }
