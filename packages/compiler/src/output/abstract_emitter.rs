@@ -491,6 +491,19 @@ impl o::ExpressionVisitor for AbstractEmitterVisitor {
         Box::new(())
     }
 
+    fn visit_parenthesized_expr(&mut self, expr: &o::ParenthesizedExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        {
+            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+            ctx.print(Some(expr), "(", false);
+        }
+        expr.expr.as_ref().visit_expression(self, context);
+        {
+            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+            ctx.print(Some(expr), ")", false);
+        }
+        Box::new(())
+    }
+
     fn visit_function_expr(&mut self, expr: &o::FunctionExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
         {
             let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
@@ -718,6 +731,170 @@ impl o::ExpressionVisitor for AbstractEmitterVisitor {
         // WrappedNodeExpr should not be emitted directly
         // This is typically used for TypeScript AST nodes that need special handling
         Box::new(())
+    }
+    
+    // IR Expression visitor methods
+    // Note: IR expressions are internal and should be converted to regular expressions
+    // in the `reify` phase before emission. These implementations handle cases where
+    // IR expressions might still be present during emission (which should be rare).
+    
+    fn visit_lexical_read_expr(&mut self, expr: &crate::template::pipeline::ir::expression::LexicalReadExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        // LexicalReadExpr should be converted to ReadVarExpr before emission
+        // For now, emit as a variable read
+        let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+        let name = escape_identifier(&expr.name, false, false);
+        // IR expressions don't implement HasSourceSpan, so pass None for source span
+        ctx.print(None, &name, false);
+        Box::new(())
+    }
+    
+    fn visit_reference_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::ReferenceExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        // ReferenceExpr should be converted before emission
+        panic!("ReferenceExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_context_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::ContextExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        // ContextExpr should be converted before emission
+        // Emit as a context variable (typically "ctx")
+        let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+        // IR expressions don't implement HasSourceSpan, so pass None for source span
+        ctx.print(None, "ctx", false);
+        Box::new(())
+    }
+    
+    fn visit_next_context_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::NextContextExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("NextContextExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_get_current_view_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::GetCurrentViewExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("GetCurrentViewExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_restore_view_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::RestoreViewExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("RestoreViewExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_reset_view_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::ResetViewExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("ResetViewExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_read_variable_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::ReadVariableExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("ReadVariableExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_pure_function_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::PureFunctionExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("PureFunctionExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_pure_function_parameter_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::PureFunctionParameterExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("PureFunctionParameterExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_pipe_binding_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::PipeBindingExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("PipeBindingExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_pipe_binding_variadic_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::PipeBindingVariadicExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("PipeBindingVariadicExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_safe_property_read_expr(&mut self, expr: &crate::template::pipeline::ir::expression::SafePropertyReadExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        // SafePropertyReadExpr should be expanded to null check before emission
+        // For now, emit as a regular property read (unsafe)
+        expr.receiver.as_ref().visit_expression(self, context);
+        let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+        // IR expressions don't implement HasSourceSpan, so pass None for source span
+        ctx.print(None, ".", false);
+        let name = escape_identifier(&expr.name, false, false);
+        ctx.print(None, &name, false);
+        Box::new(())
+    }
+    
+    fn visit_safe_keyed_read_expr(&mut self, expr: &crate::template::pipeline::ir::expression::SafeKeyedReadExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        // SafeKeyedReadExpr should be expanded to null check before emission
+        // For now, emit as a regular keyed read (unsafe)
+        expr.receiver.as_ref().visit_expression(self, context);
+        {
+            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+            // IR expressions don't implement HasSourceSpan, so pass None for source span
+            ctx.print(None, "[", false);
+        }
+        expr.index.as_ref().visit_expression(self, context);
+        {
+            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+            ctx.print(None, "]", false);
+        }
+        Box::new(())
+    }
+    
+    fn visit_safe_invoke_function_expr(&mut self, expr: &crate::template::pipeline::ir::expression::SafeInvokeFunctionExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        // SafeInvokeFunctionExpr should be expanded to null check before emission
+        // For now, emit as a regular function call (unsafe)
+        expr.receiver.as_ref().visit_expression(self, context);
+        {
+            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+            // IR expressions don't implement HasSourceSpan, so pass None for source span
+            ctx.print(None, "(", false);
+        }
+        for (i, arg) in expr.args.iter().enumerate() {
+            {
+                let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+                if i > 0 {
+                    ctx.print(None, ", ", false);
+                }
+            }
+            arg.visit_expression(self, context);
+        }
+        {
+            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+            ctx.print(None, ")", false);
+        }
+        Box::new(())
+    }
+    
+    fn visit_safe_ternary_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::SafeTernaryExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("SafeTernaryExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_empty_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::EmptyExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        // EmptyExpr should be stripped before emission, but if it reaches here, emit nothing
+        Box::new(())
+    }
+    
+    fn visit_assign_temporary_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::AssignTemporaryExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("AssignTemporaryExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_read_temporary_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::ReadTemporaryExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("ReadTemporaryExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_slot_literal_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::SlotLiteralExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("SlotLiteralExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_conditional_case_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::ConditionalCaseExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("ConditionalCaseExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_const_collected_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::ConstCollectedExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("ConstCollectedExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_two_way_binding_set_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::TwoWayBindingSetExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("TwoWayBindingSetExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_context_let_reference_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::ContextLetReferenceExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("ContextLetReferenceExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_store_let_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::StoreLetExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("StoreLetExpr should not be emitted directly - must be reified first");
+    }
+    
+    fn visit_track_context_expr(&mut self, _expr: &crate::template::pipeline::ir::expression::TrackContextExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        panic!("TrackContextExpr should not be emitted directly - must be reified first");
     }
 }
 

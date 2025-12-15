@@ -129,7 +129,7 @@ impl SourceMapGenerator {
         }
 
         let mut mappings = String::new();
-        let mut last_col0 = 0;
+        let mut last_col0;
         let mut last_source_index = 0;
         let mut last_source_line0 = 0;
         let mut last_source_col0 = 0;

@@ -3,13 +3,15 @@
 //! Corresponds to packages/compiler/src/output/output_jit_trusted_types.ts
 //! A module to facilitate use of Trusted Types within the JIT compiler
 
+use std::sync::OnceLock;
+
 /// Trusted Script type marker
 ///
 /// While Angular only uses Trusted Types internally for the time being,
 /// references to Trusted Types could leak into our core API.
 #[derive(Debug, Clone)]
 pub struct TrustedScript {
-    script: String,
+    pub script: String,
 }
 
 /// Trusted Type Policy Factory interface
@@ -18,11 +20,12 @@ pub trait TrustedTypePolicyFactory {
 }
 
 /// Trusted Type Policy interface
-pub trait TrustedTypePolicy {
+pub trait TrustedTypePolicy: Send + Sync {
     fn create_script(&self, input: &str) -> TrustedScript;
 }
 
 /// Simple policy implementation that passes strings through
+#[allow(dead_code)]
 struct UnsafeJitPolicy;
 
 impl TrustedTypePolicy for UnsafeJitPolicy {
@@ -34,22 +37,17 @@ impl TrustedTypePolicy for UnsafeJitPolicy {
 }
 
 /// The Trusted Types policy, or None if Trusted Types are not enabled/supported
-static mut POLICY: Option<Option<Box<dyn TrustedTypePolicy>>> = None;
+static POLICY: OnceLock<Option<Box<dyn TrustedTypePolicy>>> = OnceLock::new();
 
 /// Returns the Trusted Types policy, or None if Trusted Types are not
 /// enabled/supported. The first call to this function will create the policy.
 fn get_policy() -> Option<&'static dyn TrustedTypePolicy> {
-    unsafe {
-        if POLICY.is_none() {
-            // In Rust, we don't have direct browser API access like in JavaScript
-            // This is a placeholder that would need platform-specific implementation
-            // For now, we always return None (no Trusted Types support)
-            POLICY = Some(None);
-        }
-
-        POLICY.as_ref()
-            .and_then(|p| p.as_ref().map(|b| b.as_ref()))
-    }
+    POLICY.get_or_init(|| {
+        // In Rust, we don't have direct browser API access like in JavaScript
+        // This is a placeholder that would need platform-specific implementation
+        // For now, we always return None (no Trusted Types support)
+        None
+    }).as_deref()
 }
 
 /// Unsafely promote a string to a TrustedScript, falling back to strings when
@@ -126,8 +124,3 @@ mod tests {
         assert!(fn_source.contains("function anonymous()"));
     }
 }
-
-
-
-
-

@@ -239,6 +239,35 @@ pub enum Expression {
     TypeOf(TypeofExpr),
     Void(VoidExpr),
     Unary(UnaryOperatorExpr),
+    Parens(ParenthesizedExpr),
+    
+    // IR Expression variants
+    LexicalRead(crate::template::pipeline::ir::expression::LexicalReadExpr),
+    Reference(crate::template::pipeline::ir::expression::ReferenceExpr),
+    Context(crate::template::pipeline::ir::expression::ContextExpr),
+    NextContext(crate::template::pipeline::ir::expression::NextContextExpr),
+    GetCurrentView(crate::template::pipeline::ir::expression::GetCurrentViewExpr),
+    RestoreView(crate::template::pipeline::ir::expression::RestoreViewExpr),
+    ResetView(crate::template::pipeline::ir::expression::ResetViewExpr),
+    ReadVariable(crate::template::pipeline::ir::expression::ReadVariableExpr),
+    PureFunction(crate::template::pipeline::ir::expression::PureFunctionExpr),
+    PureFunctionParameter(crate::template::pipeline::ir::expression::PureFunctionParameterExpr),
+    PipeBinding(crate::template::pipeline::ir::expression::PipeBindingExpr),
+    PipeBindingVariadic(crate::template::pipeline::ir::expression::PipeBindingVariadicExpr),
+    SafePropertyRead(crate::template::pipeline::ir::expression::SafePropertyReadExpr),
+    SafeKeyedRead(crate::template::pipeline::ir::expression::SafeKeyedReadExpr),
+    SafeInvokeFunction(crate::template::pipeline::ir::expression::SafeInvokeFunctionExpr),
+    SafeTernary(crate::template::pipeline::ir::expression::SafeTernaryExpr),
+    Empty(crate::template::pipeline::ir::expression::EmptyExpr),
+    AssignTemporary(crate::template::pipeline::ir::expression::AssignTemporaryExpr),
+    ReadTemporary(crate::template::pipeline::ir::expression::ReadTemporaryExpr),
+    SlotLiteral(crate::template::pipeline::ir::expression::SlotLiteralExpr),
+    ConditionalCase(crate::template::pipeline::ir::expression::ConditionalCaseExpr),
+    ConstCollected(crate::template::pipeline::ir::expression::ConstCollectedExpr),
+    TwoWayBindingSet(crate::template::pipeline::ir::expression::TwoWayBindingSetExpr),
+    ContextLetReference(crate::template::pipeline::ir::expression::ContextLetReferenceExpr),
+    StoreLet(crate::template::pipeline::ir::expression::StoreLetExpr),
+    TrackContext(crate::template::pipeline::ir::expression::TrackContextExpr),
 }
 
 #[derive(Debug, Clone)]
@@ -539,6 +568,13 @@ pub struct UnaryOperatorExpr {
     pub source_span: Option<ParseSourceSpan>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ParenthesizedExpr {
+    pub expr: Box<Expression>,
+    pub type_: Option<Type>,
+    pub source_span: Option<ParseSourceSpan>,
+}
+
 pub trait ExpressionVisitor {
     fn visit_read_var_expr(&mut self, expr: &ReadVarExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_write_var_expr(&mut self, expr: &WriteVarExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
@@ -555,6 +591,7 @@ pub trait ExpressionVisitor {
     fn visit_read_key_expr(&mut self, expr: &ReadKeyExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_conditional_expr(&mut self, expr: &ConditionalExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_unary_operator_expr(&mut self, expr: &UnaryOperatorExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_parenthesized_expr(&mut self, expr: &ParenthesizedExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_function_expr(&mut self, expr: &FunctionExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_arrow_function_expr(&mut self, expr: &ArrowFunctionExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_literal_array_expr(&mut self, expr: &LiteralArrayExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
@@ -569,6 +606,34 @@ pub trait ExpressionVisitor {
     fn visit_dynamic_import_expr(&mut self, expr: &DynamicImportExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_template_literal_expr(&mut self, expr: &TemplateLiteralExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_wrapped_node_expr(&mut self, expr: &WrappedNodeExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    
+    // IR Expression visitor methods
+    fn visit_lexical_read_expr(&mut self, expr: &crate::template::pipeline::ir::expression::LexicalReadExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_reference_expr(&mut self, expr: &crate::template::pipeline::ir::expression::ReferenceExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_context_expr(&mut self, expr: &crate::template::pipeline::ir::expression::ContextExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_next_context_expr(&mut self, expr: &crate::template::pipeline::ir::expression::NextContextExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_get_current_view_expr(&mut self, expr: &crate::template::pipeline::ir::expression::GetCurrentViewExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_restore_view_expr(&mut self, expr: &crate::template::pipeline::ir::expression::RestoreViewExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_reset_view_expr(&mut self, expr: &crate::template::pipeline::ir::expression::ResetViewExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_read_variable_expr(&mut self, expr: &crate::template::pipeline::ir::expression::ReadVariableExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_pure_function_expr(&mut self, expr: &crate::template::pipeline::ir::expression::PureFunctionExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_pure_function_parameter_expr(&mut self, expr: &crate::template::pipeline::ir::expression::PureFunctionParameterExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_pipe_binding_expr(&mut self, expr: &crate::template::pipeline::ir::expression::PipeBindingExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_pipe_binding_variadic_expr(&mut self, expr: &crate::template::pipeline::ir::expression::PipeBindingVariadicExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_safe_property_read_expr(&mut self, expr: &crate::template::pipeline::ir::expression::SafePropertyReadExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_safe_keyed_read_expr(&mut self, expr: &crate::template::pipeline::ir::expression::SafeKeyedReadExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_safe_invoke_function_expr(&mut self, expr: &crate::template::pipeline::ir::expression::SafeInvokeFunctionExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_safe_ternary_expr(&mut self, expr: &crate::template::pipeline::ir::expression::SafeTernaryExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_empty_expr(&mut self, expr: &crate::template::pipeline::ir::expression::EmptyExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_assign_temporary_expr(&mut self, expr: &crate::template::pipeline::ir::expression::AssignTemporaryExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_read_temporary_expr(&mut self, expr: &crate::template::pipeline::ir::expression::ReadTemporaryExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_slot_literal_expr(&mut self, expr: &crate::template::pipeline::ir::expression::SlotLiteralExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_conditional_case_expr(&mut self, expr: &crate::template::pipeline::ir::expression::ConditionalCaseExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_const_collected_expr(&mut self, expr: &crate::template::pipeline::ir::expression::ConstCollectedExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_two_way_binding_set_expr(&mut self, expr: &crate::template::pipeline::ir::expression::TwoWayBindingSetExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_context_let_reference_expr(&mut self, expr: &crate::template::pipeline::ir::expression::ContextLetReferenceExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_store_let_expr(&mut self, expr: &crate::template::pipeline::ir::expression::StoreLetExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_track_context_expr(&mut self, expr: &crate::template::pipeline::ir::expression::TrackContextExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
 }
 
 ///// Statements
@@ -673,6 +738,14 @@ pub fn literal_map(entries: Vec<LiteralMapEntry>) -> Box<Expression> {
     }))
 }
 
+pub fn import_ref(id: ExternalReference) -> Box<Expression> {
+    Box::new(Expression::External(ExternalExpr {
+        value: id,
+        type_: None,
+        source_span: None,
+    }))
+}
+
 // Implement conversions
 impl From<String> for LiteralValue {
     fn from(s: String) -> Self {
@@ -752,6 +825,45 @@ impl Expression {
             expr: Box::new(self.clone()),
             source_span: None,
         })
+    }
+
+    /// Creates a binary OR expression (||)
+    pub fn or(&self, rhs: Box<Expression>, source_span: Option<ParseSourceSpan>) -> Box<Expression> {
+        Box::new(Expression::BinaryOp(BinaryOperatorExpr {
+            operator: BinaryOperator::Or,
+            lhs: Box::new(self.clone()),
+            rhs,
+            type_: None,
+            source_span,
+        }))
+    }
+
+    /// Creates a write property expression (property assignment)
+    pub fn set(&self, value: Box<Expression>, source_span: Option<ParseSourceSpan>) -> Box<Expression> {
+        // Check if self is ReadPropExpr or ReadKeyExpr
+        match self {
+            Expression::ReadProp(read_prop) => {
+                Box::new(Expression::WriteProp(WritePropExpr {
+                    receiver: read_prop.receiver.clone(),
+                    name: read_prop.name.clone(),
+                    value,
+                    type_: None,
+                    source_span,
+                }))
+            }
+            Expression::ReadKey(read_key) => {
+                Box::new(Expression::WriteKey(WriteKeyExpr {
+                    receiver: read_key.receiver.clone(),
+                    index: read_key.index.clone(),
+                    value,
+                    type_: None,
+                    source_span,
+                }))
+            }
+            _ => {
+                panic!("set() can only be called on ReadPropExpr or ReadKeyExpr");
+            }
+        }
     }
 }
 
@@ -841,6 +953,34 @@ impl Expression {
             Expression::TypeOf(e) => Expression::TypeOf(e.clone()),
             Expression::Void(e) => Expression::Void(e.clone()),
             Expression::Unary(e) => Expression::Unary(e.clone()),
+            Expression::Parens(e) => Expression::Parens(e.clone()),
+            // IR Expression variants
+            Expression::LexicalRead(e) => Expression::LexicalRead(e.clone()),
+            Expression::Reference(e) => Expression::Reference(e.clone()),
+            Expression::Context(e) => Expression::Context(e.clone()),
+            Expression::NextContext(e) => Expression::NextContext(e.clone()),
+            Expression::GetCurrentView(e) => Expression::GetCurrentView(e.clone()),
+            Expression::RestoreView(e) => Expression::RestoreView(e.clone()),
+            Expression::ResetView(e) => Expression::ResetView(e.clone()),
+            Expression::ReadVariable(e) => Expression::ReadVariable(e.clone()),
+            Expression::PureFunction(e) => Expression::PureFunction(e.clone()),
+            Expression::PureFunctionParameter(e) => Expression::PureFunctionParameter(e.clone()),
+            Expression::PipeBinding(e) => Expression::PipeBinding(e.clone()),
+            Expression::PipeBindingVariadic(e) => Expression::PipeBindingVariadic(e.clone()),
+            Expression::SafePropertyRead(e) => Expression::SafePropertyRead(e.clone()),
+            Expression::SafeKeyedRead(e) => Expression::SafeKeyedRead(e.clone()),
+            Expression::SafeInvokeFunction(e) => Expression::SafeInvokeFunction(e.clone()),
+            Expression::SafeTernary(e) => Expression::SafeTernary(e.clone()),
+            Expression::Empty(e) => Expression::Empty(e.clone()),
+            Expression::AssignTemporary(e) => Expression::AssignTemporary(e.clone()),
+            Expression::ReadTemporary(e) => Expression::ReadTemporary(e.clone()),
+            Expression::SlotLiteral(e) => Expression::SlotLiteral(e.clone()),
+            Expression::ConditionalCase(e) => Expression::ConditionalCase(e.clone()),
+            Expression::ConstCollected(e) => Expression::ConstCollected(e.clone()),
+            Expression::TwoWayBindingSet(e) => Expression::TwoWayBindingSet(e.clone()),
+            Expression::ContextLetReference(e) => Expression::ContextLetReference(e.clone()),
+            Expression::StoreLet(e) => Expression::StoreLet(e.clone()),
+            Expression::TrackContext(e) => Expression::TrackContext(e.clone()),
         }
     }
 }
@@ -960,6 +1100,12 @@ impl HasSourceSpan for UnaryOperatorExpr {
     }
 }
 
+impl HasSourceSpan for ParenthesizedExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
 impl HasSourceSpan for FunctionExpr {
     fn source_span(&self) -> Option<&ParseSourceSpan> {
         self.source_span.as_ref()
@@ -1074,6 +1220,34 @@ impl ExpressionTrait for Expression {
             Expression::TypeOf(e) => e.type_.as_ref(),
             Expression::Void(e) => e.type_.as_ref(),
             Expression::Unary(e) => e.type_.as_ref(),
+            Expression::Parens(e) => e.type_.as_ref(),
+            // IR Expression variants - typically don't have types
+            Expression::LexicalRead(_)
+            | Expression::Reference(_)
+            | Expression::Context(_)
+            | Expression::NextContext(_)
+            | Expression::GetCurrentView(_)
+            | Expression::RestoreView(_)
+            | Expression::ResetView(_)
+            | Expression::ReadVariable(_)
+            | Expression::PureFunction(_)
+            | Expression::PureFunctionParameter(_)
+            | Expression::PipeBinding(_)
+            | Expression::PipeBindingVariadic(_)
+            | Expression::SafePropertyRead(_)
+            | Expression::SafeKeyedRead(_)
+            | Expression::SafeInvokeFunction(_)
+            | Expression::SafeTernary(_)
+            | Expression::Empty(_)
+            | Expression::AssignTemporary(_)
+            | Expression::ReadTemporary(_)
+            | Expression::SlotLiteral(_)
+            | Expression::ConditionalCase(_)
+            | Expression::ConstCollected(_)
+            | Expression::TwoWayBindingSet(_)
+            | Expression::ContextLetReference(_)
+            | Expression::StoreLet(_)
+            | Expression::TrackContext(_) => None,
         }
     }
 
@@ -1110,6 +1284,34 @@ impl ExpressionTrait for Expression {
             Expression::TypeOf(e) => e.source_span.as_ref(),
             Expression::Void(e) => e.source_span.as_ref(),
             Expression::Unary(e) => e.source_span.as_ref(),
+            Expression::Parens(e) => e.source_span.as_ref(),
+            // IR Expression variants - delegate to their source_span
+            Expression::LexicalRead(e) => e.source_span.as_ref(),
+            Expression::Reference(e) => e.source_span.as_ref(),
+            Expression::Context(e) => e.source_span.as_ref(),
+            Expression::NextContext(e) => e.source_span.as_ref(),
+            Expression::GetCurrentView(e) => e.source_span.as_ref(),
+            Expression::RestoreView(e) => e.source_span.as_ref(),
+            Expression::ResetView(e) => e.source_span.as_ref(),
+            Expression::ReadVariable(e) => e.source_span.as_ref(),
+            Expression::PureFunction(e) => e.source_span.as_ref(),
+            Expression::PureFunctionParameter(e) => e.source_span.as_ref(),
+            Expression::PipeBinding(e) => e.source_span.as_ref(),
+            Expression::PipeBindingVariadic(e) => e.source_span.as_ref(),
+            Expression::SafePropertyRead(e) => e.source_span.as_ref(),
+            Expression::SafeKeyedRead(e) => e.source_span.as_ref(),
+            Expression::SafeInvokeFunction(e) => e.source_span.as_ref(),
+            Expression::SafeTernary(e) => e.source_span.as_ref(),
+            Expression::Empty(e) => e.source_span.as_ref(),
+            Expression::AssignTemporary(e) => e.source_span.as_ref(),
+            Expression::ReadTemporary(e) => e.source_span.as_ref(),
+            Expression::SlotLiteral(e) => e.source_span.as_ref(),
+            Expression::ConditionalCase(e) => e.source_span.as_ref(),
+            Expression::ConstCollected(e) => e.source_span.as_ref(),
+            Expression::TwoWayBindingSet(e) => e.source_span.as_ref(),
+            Expression::ContextLetReference(e) => e.source_span.as_ref(),
+            Expression::StoreLet(e) => Some(&e.source_span), // StoreLetExpr has non-optional source_span
+            Expression::TrackContext(e) => e.source_span.as_ref(),
         }
     }
 
@@ -1146,6 +1348,34 @@ impl ExpressionTrait for Expression {
             Expression::TypeOf(e) => visitor.visit_typeof_expr(e, context),
             Expression::Void(e) => visitor.visit_void_expr(e, context),
             Expression::Unary(e) => visitor.visit_unary_operator_expr(e, context),
+            Expression::Parens(e) => visitor.visit_parenthesized_expr(e, context),
+            // IR Expression variants
+            Expression::LexicalRead(e) => visitor.visit_lexical_read_expr(e, context),
+            Expression::Reference(e) => visitor.visit_reference_expr(e, context),
+            Expression::Context(e) => visitor.visit_context_expr(e, context),
+            Expression::NextContext(e) => visitor.visit_next_context_expr(e, context),
+            Expression::GetCurrentView(e) => visitor.visit_get_current_view_expr(e, context),
+            Expression::RestoreView(e) => visitor.visit_restore_view_expr(e, context),
+            Expression::ResetView(e) => visitor.visit_reset_view_expr(e, context),
+            Expression::ReadVariable(e) => visitor.visit_read_variable_expr(e, context),
+            Expression::PureFunction(e) => visitor.visit_pure_function_expr(e, context),
+            Expression::PureFunctionParameter(e) => visitor.visit_pure_function_parameter_expr(e, context),
+            Expression::PipeBinding(e) => visitor.visit_pipe_binding_expr(e, context),
+            Expression::PipeBindingVariadic(e) => visitor.visit_pipe_binding_variadic_expr(e, context),
+            Expression::SafePropertyRead(e) => visitor.visit_safe_property_read_expr(e, context),
+            Expression::SafeKeyedRead(e) => visitor.visit_safe_keyed_read_expr(e, context),
+            Expression::SafeInvokeFunction(e) => visitor.visit_safe_invoke_function_expr(e, context),
+            Expression::SafeTernary(e) => visitor.visit_safe_ternary_expr(e, context),
+            Expression::Empty(e) => visitor.visit_empty_expr(e, context),
+            Expression::AssignTemporary(e) => visitor.visit_assign_temporary_expr(e, context),
+            Expression::ReadTemporary(e) => visitor.visit_read_temporary_expr(e, context),
+            Expression::SlotLiteral(e) => visitor.visit_slot_literal_expr(e, context),
+            Expression::ConditionalCase(e) => visitor.visit_conditional_case_expr(e, context),
+            Expression::ConstCollected(e) => visitor.visit_const_collected_expr(e, context),
+            Expression::TwoWayBindingSet(e) => visitor.visit_two_way_binding_set_expr(e, context),
+            Expression::ContextLetReference(e) => visitor.visit_context_let_reference_expr(e, context),
+            Expression::StoreLet(e) => visitor.visit_store_let_expr(e, context),
+            Expression::TrackContext(e) => visitor.visit_track_context_expr(e, context),
         }
     }
 
