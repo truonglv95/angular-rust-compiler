@@ -9,7 +9,7 @@
 use regex::Regex;
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
-use std::borrow::Cow;
+
 
 // Constants
 const POLYFILL_HOST: &str = "-shadowcsshost";
@@ -790,7 +790,7 @@ impl ShadowCss {
         Regex::new(&pattern).unwrap()
     }
 
-    fn apply_selector_scope(&self, selector: &str, scope_selector: &str, host_selector: &str, is_parent_selector: bool, inhibit_scoping: bool) -> String {
+    fn apply_selector_scope(&self, selector: &str, scope_selector: &str, host_selector: &str, _is_parent_selector: bool, inhibit_scoping: bool) -> String {
 
         
         // Remove [is=...] from scope_selector
@@ -798,19 +798,19 @@ impl ShadowCss {
         let scope_selector_clean = is_re.replace_all(scope_selector, |caps: &regex::Captures| {
             caps.get(1).map(|m| m.as_str()).unwrap_or("").to_string()
         }).to_string();
-        let attr_name = format!("[{}]", scope_selector_clean);
+        let _attr_name = format!("[{}]", scope_selector_clean);
         
         // Handle polyfill host - but we need to continue processing parts after host
         // So we'll handle host replacement but continue to scope other parts
-        let polyfill_host_re = Regex::new(&format!(r"{}", POLYFILL_HOST)).unwrap();
-        let polyfill_host_no_combinator_re = Regex::new(&format!(r"{}([^\s,]*)", POLYFILL_HOST_NO_COMBINATOR)).unwrap();
+        let _polyfill_host_re = Regex::new(&format!(r"{}", POLYFILL_HOST)).unwrap();
+        let _polyfill_host_no_combinator_re = Regex::new(&format!(r"{}([^\s,]*)", POLYFILL_HOST_NO_COMBINATOR)).unwrap();
         
         // Check if selector contains POLYFILL_HOST_NO_COMBINATOR or POLYFILL_HOST
         // If it does, parts before it should not be scoped (they're considered part of :host-context)
         // Note: Check POLYFILL_HOST_NO_COMBINATOR first because POLYFILL_HOST is a prefix of it
         let host_start = selector.find(POLYFILL_HOST_NO_COMBINATOR)
             .or_else(|| selector.find(POLYFILL_HOST));
-        let host_end = if let Some(start) = host_start {
+        let host_end = if let Some(_start) = host_start {
             // Find the end position of the host (after the host string)
             if let Some(no_combinator_pos) = selector.find(POLYFILL_HOST_NO_COMBINATOR) {
                 Some(no_combinator_pos + POLYFILL_HOST_NO_COMBINATOR.len())
@@ -904,7 +904,7 @@ impl ShadowCss {
         let mut result = String::new();
         let mut current_pos = 0;
         
-        for (idx, (part_start, part_end)) in parts_to_scope.iter().enumerate() {
+        for (_idx, (part_start, part_end)) in parts_to_scope.iter().enumerate() {
             // Append separators/text before this part
             let text_before = &selector[current_pos..*part_start];
             // Normalize combinator spacing - trim and check if it's a combinator
@@ -1048,7 +1048,7 @@ impl ShadowCss {
             // If original part started with : and scoped result still starts with :,
             // we need to prepend the attribute (scope_simple doesn't add prefix)
             // UNLESS it's a :host-context result where [hosta] is DIRECTLY after the pseudo-selector
-            let host_marker = format!("[{}]", host_selector);
+            let _host_marker = format!("[{}]", host_selector);
             let is_host_context_result = scoped.contains(&format!(")[{}]", host_selector)) || 
                                          scoped.contains(&format!(") [{}]", host_selector));
             if part.starts_with(':') && scoped.starts_with(':') && !is_host_context_result {
@@ -1391,7 +1391,7 @@ pub fn repeat_groups(groups: &mut Vec<Vec<String>>, multiples: usize) {
     // Clone the original groups first
     let original_groups: Vec<Vec<String>> = groups[0..length].iter().map(|g| g.clone()).collect();
     
-    for i in 1..multiples {
+    for _i in 1..multiples {
         for j in 0..length {
             groups.push(original_groups[j].clone());
         }

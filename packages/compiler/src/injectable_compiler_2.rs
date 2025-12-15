@@ -5,9 +5,7 @@
 //! Compiles @Injectable decorators to generate factory functions
 //! for dependency injection.
 
-use crate::compiler_facade_interface::FactoryTarget;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Expression reference (simplified)
 #[derive(Debug, Clone, Serialize, Deserialize)]

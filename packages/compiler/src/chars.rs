@@ -1,9 +1,11 @@
-/**
+/*
  * Character Codes
  *
  * Corresponds to packages/compiler/src/chars.ts
- * Defines character constants used throughout the compiler
  */
+#![allow(non_upper_case_globals)]
+
+//! Character constants used throughout the compiler
 
 // Special characters
 pub const EOF: char = '\0';

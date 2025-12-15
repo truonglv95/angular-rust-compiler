@@ -205,7 +205,7 @@ impl CssSelector {
 
 impl std::fmt::Display for CssSelector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut res = self.element.as_ref().map(|s| s.as_str()).unwrap_or("");
+        let res = self.element.as_ref().map(|s| s.as_str()).unwrap_or("");
         write!(f, "{}", res)?;
 
         for class_name in &self.class_names {
@@ -537,5 +537,38 @@ mod tests {
     fn test_unescape_attribute_error() {
         let result = CssSelector::unescape_attribute("test$attr");
         assert!(result.is_err());
+    }
+}
+
+/// Matcher for directives that don't have CSS selectors (selectorless directives).
+/// Matches directives by their name/class name.
+pub struct SelectorlessMatcher<T> {
+    registry: HashMap<String, Vec<T>>,
+}
+
+impl<T> SelectorlessMatcher<T> {
+    pub fn new() -> Self {
+        SelectorlessMatcher {
+            registry: HashMap::new(),
+        }
+    }
+
+    /// Add a directive to the matcher, keyed by its name.
+    pub fn add(&mut self, name: String, directive: T) {
+        self.registry.entry(name).or_insert_with(Vec::new).push(directive);
+    }
+
+    /// Match directives by name. Returns all directives registered for the given name.
+    pub fn match_name(&self, name: &str) -> Vec<T>
+    where
+        T: Clone,
+    {
+        self.registry.get(name).cloned().unwrap_or_default()
+    }
+}
+
+impl<T> Default for SelectorlessMatcher<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }

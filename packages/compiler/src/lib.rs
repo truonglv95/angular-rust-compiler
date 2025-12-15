@@ -14,7 +14,7 @@ use napi_derive::napi;
 // Core modules (root level - mirrors packages/compiler/src/*.ts)
 mod assertions;
 pub mod chars;
-mod combined_visitor;
+pub mod combined_visitor;
 mod compiler;
 pub mod compiler_facade_interface;
 mod config;
@@ -48,7 +48,7 @@ pub use config::CompilerConfig as RustCompilerConfig;
 pub use util::Version;
 
 use error::Result as CompilerResult;
-use expression_parser::{Lexer, Parser, serialize};
+
 
 /// Compiler configuration
 #[cfg_attr(feature = "napi-bindings", napi(object))]
@@ -559,7 +559,7 @@ impl Clone for ComponentMetadata {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+
 
     #[cfg(feature = "napi-bindings")]
     #[test]
