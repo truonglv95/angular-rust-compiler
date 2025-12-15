@@ -62,7 +62,7 @@ static SECURITY_SCHEMA: Lazy<HashMap<String, SecurityContext>> = Lazy::new(|| {
     ]);
 
     // SecurityContext::RESOURCE_URL
-    register_context(&mut schema, SecurityContext::RESOURCE_URL, &[
+    register_context(&mut schema, SecurityContext::ResourceUrl, &[
         "applet|code",
         "applet|codebase",
         "base|href",
@@ -128,7 +128,7 @@ mod tests {
         assert_eq!(schema.get("iframe|srcdoc"), Some(&SecurityContext::HTML));
         assert_eq!(schema.get("*|style"), Some(&SecurityContext::STYLE));
         assert_eq!(schema.get("a|href"), Some(&SecurityContext::URL));
-        assert_eq!(schema.get("script|src"), Some(&SecurityContext::RESOURCE_URL));
+        assert_eq!(schema.get("script|src"), Some(&SecurityContext::ResourceUrl));
     }
 
     #[test]
