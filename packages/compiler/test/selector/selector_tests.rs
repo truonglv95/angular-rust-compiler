@@ -30,29 +30,29 @@ mod tests {
 
         let mut matched = Vec::new();
         {
-            let mut collector = |s: &CssSelector, c: &i32| matched.push((s.clone(), *c));
-            matcher.match_selector(
-                &get_selector_for(Some("SOMEOTHERTAG"), vec![], None),
-                &mut collector
-            );
+        let mut collector = |s: &CssSelector, c: &i32| matched.push((s.clone(), *c));
+        matcher.match_selector(
+            &get_selector_for(Some("SOMEOTHERTAG"), vec![], None),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |s: &CssSelector, c: &i32| matched.push((s.clone(), *c));
-            matcher.match_selector(
-                &get_selector_for(Some("SOMETAG"), vec![], None),
-                &mut collector
-            );
+        matcher.match_selector(
+            &get_selector_for(Some("SOMETAG"), vec![], None),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |s: &CssSelector, c: &i32| matched.push((s.clone(), *c));
-            matcher.match_selector(
-                &get_selector_for(Some("someTag"), vec![], None),
-                &mut collector
-            );
+        matcher.match_selector(
+            &get_selector_for(Some("someTag"), vec![], None),
+            &mut collector
+        );
         }
         assert_eq!(matched.len(), 1);
         assert_eq!(matched[0].1, 1);
@@ -70,29 +70,29 @@ mod tests {
         let mut matched = Vec::new();
         {
             let mut collector = |_s: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(None, vec![], Some("SOMEOTHERCLASS")),
-                &mut collector
-            );
+        matcher.match_selector(
+            &get_selector_for(None, vec![], Some("SOMEOTHERCLASS")),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_s: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(None, vec![], Some("SOMECLASS")),
-                &mut collector
-            );
+        matcher.match_selector(
+            &get_selector_for(None, vec![], Some("SOMECLASS")),
+            &mut collector
+        );
         }
         assert_eq!(matched, vec![1]);
 
         matched.clear();
         {
             let mut collector = |_s: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(None, vec![], Some("someClass class2")),
-                &mut collector
-            );
+        matcher.match_selector(
+            &get_selector_for(None, vec![], Some("someClass class2")),
+            &mut collector
+        );
         }
         // Order depends on implementation, sort for comparison or check contains
         matched.sort();
@@ -104,11 +104,11 @@ mod tests {
         let matcher: SelectorMatcher<i32> = SelectorMatcher::new();
         let mut matched = Vec::new();
         {
-            let mut collector = |_s: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(None, vec![], Some("constructor")),
-                &mut collector
-            );
+        let mut collector = |_s: &CssSelector, c: &i32| matched.push(*c);
+        matcher.match_selector(
+            &get_selector_for(None, vec![], Some("constructor")),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
     }
@@ -123,38 +123,38 @@ mod tests {
 
         let mut matched = Vec::new();
         {
-            let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(None, vec![("SOMEOTHERATTR", "")], None),
-                &mut collector
-            );
+        let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
+        matcher.match_selector(
+            &get_selector_for(None, vec![("SOMEOTHERATTR", "")], None),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(None, vec![("SOMEATTR", "")], None),
-                &mut collector
-            );
+        matcher.match_selector(
+            &get_selector_for(None, vec![("SOMEATTR", "")], None),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(None, vec![("SOMEATTR", "someValue")], None),
-                &mut collector
-            );
+         matcher.match_selector(
+            &get_selector_for(None, vec![("SOMEATTR", "someValue")], None),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(None, vec![("someAttr", ""), ("someAttr2", "")], None),
-                &mut collector
-            );
+        matcher.match_selector(
+            &get_selector_for(None, vec![("someAttr", ""), ("someAttr2", "")], None),
+            &mut collector
+        );
         }
         matched.sort();
         assert_eq!(matched, vec![1, 2]);
@@ -162,10 +162,10 @@ mod tests {
         matched.clear();
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(None, vec![("someAttr", "someValue"), ("someAttr2", "")], None),
-                &mut collector
-            );
+        matcher.match_selector(
+            &get_selector_for(None, vec![("someAttr", "someValue"), ("someAttr2", "")], None),
+            &mut collector
+        );
         }
         matched.sort();
         assert_eq!(matched, vec![1, 2]);
@@ -173,10 +173,10 @@ mod tests {
         matched.clear();
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-               &get_selector_for(None, vec![("someAttr2", ""), ("someAttr", "someValue")], None),
-                &mut collector
-            );
+        matcher.match_selector(
+           &get_selector_for(None, vec![("someAttr2", ""), ("someAttr", "someValue")], None),
+            &mut collector
+        );
         }
         matched.sort();
         assert_eq!(matched, vec![1, 2]);
@@ -184,10 +184,10 @@ mod tests {
         matched.clear();
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-               &get_selector_for(None, vec![("someAttr2", "someValue"), ("someAttr", "")], None),
-                &mut collector
-            );
+        matcher.match_selector(
+           &get_selector_for(None, vec![("someAttr2", "someValue"), ("someAttr", "")], None),
+            &mut collector
+        );
         }
         matched.sort();
         assert_eq!(matched, vec![1, 2]);
@@ -201,20 +201,20 @@ mod tests {
 
         let mut matched = Vec::new();
         {
-            let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(None, vec![("barfoo", "")], None),
-                &mut collector
-            );
+        let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
+        matcher.match_selector(
+            &get_selector_for(None, vec![("barfoo", "")], None),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                 &get_selector_for(None, vec![("foo.bar", "")], None),
-                &mut collector
-            );
+        matcher.match_selector(
+             &get_selector_for(None, vec![("foo.bar", "")], None),
+            &mut collector
+        );
         }
         assert_eq!(matched, vec![1]);
     }
@@ -227,20 +227,20 @@ mod tests {
         
         let mut matched = Vec::new();
         {
-            let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(None, vec![("someAttr", "")], None),
-                &mut collector
-            );
+        let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
+        matcher.match_selector(
+            &get_selector_for(None, vec![("someAttr", "")], None),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(None, vec![("someAttr$", "")], None),
-                &mut collector
-            );
+        matcher.match_selector(
+            &get_selector_for(None, vec![("someAttr$", "")], None),
+            &mut collector
+        );
         }
         assert_eq!(matched, vec![1]);
 
@@ -252,19 +252,19 @@ mod tests {
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(None, vec![("someattr", "")], None),
-                 &mut collector
-            );
+        matcher.match_selector(
+            &get_selector_for(None, vec![("someattr", "")], None),
+             &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-               &get_selector_for(None, vec![("some$attr", "")], None),
-                 &mut collector
-            );
+        matcher.match_selector(
+           &get_selector_for(None, vec![("some$attr", "")], None),
+             &mut collector
+        );
         }
         assert_eq!(matched, vec![1]);
 
@@ -278,19 +278,19 @@ mod tests {
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                 &get_selector_for(None, vec![("some\\$Attr", "")], None),
-                &mut collector
-            );
+        matcher.match_selector(
+             &get_selector_for(None, vec![("some\\$Attr", "")], None),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(None, vec![("some-$-attr", "someValue"), ("some-$Attr", "")], None),
-                &mut collector
-            );
+        matcher.match_selector(
+            &get_selector_for(None, vec![("some-$-attr", "someValue"), ("some-$Attr", "")], None),
+            &mut collector
+        );
         }
         matched.sort();
         assert_eq!(matched, vec![1, 2]);
@@ -309,7 +309,7 @@ mod tests {
          
          {
              let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-             matcher.match_selector(&element_selector, &mut collector);
+         matcher.match_selector(&element_selector, &mut collector);
          }
          assert_eq!(matched, vec![1]);
     }
@@ -322,29 +322,29 @@ mod tests {
 
         let mut matched = Vec::new();
         {
-            let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                 &get_selector_for(None, vec![("SOMEATTR", "SOMEOTHERATTR")], None),
-                &mut collector
-            );
+        let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
+        matcher.match_selector(
+             &get_selector_for(None, vec![("SOMEATTR", "SOMEOTHERATTR")], None),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                 &get_selector_for(None, vec![("SOMEATTR", "SOMEVALUE")], None),
-                &mut collector
-            );
+        matcher.match_selector(
+             &get_selector_for(None, vec![("SOMEATTR", "SOMEVALUE")], None),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                 &get_selector_for(None, vec![("someAttr", "SOMEVALUE")], None),
-                &mut collector
-            );
+         matcher.match_selector(
+             &get_selector_for(None, vec![("someAttr", "SOMEVALUE")], None),
+            &mut collector
+        );
         }
         // Note: Attribute value matching in Angular Ivy is tricky. 
         // Logic in SelectorMatcher::is_match for attributes:
@@ -367,47 +367,47 @@ mod tests {
 
         let mut matched = Vec::new();
         {
-            let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(Some("someOtherTag"), vec![("someOtherAttr", "")], Some("someOtherClass")),
-                &mut collector
-            );
+        let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
+        matcher.match_selector(
+            &get_selector_for(Some("someOtherTag"), vec![("someOtherAttr", "")], Some("someOtherClass")),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(Some("someTag"), vec![("someOtherAttr", "")], Some("someOtherClass")),
-                &mut collector
-            );
+         matcher.match_selector(
+            &get_selector_for(Some("someTag"), vec![("someOtherAttr", "")], Some("someOtherClass")),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(Some("someTag"), vec![("someOtherAttr", "")], Some("someClass")),
-                &mut collector
-            );
+        matcher.match_selector(
+            &get_selector_for(Some("someTag"), vec![("someOtherAttr", "")], Some("someClass")),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(Some("someTag"), vec![("someAttr", "")], Some("someClass")),
-                &mut collector
-            );
+         matcher.match_selector(
+            &get_selector_for(Some("someTag"), vec![("someAttr", "")], Some("someClass")),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(Some("someTag"), vec![("someAttr", "someValue")], Some("someClass")),
-                &mut collector
-            );
+        matcher.match_selector(
+            &get_selector_for(Some("someTag"), vec![("someAttr", "someValue")], Some("someClass")),
+            &mut collector
+        );
         }
         assert_eq!(matched, vec![1]);
     }
@@ -426,7 +426,7 @@ mod tests {
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(&css_selector, &mut collector);
+        matcher.match_selector(&css_selector, &mut collector);
         }
         assert_eq!(matched, vec![1]);
     }
@@ -447,7 +447,7 @@ mod tests {
         let p1 = CssSelector::parse("[someAttr].someClass").unwrap();
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(&p1[0], &mut collector);
+        matcher.match_selector(&p1[0], &mut collector);
         }
         matched.sort();
         assert_eq!(matched, vec![1, 2]);
@@ -456,7 +456,7 @@ mod tests {
         let p2 = CssSelector::parse(".someClass[someAttr]").unwrap();
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(&p2[0], &mut collector);
+        matcher.match_selector(&p2[0], &mut collector);
         }
         matched.sort();
         assert_eq!(matched, vec![1, 2]);
@@ -465,7 +465,7 @@ mod tests {
         let p3 = CssSelector::parse(".class1.class2").unwrap();
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(&p3[0], &mut collector);
+        matcher.match_selector(&p3[0], &mut collector);
         }
         matched.sort();
         assert_eq!(matched, vec![3, 4]);
@@ -482,11 +482,11 @@ mod tests {
 
         let mut matched = Vec::new();
         {
-            let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                 &get_selector_for(Some("p"), vec![("someAttr", "")], Some("someClass")),
-                &mut collector
-            );
+        let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
+        matcher.match_selector(
+             &get_selector_for(Some("p"), vec![("someAttr", "")], Some("someClass")),
+            &mut collector
+        );
         }
         assert!(matched.is_empty());
     }
@@ -501,11 +501,11 @@ mod tests {
 
         let mut matched = Vec::new();
         {
-            let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(
-                &get_selector_for(Some("p"), vec![("someOtherAttr", "")], Some("someOtherClass")),
-                &mut collector
-            );
+        let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
+        matcher.match_selector(
+            &get_selector_for(Some("p"), vec![("someOtherAttr", "")], Some("someOtherClass")),
+            &mut collector
+        );
         }
         matched.sort();
         assert_eq!(matched, vec![1, 2, 3, 4]);
@@ -517,8 +517,8 @@ mod tests {
          matcher.add_selectable(CssSelector::parse(":not([a])").unwrap()[0].clone(), 1);
          let mut matched = Vec::new();
          {
-             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-             matcher.match_selector(&get_selector_for(Some("div"), vec![], None), &mut collector);
+         let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
+         matcher.match_selector(&get_selector_for(Some("div"), vec![], None), &mut collector);
          }
          assert_eq!(matched, vec![1]);
     }
@@ -529,20 +529,20 @@ mod tests {
         matcher.add_selectable(CssSelector::parse("div:not([a]):not([b])").unwrap()[0].clone(), 1);
         let mut matched = Vec::new();
         {
-            let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(&get_selector_for(Some("div"), vec![("a", "")], None), &mut collector);
+        let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
+        matcher.match_selector(&get_selector_for(Some("div"), vec![("a", "")], None), &mut collector);
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(&get_selector_for(Some("div"), vec![("b", "")], None), &mut collector);
+        matcher.match_selector(&get_selector_for(Some("div"), vec![("b", "")], None), &mut collector);
         }
         assert!(matched.is_empty());
 
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(&get_selector_for(Some("div"), vec![("c", "")], None), &mut collector);
+        matcher.match_selector(&get_selector_for(Some("div"), vec![("c", "")], None), &mut collector);
         }
         assert_eq!(matched, vec![1]);
     }
@@ -556,15 +556,15 @@ mod tests {
 
         let mut matched = Vec::new();
         {
-            let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(&get_selector_for(Some("textbox"), vec![], None), &mut collector);
+        let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
+        matcher.match_selector(&get_selector_for(Some("textbox"), vec![], None), &mut collector);
         }
         assert_eq!(matched, vec![1]);
 
         matched.clear();
         {
             let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(&get_selector_for(Some("input"), vec![("type", "text")], None), &mut collector);
+        matcher.match_selector(&get_selector_for(Some("input"), vec![("type", "text")], None), &mut collector);
         }
         assert_eq!(matched, vec![1]);
     }
@@ -579,8 +579,8 @@ mod tests {
 
         let mut matched = Vec::new();
         {
-            let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
-            matcher.match_selector(&get_selector_for(Some("input"), vec![], Some("someclass")), &mut collector);
+        let mut collector = |_: &CssSelector, c: &i32| matched.push(*c);
+        matcher.match_selector(&get_selector_for(Some("input"), vec![], Some("someclass")), &mut collector);
         }
         assert_eq!(matched.len(), 2);
         assert_eq!(matched, vec![1, 1]);
