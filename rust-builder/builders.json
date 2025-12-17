@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/@angular-devkit/architect/src/builders-schema.json",
+  "builders": {
+    "application-rust": {
+      "implementation": "./dist/index",
+      "schema": "./src/builders/application/schema.json",
+      "description": "Builds an Angular application using the Rust compiler and esbuild."
+    }
+  }
+}
