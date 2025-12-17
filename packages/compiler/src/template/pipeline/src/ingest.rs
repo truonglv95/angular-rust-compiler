@@ -1967,6 +1967,34 @@ fn ingest_element_events(
                 );
                 unit.create.push(listener_op);
             }
+            ParsedEventType::TwoWay => {
+                // TwoWay events use create_two_way_listener_op
+                let two_way_handler_ops = make_listener_handler_ops(unit, &output.handler, &output.handler_span, job);
+                let two_way_listener_op = ir::ops::create::create_two_way_listener_op(
+                    element_xref,
+                    target_slot.clone(),
+                    output.name.clone(),
+                    Some(element_tag.to_string()),
+                    two_way_handler_ops,
+                    output.source_span.clone(),
+                );
+                unit.create.push(two_way_listener_op);
+            }
+            ParsedEventType::LegacyAnimation => {
+                // LegacyAnimation events use phase instead of target
+                let listener_op = create_listener_op(
+                    element_xref,
+                    target_slot.clone(),
+                    output.name.clone(),
+                    Some(element_tag.to_string()),
+                    handler_ops,
+                    output.target.clone(), // legacy_animation_phase (phase is stored in target for LegacyAnimation)
+                    None, // event_target (null for LegacyAnimation)
+                    false, // host_listener
+                    output.source_span.clone(),
+                );
+                unit.create.push(listener_op);
+            }
         }
     }
 }
@@ -1977,6 +2005,69 @@ fn make_listener_handler_ops(
     handler: &crate::expression_parser::ast::AST,
     handler_span: &ParseSourceSpan,
     job: &mut ComponentCompilationJob,
+) -> crate::template::pipeline::ir::operations::OpList<Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>> {
+    use crate::template::pipeline::ir::operations::OpList;
+    use crate::template::pipeline::ir::ops::shared::create_statement_op;
+    use crate::output::output_ast::{Expression, ExpressionStatement, ReturnStatement, Statement};
+    use crate::expression_parser::ast::AST;
+    
+    let mut handler_ops: OpList<Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>> = OpList::new();
+    
+    // Unwrap AST - AST doesn't have ASTWithSource wrapper in Rust
+    let handler_ast: &AST = handler;
+    
+    // Handle Chain expressions - split into multiple statements
+    let handler_exprs: Vec<&AST> = match handler_ast {
+        AST::Chain(chain) => {
+            // chain.expressions is Vec<Box<AST>>, so we need to dereference
+            chain.expressions.iter().map(|expr| expr.as_ref()).collect()
+        }
+        _ => vec![handler_ast],
+    };
+    
+    if handler_exprs.is_empty() {
+        panic!("Expected listener to have non-empty expression list");
+    }
+    
+    // Convert expressions
+    let mut expressions: Vec<Expression> = handler_exprs
+        .iter()
+        .map(|expr| {
+            crate::template::pipeline::src::conversion::convert_ast(expr, job, Some(handler_span))
+        })
+        .collect();
+    
+    // The last expression is the return value
+    let return_expr = expressions.pop().unwrap();
+    
+    // Add statements for intermediate expressions
+    for expr in expressions {
+        let expr_stmt = ExpressionStatement {
+            expr: Box::new(expr),
+            source_span: Some(handler_span.clone()),
+        };
+        let stmt = Statement::Expression(expr_stmt);
+        let stmt_op = create_statement_op::<Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>>(Box::new(stmt));
+        handler_ops.push(Box::new(stmt_op));
+    }
+    
+    // Add return statement
+    let return_stmt_val = ReturnStatement {
+        value: Box::new(return_expr),
+        source_span: Some(handler_span.clone()),
+    };
+    let stmt = Statement::Return(return_stmt_val);
+    let stmt_op = create_statement_op::<Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>>(Box::new(stmt));
+    handler_ops.push(Box::new(stmt_op));
+    
+    handler_ops
+}
+
+/// Helper function to convert event handler AST into UpdateOps for host bindings
+fn make_host_listener_handler_ops(
+    handler: &crate::expression_parser::ast::AST,
+    handler_span: &ParseSourceSpan,
+    job: &mut HostBindingCompilationJob,
 ) -> crate::template::pipeline::ir::operations::OpList<Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>> {
     use crate::template::pipeline::ir::operations::OpList;
     use crate::template::pipeline::ir::ops::shared::create_statement_op;
@@ -2417,6 +2508,35 @@ fn ingest_host_event(
                 handler_ops,
                 None, // legacy_animation_phase
                 event.target_or_phase.clone(), // event_target
+                true, // host_listener
+                event.source_span,
+            );
+            job.root.create.push(listener_op);
+        }
+        ParsedEventType::TwoWay => {
+            // TwoWay events use create_two_way_listener_op
+            let two_way_handler_ops = make_host_listener_handler_ops(&event.handler, &event.handler_span, job);
+            let two_way_listener_op = ir::ops::create::create_two_way_listener_op(
+                job.root.xref,
+                SlotHandle::default(),
+                event.name,
+                None, // tag
+                two_way_handler_ops,
+                event.source_span,
+            );
+            job.root.create.push(two_way_listener_op);
+        }
+        ParsedEventType::LegacyAnimation => {
+            // LegacyAnimation events use phase instead of target
+            // For LegacyAnimation, target_or_phase contains the phase
+            let listener_op = ir::ops::create::create_listener_op(
+                job.root.xref,
+                SlotHandle::default(),
+                event.name,
+                None, // tag
+                handler_ops,
+                event.target_or_phase.clone(), // legacy_animation_phase (phase is stored in target_or_phase for LegacyAnimation)
+                None, // event_target (null for LegacyAnimation)
                 true, // host_listener
                 event.source_span,
             );

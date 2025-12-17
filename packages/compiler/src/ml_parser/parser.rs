@@ -340,10 +340,14 @@ impl TreeBuilder {
                 }
             });
 
-            let span = if let Some(Token::CommentEnd(_end)) = end_token {
-                // Merge spans
-                comment_token.source_span.clone()
+            let span = if let Some(Token::CommentEnd(end)) = &end_token {
+                // Merge spans from start to end
+                ParseSourceSpan::new(
+                    comment_token.source_span.start.clone(),
+                    end.source_span.end.clone(),
+                )
             } else {
+                // No end token found, use start token span only
                 comment_token.source_span.clone()
             };
 
@@ -355,6 +359,8 @@ impl TreeBuilder {
         let mut text = String::new();
         let mut tokens = vec![];
         let start_span = get_token_source_span(&start_token);
+        // Track the end of the last token to calculate full span
+        let mut last_span = start_span.clone();
 
         // Add initial token
         let t1 = get_token_text(&start_token);
@@ -368,6 +374,7 @@ impl TreeBuilder {
                     if let Some(token) = self.advance() {
                         let t2 = get_token_text(&token);
                         text.push_str(&t2);
+                        last_span = get_token_source_span(&token);
                         tokens.push(token);
                     }
                 }
@@ -385,9 +392,12 @@ impl TreeBuilder {
                 })
                 .collect();
 
+            // Create a new span covering from the start of the first token to the end of the last token
+            let full_span = ParseSourceSpan::new(start_span.start, last_span.end);
+
             self.add_to_parent(Node::Text(Text::new(
                 text,
-                start_span,
+                full_span,
                 tokens_converted,
                 None,
             )));
@@ -398,10 +408,12 @@ impl TreeBuilder {
         if let Token::ExpansionFormStart(exp_token) = token {
             // Read switch value and type from RawText tokens
             // Lexer creates separate RawText tokens for switch value and type
+            let mut switch_value_span = exp_token.source_span.clone();
             let switch_value = if let Some(t) = self.peek.clone() {
                 match t {
                     Token::RawText(_) | Token::Text(_) => {
                          let tok = self.advance().unwrap();
+                         switch_value_span = get_token_source_span(&tok);
                          get_token_text(&tok)
                     },
                     _ => String::new()
@@ -410,45 +422,48 @@ impl TreeBuilder {
                 String::new()
             };
 
+            // Note: Commas are consumed by lexer and do not produce tokens.
+
+             // Read type
             let exp_type = if let Some(t) = self.peek.clone() {
                 match t {
                     Token::RawText(_) | Token::Text(_) => {
                          let tok = self.advance().unwrap();
                          get_token_text(&tok)
                     },
-                    _ => String::new()
+                     _ => "plural".to_string() // Default?
                 }
             } else {
-                String::new()
+                 "plural".to_string()
             };
 
-            let mut cases = Vec::new();
+            // Commas skipped by lexer
 
-            // Read expansion cases
+            // Read cases
+            let mut cases = Vec::new();
             while let Some(Token::ExpansionCaseValue(_)) = self.peek {
                 if let Some(case) = self.parse_expansion_case() {
                     cases.push(case);
                 } else {
-                    return; // Error occurred
+                    break;
                 }
             }
 
-            // Check for closing }
+            // Expect }
             if !matches!(self.peek, Some(Token::ExpansionFormEnd(_))) {
-                self.add_error("Invalid ICU message. Missing '}'.".to_string(), exp_token.source_span.clone());
+                 self.add_error("Invalid ICU message. Missing '}'.".to_string(), exp_token.source_span.clone());
                 return;
             }
 
             let _end_span = get_token_source_span(self.peek.as_ref().unwrap());
             let source_span = exp_token.source_span.clone(); // TODO: Merge with _end_span
-            let switch_span = exp_token.source_span.clone();
-
+            
             let expansion = Expansion {
                 switch_value,
                 expansion_type: exp_type,
                 cases,
                 source_span,
-                switch_value_source_span: switch_span,
+                switch_value_source_span: switch_value_span,
                 i18n: None,
             };
 
@@ -577,7 +592,10 @@ impl TreeBuilder {
             let mut self_closing = false;
 
             // Check for self-closing or void tags
-            if let Some(Token::TagOpenEndVoid(_)) = self.peek {
+            let mut end_span_loc = None;
+
+            if let Some(Token::TagOpenEndVoid(tok)) = &self.peek {
+                end_span_loc = Some(tok.source_span.end.clone());
                 self.advance();
                 self_closing = true;
 
@@ -586,13 +604,31 @@ impl TreeBuilder {
                     let msg = format!("Only void, custom and foreign elements can be self closed \"{}\"", full_name);
                     self.add_error(msg, start_token.source_span.clone());
                 }
-            } else if let Some(Token::TagOpenEnd(_)) = self.peek {
+            } else if let Some(Token::TagOpenEnd(tok)) = &self.peek {
+                end_span_loc = Some(tok.source_span.end.clone());
                 self.advance();
                 self_closing = false;
             }
 
-            let span = start_token.source_span.clone();
-            let start_span = span.clone();
+            // Calculate start_source_span (opening tag span)
+            let end_loc = if let Some(loc) = end_span_loc {
+                loc
+            } else {
+                 // Fallback to last consumed token end or start token end
+                 // Since we just consumed attributes, check if we have any
+                 // If not, use start_token end.
+                 // Ideally we should check strict token stream, but this is error recovery path.
+                 start_token.source_span.end.clone()
+            };
+
+            let start_span = ParseSourceSpan::new(
+                start_token.source_span.start.clone(),
+                end_loc.clone()
+            );
+            
+            // source_span initially covers just the start tag (will be updated on close)
+            // UNLESS it is self-closing, in which case it is the final span.
+            let span = start_span.clone();
 
             // Create Element node
             let element = Element {
@@ -638,7 +674,6 @@ impl TreeBuilder {
                 // Non-self-closing: Push to stack to collect children
                 // Will be added to parent when end tag is processed
                 self.container_stack.push(NodeContainer::Element(element.clone()));
-                eprintln!("DEBUG: Pushed Element '{}' to stack. Stack len: {}", element.name, self.container_stack.len());
             }
         }
     }
@@ -735,6 +770,11 @@ impl TreeBuilder {
                     if let NodeContainer::Element(mut el) = removed {
                         if i == idx {
                             el.end_source_span = Some(end_token.source_span.clone());
+                            // Update source_span to cover start to end
+                            el.source_span = ParseSourceSpan::new(
+                                el.start_source_span.start.clone(),
+                                end_token.source_span.end.clone()
+                            );
                         } else {
                             // Implicitly closed: Report error if not void and not closed by parent
                             let el_tag_def = self.get_tag_definition(&el.name);
@@ -784,7 +824,9 @@ impl TreeBuilder {
 
     fn consume_attributes_and_directives(&mut self, attrs: &mut Vec<Attribute>, directives: &mut Vec<Directive>) {
         // Collect all attributes and directives
+        eprintln!("DEBUG: consume_attributes_and_directives start");
         while let Some(token) = &self.peek {
+            eprintln!("DEBUG: parser peek token: {:?}", token);
             match token {
                 Token::AttrName(_) => {
                     if let Some(Token::AttrName(attr_token)) = self.advance() {
@@ -793,8 +835,10 @@ impl TreeBuilder {
                     }
                 }
                 Token::DirectiveName(_) => {
+                    eprintln!("DEBUG: Parser found DirectiveName token");
                     if let Some(Token::DirectiveName(dir_token)) = self.advance() {
                         let directive = self.consume_directive(dir_token);
+                        eprintln!("DEBUG: Parser consumed directive: {}", directive.name);
                         directives.push(directive);
                     }
                 }
@@ -829,7 +873,7 @@ impl TreeBuilder {
             self.advance();
         }
 
-        // Consume attribute value (Tex, Interpolation, EncodedEntity)
+        // Consume attribute value (Text, Interpolation, EncodedEntity)
         while let Some(token) = &self.peek {
              match token {
                  Token::AttrValueText(_) | Token::AttrValueInterpolation(_) | Token::EncodedEntity(_) => {
@@ -840,6 +884,11 @@ impl TreeBuilder {
                          let span = get_token_source_span(&val_token);
                          if value_span.is_none() {
                              value_span = Some(span.clone());
+                         } else {
+                             // Merge spans
+                             if let Some(ref mut vs) = value_span {
+                                 vs.end = span.end.clone();
+                             }
                          }
                          value_tokens.push(val_token);
                      }
@@ -849,14 +898,26 @@ impl TreeBuilder {
         }
 
         // Consume closing quote
-        if let Some(Token::AttrQuote(_)) = self.peek {
+        let mut end_span_loc = if let Some(vs) = &value_span {
+            vs.end.clone()
+        } else {
+            attr_name.source_span.end.clone()
+        };
+
+        if let Some(Token::AttrQuote(quote)) = self.peek.clone() {
+             end_span_loc = quote.source_span.end.clone();
              self.advance();
         }
+        
+        let source_span = ParseSourceSpan::new(
+            attr_name.source_span.start.clone(),
+            end_span_loc
+        );
         
         Attribute {
             name,
             value,
-            source_span: attr_name.source_span.clone(),
+            source_span,
             key_span: Some(attr_name.source_span),
             value_span,
             value_tokens: if value_tokens.is_empty() { None } else { Some(value_tokens) },
@@ -868,7 +929,56 @@ impl TreeBuilder {
         let mut attributes = Vec::new();
         let mut end_source_span: Option<ParseSourceSpan> = None;
 
-        // Check for DIRECTIVE_OPEN
+        // Consume value for attribute-style directive like *ngFor="let item of items"
+        // This mirrors the consume_attr logic for collecting value
+        let mut value_span = None;
+        let mut value = String::new();
+        let mut value_tokens = Vec::new();
+
+        // Consume opening quote
+        if let Some(Token::AttrQuote(_)) = self.peek {
+            self.advance();
+        }
+
+        // Consume directive value (Text, Interpolation, EncodedEntity)
+        while let Some(token) = &self.peek {
+            match token {
+                Token::AttrValueText(_) | Token::AttrValueInterpolation(_) | Token::EncodedEntity(_) => {
+                    if let Some(val_token) = self.advance() {
+                        let text = get_token_text(&val_token);
+                        value.push_str(&text);
+                        
+                        let span = get_token_source_span(&val_token);
+                        if value_span.is_none() {
+                            value_span = Some(span.clone());
+                        }
+                        value_tokens.push(val_token);
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        // Consume closing quote
+        if let Some(Token::AttrQuote(_)) = self.peek {
+            self.advance();
+        }
+        
+        // If we collected a value, create a synthetic attribute for it
+        if !value.is_empty() {
+            let key_span = name_token.source_span.clone();
+            attributes.push(Attribute {
+                name: "".to_string(), // The name is in directive.name
+                value: value.clone(),
+                source_span: key_span.clone(),
+                key_span: Some(key_span.clone()),
+                value_span: value_span.clone(),
+                value_tokens: if value_tokens.is_empty() { None } else { Some(value_tokens.clone()) },
+                i18n: None,
+            });
+        }
+
+        // Check for DIRECTIVE_OPEN (for more complex directive syntax)
         if let Some(Token::DirectiveOpen(_)) = self.peek {
             self.advance();
 
@@ -1278,12 +1388,34 @@ impl TreeBuilder {
     fn add_to_parent(&mut self, node: Node) {
         if let Some(container) = self.container_stack.last_mut() {
             match container {
-                NodeContainer::Element(el) => el.children.push(node),
-                NodeContainer::Block(block) => block.children.push(node),
-                NodeContainer::Component(comp) => comp.children.push(node),
+                NodeContainer::Element(el) => Self::add_to_node_list(&mut el.children, node),
+                NodeContainer::Block(block) => Self::add_to_node_list(&mut block.children, node),
+                NodeContainer::Component(comp) => Self::add_to_node_list(&mut comp.children, node),
             }
         } else {
-            self.root_nodes.push(node);
+            Self::add_to_node_list(&mut self.root_nodes, node);
+        }
+    }
+
+    fn add_to_node_list(list: &mut Vec<Node>, node: Node) {
+        let should_merge = if let Node::Text(_) = &node {
+            matches!(list.last(), Some(Node::Text(_)))
+        } else {
+            false
+        };
+
+        if should_merge {
+            let new_text = if let Node::Text(t) = node { t } else { unreachable!() };
+            // Use unwrap because we checked matches above
+            let last_text = if let Some(Node::Text(t)) = list.last_mut() { t } else { unreachable!() };
+            
+            // println!("DEBUG: Merging text. Last: {:?} ({:?}), New: {:?} ({:?})", last_text.value, last_text.source_span, new_text.value, new_text.source_span);
+            last_text.value.push_str(&new_text.value);
+            last_text.tokens.extend(new_text.tokens);
+            last_text.source_span.end = new_text.source_span.end;
+             // println!("DEBUG: Result span: {:?}", last_text.source_span);
+        } else {
+            list.push(node);
         }
     }
 
@@ -1353,6 +1485,12 @@ fn get_token_source_span(token: &Token) -> ParseSourceSpan {
         Token::TagClose(t) => t.source_span.clone(),
         Token::CommentStart(t) => t.source_span.clone(),
         Token::EncodedEntity(t) => t.source_span.clone(),
+        Token::AttrName(t) => t.source_span.clone(),
+        Token::AttrValueText(t) => t.source_span.clone(),
+        Token::AttrValueInterpolation(t) => t.source_span.clone(),
+        Token::AttrQuote(t) => t.source_span.clone(),
+        Token::RawText(t) => t.source_span.clone(),
+        Token::EscapableRawText(t) => t.source_span.clone(),
         _ => ParseSourceSpan::new(
             crate::parse_util::ParseLocation::new(
                 crate::parse_util::ParseSourceFile::new(String::new(), String::new()),

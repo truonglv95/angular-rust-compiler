@@ -71,14 +71,32 @@ impl Parser {
     pub fn parse_action(&self, input: &str, absolute_offset: usize) -> Result<AST> {
         let tokens = self.lexer.tokenize(input);
         let mut parse_ast = ParseAST::new(input, absolute_offset, tokens, ParseFlags::Action);
-        parse_ast.parse_chain()
+        let ast = parse_ast.parse_chain()?;
+
+
+        
+        Ok(ast)
     }
 
     /// Parse a binding expression (property binding)
     pub fn parse_binding(&self, input: &str, absolute_offset: usize) -> Result<AST> {
         let tokens = self.lexer.tokenize(input);
         let mut parse_ast = ParseAST::new(input, absolute_offset, tokens, ParseFlags::None);
-        parse_ast.parse_chain()
+        let ast = parse_ast.parse_chain()?;
+
+        if parse_ast.index < parse_ast.tokens.len() {
+            let token = &parse_ast.tokens[parse_ast.index];
+            return Err(CompilerError::ParseError {
+                message: format!("Unexpected token '{:?}'", token),
+            });
+        }
+        
+        if !parse_ast.errors.is_empty() {
+             return Err(CompilerError::ParseError {
+                message: parse_ast.errors[0].msg.clone(),
+             });
+        }
+        Ok(ast)
     }
 
     /// Parse an action expression with error collection (for tests)
@@ -211,7 +229,7 @@ impl Parser {
                     message: "Blank expressions are not allowed in interpolated strings".to_string(),
                 });
             }
-            let mut parse_ast = ParseAST::new(&piece.text, piece.start, tokens, ParseFlags::None);
+            let mut parse_ast = ParseAST::new(&piece.text, piece.start, tokens, ParseFlags::Action);
             let ast = parse_ast.parse_chain()?;
             expressions.push(Box::new(ast));
             
@@ -226,9 +244,19 @@ impl Parser {
             }
         }
 
+        // Calculate fullEnd: end of last expression piece + 2 (for }})
+        // If there are expressions, use the last expression piece's end + 2
+        // Otherwise, use input.len()
+        let full_end = if let Some(last_expr_piece) = parts.expressions.last() {
+            // last_expr_piece.end is the position of }}, so fullEnd = last_expr_piece.end + 2
+            last_expr_piece.end + 2
+        } else {
+            absolute_offset + input.len()
+        };
+
         Ok(Interpolation {
             span: ParseSpan::new(0, input.len()),
-            source_span: AbsoluteSourceSpan::new(absolute_offset, absolute_offset + input.len()),
+            source_span: AbsoluteSourceSpan::new(absolute_offset, full_end),
             strings,
             expressions,
         })
@@ -270,48 +298,54 @@ impl Parser {
                     if loop_count > 10000 {
                          panic!("Parser infinite loop detected at i={} in input: '{}'", i, input);
                     }
-                    let char = input.chars().nth(i).unwrap(); // Use checked access in production
+                    let char = input[i..].chars().next().unwrap();
 
                     if in_single_quote {
                         if char == '\\' {
                             i += 1; // Skip backslash
                             if i < input.len() {
-                                i += 1; // Skip escaped char
+                                if let Some(escaped) = input[i..].chars().next() {
+                                    i += escaped.len_utf8();
+                                }
                             }
                             continue;
                         }
                         if char == '\'' {
                             in_single_quote = false;
                         }
-                        i += 1;
+                        i += char.len_utf8();
                         continue;
                     }
                     if in_double_quote {
                         if char == '\\' {
                              i += 1; // Skip backslash
                              if i < input.len() {
-                                 i += 1; // Skip escaped char
+                                if let Some(escaped) = input[i..].chars().next() {
+                                    i += escaped.len_utf8();
+                                }
                              }
                              continue;
                         }
                         if char == '"' {
                             in_double_quote = false;
                         }
-                        i += 1;
+                        i += char.len_utf8();
                         continue;
                     }
                     if in_backtick {
                          if char == '\\' {
                              i += 1; // Skip backslash
                              if i < input.len() {
-                                 i += 1; // Skip escaped char
+                                if let Some(escaped) = input[i..].chars().next() {
+                                    i += escaped.len_utf8();
+                                }
                              }
                              continue;
                         }
                         if char == '`' {
                             in_backtick = false;
                         }
-                        i += 1;
+                        i += char.len_utf8();
                         continue;
                     }
 
@@ -365,11 +399,18 @@ impl Parser {
                         }
                     }
                     
-                    i += 1;
+                    i += char.len_utf8();
                 }
 
                 if depth == 0 {
-                    let expr_text = input[expr_start..i].trim().to_string();
+                    let expr_text = input[expr_start..i].to_string();
+                    // Check if expression is blank (after trim) but don't trim the text itself
+                    // This matches TypeScript behavior where text is not trimmed, only checked
+                    if expr_text.trim().is_empty() {
+                        return Err(CompilerError::ParseError {
+                            message: "Blank expressions are not allowed in interpolated strings".to_string(),
+                        });
+                    }
                     expressions.push(InterpolationPiece {
                         text: expr_text,
                         start: absolute_offset + expr_start,
@@ -384,7 +425,11 @@ impl Parser {
                     break;
                 }
             } else {
-                i += 1;
+                if let Some(c) = input[i..].chars().next() {
+                    i += c.len_utf8();
+                } else {
+                    i += 1;
+                }
             }
         }
 
@@ -554,11 +599,6 @@ impl ParseAST {
                     "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "^=" | "|=" | "<<=" | ">>="
                         | ">>>=" | "**=" | "&&=" | "||=" | "??="
                 ) {
-                    if self.flags != ParseFlags::Action {
-                        return Err(CompilerError::ParseError {
-                            message: "Bindings cannot contain assignments".to_string(),
-                        });
-                    }
                     if !self.is_assignable(&left) {
                         return Err(CompilerError::ParseError {
                             message: format!("Expression {:?} is not assignable", left),
@@ -1018,49 +1058,14 @@ impl ParseAST {
                     self.rparens_expected -= 1;
                     self.expect_character(')')?;
 
-                    match result {
-                        AST::SafePropertyRead(r) => {
-                             result = AST::SafeCall(SafeCall {
-                                 span: self.span(start),
-                                 source_span: self.source_span(start),
-                                 receiver: Box::new(AST::PropertyRead(PropertyRead {
-                                     span: r.span,
-                                     source_span: r.source_span,
-                                     name_span: r.name_span,
-                                     receiver: r.receiver,
-                                     name: r.name,
-                                 })),
-                                 args,
-                                 argument_span: self.source_span(start),
-                                 has_trailing_comma,
-                             });
-                        }
-                        AST::SafeKeyedRead(r) => {
-                             result = AST::SafeCall(SafeCall {
-                                 span: self.span(start),
-                                 source_span: self.source_span(start),
-                                 receiver: Box::new(AST::KeyedRead(KeyedRead {
-                                     span: r.span,
-                                     source_span: r.source_span,
-                                     receiver: r.receiver,
-                                     key: r.key,
-                                 })),
-                                 args,
-                                 argument_span: self.source_span(start),
-                                 has_trailing_comma,
-                             });
-                        }
-                        _ => {
-                            result = AST::Call(Call {
-                                span: self.span(start),
-                                source_span: self.source_span(start),
-                                receiver: Box::new(result),
-                                args,
-                                argument_span: self.source_span(start),
-                                has_trailing_comma,
-                            });
-                        }
-                    }
+                    result = AST::Call(Call {
+                        span: self.span(start),
+                        source_span: self.source_span(start),
+                        receiver: Box::new(result),
+                        args,
+                        argument_span: self.source_span(start),
+                        has_trailing_comma,
+                    });
                 } else if let Some(token) = self.current() {
                     if token.is_template_literal_part() || token.is_template_literal_end() {
                          let template = if let AST::TemplateLiteral(t) = self.parse_template_literal()? {
@@ -1078,9 +1083,9 @@ impl ParseAST {
                          });
                     } else if token.is_operator("=") {
                         if self.flags != ParseFlags::Action {
-                            return Err(CompilerError::ParseError {
-                                message: "Bindings cannot contain assignments".to_string(),
-                            });
+                            if !matches!(result, AST::KeyedRead(_)) {
+                                self.record_error(format!("Bindings cannot contain assignments"));
+                            }
                         }
                         if !self.is_assignable(&result) {
                             return Err(CompilerError::ParseError {
@@ -1269,7 +1274,7 @@ impl ParseAST {
     /// Parse property access or method call
     fn parse_access_member(&mut self, receiver: AST, start: usize, is_safe: bool) -> Result<AST> {
         if let Some(token) = self.current() {
-            if token.is_identifier() {
+            if token.is_identifier() || token.is_keyword() {
                 let name = token.str_value.clone();
                 let name_start = self.input_index();
                 self.advance();
@@ -1494,13 +1499,26 @@ impl ParseAST {
     }
 
     fn span(&self, start: usize) -> ParseSpan {
-        ParseSpan::new(start, self.input_index())
+        // When we have consumed tokens, use the end of the last consumed token
+        // as the end of the span. This avoids including trailing whitespace
+        // which would be included if we used input_index() (start of next token).
+        let end = if self.index > 0 && self.index <= self.tokens.len() {
+            self.tokens[self.index - 1].end
+        } else {
+            self.input_index()
+        };
+        ParseSpan::new(start, end)
     }
 
     fn source_span(&self, start: usize) -> AbsoluteSourceSpan {
+        let end = if self.index > 0 && self.index <= self.tokens.len() {
+            self.tokens[self.index - 1].end
+        } else {
+            self.input_index()
+        };
         AbsoluteSourceSpan::new(
             self.absolute_offset + start,
-            self.absolute_offset + self.input_index(),
+            self.absolute_offset + end,
         )
     }
 
@@ -1623,7 +1641,6 @@ impl ParseAST {
         }
 
         while self.index < self.tokens.len() {
-            // Removed debug prints
             let mut key_is_var = false;
             let mut key_name: Option<String> = None;
             let mut key_span: Option<AbsoluteSourceSpan> = None;
@@ -1638,8 +1655,9 @@ impl ParseAST {
                     if let Some(ident) = self.current() {
                         if ident.is_identifier() {
                             key_name = Some(ident.str_value.clone());
-                            key_span = Some(self.source_span(self.input_index()));
+                            let start = self.input_index();
                             self.advance();
+                            key_span = Some(self.source_span(start));
                         } else {
                             // Error: expected identifier
                              let span = self.source_span(self.input_index());
@@ -1685,7 +1703,7 @@ impl ParseAST {
                     
                     // Simplification: Parse chain.
                     let start_token_index = self.index;
-                    match self.parse_chain() {
+                    match self.parse_pipe() {
                         Ok(expr) => {
                              let mut is_key = false;
                              
@@ -1704,13 +1722,7 @@ impl ParseAST {
                                          // If not empty, assumed to be key (unless followed by 'as' which is handled as Alias?)
                                          // But even if followed by 'as': `ngIf as y`. `ngIf` is Key.
                                          is_key = true;
-                                     } else if let Some(next_token) = self.current() {
-                                          if next_token.token_type != TokenType::Operator || (next_token.str_value != ";" && next_token.str_value != "," && next_token.str_value != "=" && !next_token.is_keyword_as()) {
-                                             // If followed by something that looks like an expression, it is a key
-                                              // 'of items'. 'of' is key.
-                                              is_key = true;
-                                          }
-                                     }
+                                    }
                                  }
                              }
                              
@@ -1723,7 +1735,7 @@ impl ParseAST {
                                  
                                  // Parse actual value
                                  if self.current().map_or(false, |t| !t.is_keyword_as() && t.str_value != ";" && t.str_value != ",") {
-                                     match self.parse_chain() {
+                                     match self.parse_pipe() {
                                          Ok(val_expr) => value = Some(Box::new(val_expr)),
                                          Err(e) => {
                                              let span = self.source_span(self.input_index());
@@ -1860,7 +1872,17 @@ impl ParseAST {
                                       source: n,
                                       span: AbsoluteSourceSpan::new(0,0), // span of 'foo'
                                   },
-                                  value: Some(Box::new(v)),
+                                  value: Some(Box::new(v)), // Synthetic value
+                                  span: AbsoluteSourceSpan::new(0,0),
+                              }));
+                         } else {
+                             // Fallback?
+                              bindings.push(TemplateBinding::Variable(VariableBinding {
+                                  key: TemplateBindingIdentifier {
+                                      source: n,
+                                      span: AbsoluteSourceSpan::new(0,0),
+                                  },
+                                  value: None, 
                                   span: AbsoluteSourceSpan::new(0,0),
                               }));
                          }
@@ -1871,13 +1893,23 @@ impl ParseAST {
                  }
 
             
-            // Consume sep
-            if self.consume_optional_character(';') || self.consume_optional_character(',') {
-                continue;
+            // Consume optional separator
+            if let Some(token) = self.current() {
+                if token.str_value == ";" || token.str_value == "," {
+                    self.advance();
+                }
             }
-            // else break or next loop?
+
+            // Skip whitespace
+            while let Some(token) = self.current() {
+                if token.token_type == TokenType::Character && token.str_value == " " {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
         }
-        
+
         if let Some(dir) = directive_name {
             let has_dir_binding = bindings.iter().any(|b| match b {
                 TemplateBinding::Expression(e) => e.key.source == dir,

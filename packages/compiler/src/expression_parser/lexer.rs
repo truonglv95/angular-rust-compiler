@@ -70,7 +70,7 @@ impl Token {
     }
 
     pub fn is_character(&self, code: char) -> bool {
-        self.token_type == TokenType::Character && self.str_value.chars().next() == Some(code)
+        self.token_type == TokenType::Character && self.str_value == code.to_string()
     }
 
     pub fn is_number(&self) -> bool {

@@ -8,6 +8,7 @@ use regex::Regex;
 use std::collections::HashSet;
 
 use crate::expression_parser::ast::{ASTWithSource, AST};
+use crate::i18n;
 use crate::ml_parser::ast as html;
 use crate::parse_util::{ParseError, ParseSourceSpan};
 use crate::template_parser::binding_parser::BindingParser;
@@ -35,7 +36,7 @@ lazy_static! {
     static ref FOR_LOOP_LET_PATTERN: Regex = Regex::new(r"^let\s+([\S\s]*)").unwrap();
     
     /// Pattern used to validate a JavaScript identifier
-    static ref IDENTIFIER_PATTERN: Regex = Regex::new(r"^[$A-Z_][0-9A-Z_$]*$").unwrap();
+    static ref IDENTIFIER_PATTERN: Regex = Regex::new(r"^[$a-zA-Z_][0-9a-zA-Z_$]*$").unwrap();
     
     /// Pattern to group a string into leading whitespace, non whitespace, and trailing whitespace
     static ref CHARACTERS_IN_SURROUNDING_WHITESPACE_PATTERN: Regex =
@@ -89,22 +90,40 @@ pub struct CreateIfBlockResult {
     pub errors: Vec<ParseError>,
 }
 
-/// Creates an `if` loop block from an HTML AST node
-pub fn create_if_block(
-    ast: &html::Block,
-    connected_blocks: &[html::Block],
+/// Intermediate if block branch with html children for transformation
+pub struct IfBlockBranchInput<'a> {
+    pub expression: Option<AST>,
+    pub html_children: &'a [html::Node],
+    pub expression_alias: Option<Variable>,
+    pub block: BlockNode,
+    pub i18n: Option<i18n::I18nMeta>,
+}
+
+/// Result of pre-processing an if block (before children transformation)
+pub struct PreProcessIfBlockResult<'a> {
+    pub branches: Vec<IfBlockBranchInput<'a>>,
+    pub errors: Vec<ParseError>,
+    pub whole_source_span: ParseSourceSpan,
+    pub start_source_span: ParseSourceSpan,
+    pub end_source_span: Option<ParseSourceSpan>,
+    pub name_span: ParseSourceSpan,
+}
+
+/// Pre-processes an `if` loop block, returning branches with html children for external transformation
+pub fn preprocess_if_block<'a>(
+    ast: &'a html::Block,
+    connected_blocks: &'a [html::Block],
     binding_parser: &mut BindingParser,
-) -> CreateIfBlockResult {
+) -> PreProcessIfBlockResult<'a> {
     let mut errors = validate_if_connected_blocks(connected_blocks);
-    let mut branches: Vec<IfBlockBranch> = Vec::new();
+    let mut branches: Vec<IfBlockBranchInput<'a>> = Vec::new();
 
     if let Some(main_block_params) =
         parse_conditional_block_parameters(ast, &mut errors, binding_parser)
     {
-        // Note: Visitor-based child processing simplified for now
-        branches.push(IfBlockBranch {
+        branches.push(IfBlockBranchInput {
             expression: Some(main_block_params.expression),
-            children: vec![], // Would be populated by visitor
+            html_children: &ast.children,
             expression_alias: main_block_params.expression_alias,
             block: BlockNode::new(
                 ast.name_span.clone(),
@@ -121,9 +140,9 @@ pub fn create_if_block(
             if let Some(params) =
                 parse_conditional_block_parameters(block, &mut errors, binding_parser)
             {
-                branches.push(IfBlockBranch {
+                branches.push(IfBlockBranchInput {
                     expression: Some(params.expression),
-                    children: vec![], // Would be populated by visitor
+                    html_children: &block.children,
                     expression_alias: params.expression_alias,
                     block: BlockNode::new(
                         block.name_span.clone(),
@@ -135,9 +154,9 @@ pub fn create_if_block(
                 });
             }
         } else if block.name == "else" {
-            branches.push(IfBlockBranch {
+            branches.push(IfBlockBranchInput {
                 expression: None,
-                children: vec![], // Would be populated by visitor
+                html_children: &block.children,
                 expression_alias: None,
                 block: BlockNode::new(
                     block.name_span.clone(),
@@ -171,17 +190,13 @@ pub fn create_if_block(
         );
     }
 
-    CreateIfBlockResult {
-        node: Some(IfBlock {
-            branches,
-            block: BlockNode::new(
-                ast.name_span.clone(),
-                whole_source_span,
-                ast.start_source_span.clone(),
-                if_block_end_source_span,
-            ),
-        }),
+    PreProcessIfBlockResult {
+        branches,
         errors,
+        whole_source_span,
+        start_source_span: ast.start_source_span.clone(),
+        end_source_span: if_block_end_source_span,
+        name_span: ast.name_span.clone(),
     }
 }
 

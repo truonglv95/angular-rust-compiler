@@ -377,13 +377,42 @@ fn extract_pipes_from_node(node: &t::R3Node, pipes: &mut HashSet<String>, is_def
                 }
             }
         }
-        _ => {
-            // For other node types, visit children if they exist
-            if let Some(children) = get_node_children(node) {
-                for child in children {
-                    extract_pipes_from_node(&child, pipes, is_deferred, eager_pipes);
+        t::R3Node::Element(el) => {
+            for child in &el.children {
+                extract_pipes_from_node(child, pipes, is_deferred, eager_pipes);
+            }
+        }
+        t::R3Node::Template(tmpl) => {
+            for child in &tmpl.children {
+                extract_pipes_from_node(child, pipes, is_deferred, eager_pipes);
+            }
+        }
+        t::R3Node::IfBlock(if_block) => {
+            for branch in &if_block.branches {
+                for child in &branch.children {
+                    extract_pipes_from_node(child, pipes, is_deferred, eager_pipes);
                 }
             }
+        }
+        t::R3Node::ForLoopBlock(for_loop) => {
+            for child in &for_loop.children {
+                extract_pipes_from_node(child, pipes, is_deferred, eager_pipes);
+            }
+            if let Some(ref empty) = for_loop.empty {
+                for child in &empty.children {
+                    extract_pipes_from_node(child, pipes, is_deferred, eager_pipes);
+                }
+            }
+        }
+        t::R3Node::SwitchBlock(switch) => {
+            for case in &switch.cases {
+                for child in &case.children {
+                    extract_pipes_from_node(child, pipes, is_deferred, eager_pipes);
+                }
+            }
+        }
+        _ => {
+            // Skip other node types that don't contain pipes
         }
     }
 }
@@ -415,6 +444,20 @@ fn get_node_children(node: &t::R3Node) -> Option<Vec<t::R3Node>> {
             Some(children)
         }
         t::R3Node::ForLoopBlockEmpty(empty) => Some(empty.children.clone()),
+        t::R3Node::DeferredBlock(deferred) => {
+            let mut children = deferred.children.clone();
+            // Extend with sub-block children directly, don't wrap as R3Node variants
+            if let Some(ref placeholder) = deferred.placeholder {
+                children.extend(placeholder.children.clone());
+            }
+            if let Some(ref loading) = deferred.loading {
+                children.extend(loading.children.clone());
+            }
+            if let Some(ref error) = deferred.error {
+                children.extend(error.children.clone());
+            }
+            Some(children)
+        }
         t::R3Node::DeferredBlockPlaceholder(placeholder) => Some(placeholder.children.clone()),
         t::R3Node::DeferredBlockLoading(loading) => Some(loading.children.clone()),
         t::R3Node::DeferredBlockError(error) => Some(error.children.clone()),
@@ -441,10 +484,30 @@ fn extract_defer_blocks(nodes: &[t::R3Node]) -> Vec<DeferredBlock> {
                     blocks.extend(extract_defer_blocks(&error.children));
                 }
             }
-            _ => {
-                if let Some(children) = get_node_children(node) {
-                    blocks.extend(extract_defer_blocks(&children));
+            t::R3Node::Element(el) => {
+                blocks.extend(extract_defer_blocks(&el.children));
+            }
+            t::R3Node::Template(tmpl) => {
+                blocks.extend(extract_defer_blocks(&tmpl.children));
+            }
+            t::R3Node::IfBlock(if_block) => {
+                for branch in &if_block.branches {
+                    blocks.extend(extract_defer_blocks(&branch.children));
                 }
+            }
+            t::R3Node::ForLoopBlock(for_loop) => {
+                blocks.extend(extract_defer_blocks(&for_loop.children));
+                if let Some(ref empty) = for_loop.empty {
+                    blocks.extend(extract_defer_blocks(&empty.children));
+                }
+            }
+            t::R3Node::SwitchBlock(switch) => {
+                for case in &switch.cases {
+                    blocks.extend(extract_defer_blocks(&case.children));
+                }
+            }
+            _ => {
+                // Skip other node types
             }
         }
     }
@@ -482,7 +545,7 @@ impl<DirectiveT: DirectiveMeta + Clone + 'static> TargetBinder<DirectiveT> for R
             
             // Build scope and match directives
             if let Some(ref matcher) = self.directive_matcher {
-                match_directives_in_template(template_nodes, matcher, &mut directives_map, &mut eager_directives, &mut bindings, &mut references_map);
+                match_directives_in_template(template_nodes, matcher, &mut directives_map, &mut eager_directives, &mut bindings, &mut references_map, false);
             }
             
             // Extract entities from template
@@ -517,10 +580,10 @@ struct DirectiveOwnerWrapper {
 impl DirectiveOwnerWrapper {
     fn from(owner: &DirectiveOwner) -> Self {
         let key = match owner {
-            DirectiveOwner::Element(el) => format!("Element:{}", el.name),
-            DirectiveOwner::Template(tmpl) => format!("Template:{:?}", tmpl.tag_name),
-            DirectiveOwner::Component(comp) => format!("Component:{}", comp.component_name),
-            DirectiveOwner::Directive(dir) => format!("Directive:{}", dir.name),
+            DirectiveOwner::Element(el) => format!("Element:{}:{}", el.name, el.source_span.start.offset),
+            DirectiveOwner::Template(tmpl) => format!("Template:{:?}:{}", tmpl.tag_name, tmpl.source_span.start.offset),
+            DirectiveOwner::Component(comp) => format!("Component:{}:{}", comp.component_name, comp.source_span.start.offset),
+            DirectiveOwner::Directive(dir) => format!("Directive:{}:{}", dir.name, dir.source_span.start.offset),
             DirectiveOwner::HostElement(_host) => format!("HostElement"),
         };
         DirectiveOwnerWrapper { key }
@@ -560,6 +623,7 @@ fn match_directives_in_template<DirectiveT: DirectiveMeta + Clone>(
     eager_directives: &mut Vec<DirectiveT>,
     bindings: &mut HashMap<BindingKey, BindingTarget<DirectiveT>>,
     references_map: &mut HashMap<ReferenceKey, ReferenceTargetInternal<DirectiveT>>,
+    is_deferred: bool,
 ) {
     let _ = references_map; // TODO: Implement reference resolution
     for node in nodes {
@@ -575,7 +639,9 @@ fn match_directives_in_template<DirectiveT: DirectiveMeta + Clone>(
                             if !matched_directives.is_empty() {
                                 let owner = DirectiveOwnerWrapper::from(&DirectiveOwner::Element(el.clone()));
                                 directives_map.insert(owner.clone(), matched_directives.clone());
-                                eager_directives.extend(matched_directives.clone());
+                                if !is_deferred {
+                                    eager_directives.extend(matched_directives.clone());
+                                }
                                 
                                 // Track bindings for inputs/outputs/attributes
                                 track_element_bindings(
@@ -595,7 +661,7 @@ fn match_directives_in_template<DirectiveT: DirectiveMeta + Clone>(
                 }
                 // Recursively process children
                 for child in &el.children {
-                    match_directives_in_template(&[child.clone()], matcher, directives_map, eager_directives, bindings, references_map);
+                    match_directives_in_template(&[child.clone()], matcher, directives_map, eager_directives, bindings, references_map, is_deferred);
                 }
             }
             t::R3Node::Template(tmpl) => {
@@ -609,7 +675,9 @@ fn match_directives_in_template<DirectiveT: DirectiveMeta + Clone>(
                             if !matched_directives.is_empty() {
                                 let owner = DirectiveOwnerWrapper::from(&DirectiveOwner::Template(tmpl.clone()));
                                 directives_map.insert(owner.clone(), matched_directives.clone());
-                                eager_directives.extend(matched_directives.clone());
+                                if !is_deferred {
+                                    eager_directives.extend(matched_directives.clone());
+                                }
                                 
                                 // Track bindings
                                 track_element_bindings(
@@ -639,7 +707,7 @@ fn match_directives_in_template<DirectiveT: DirectiveMeta + Clone>(
                 // Process directives on template (directives are handled in visitDirective)
                 // Recursively process children
                 for child in &tmpl.children {
-                    match_directives_in_template(&[child.clone()], matcher, directives_map, eager_directives, bindings, references_map);
+                    match_directives_in_template(&[child.clone()], matcher, directives_map, eager_directives, bindings, references_map, is_deferred);
                 }
             }
             t::R3Node::Component(comp) => {
@@ -649,14 +717,16 @@ fn match_directives_in_template<DirectiveT: DirectiveMeta + Clone>(
                         if !matched.is_empty() {
                             let owner = DirectiveOwnerWrapper::from(&DirectiveOwner::Component(comp.clone()));
                             directives_map.insert(owner, matched.clone());
-                            eager_directives.extend(matched);
+                            if !is_deferred {
+                                eager_directives.extend(matched);
+                            }
                         }
                     }
                     _ => {}
                 }
                 // Recursively process children
                 for child in &comp.children {
-                    match_directives_in_template(&[child.clone()], matcher, directives_map, eager_directives, bindings, references_map);
+                    match_directives_in_template(&[child.clone()], matcher, directives_map, eager_directives, bindings, references_map, is_deferred);
                 }
             }
             t::R3Node::Directive(dir) => {
@@ -665,16 +735,56 @@ fn match_directives_in_template<DirectiveT: DirectiveMeta + Clone>(
                     if !matched.is_empty() {
                         let owner = DirectiveOwnerWrapper::from(&DirectiveOwner::Directive(dir.clone()));
                         directives_map.insert(owner, matched.clone());
-                        eager_directives.extend(matched);
+                        if !is_deferred {
+                            eager_directives.extend(matched);
+                        }
                     }
                 }
                 // Note: Directives don't have children in the same way - they're applied to elements
             }
-            _ => {
-                // Recursively process children
-                if let Some(children) = get_node_children(node) {
-                    match_directives_in_template(&children, matcher, directives_map, eager_directives, bindings, references_map);
+            t::R3Node::DeferredBlock(deferred) => {
+                // Explicitly handle DeferredBlock to avoid get_node_children re-wrapping
+                match_directives_in_template(&deferred.children, matcher, directives_map, eager_directives, bindings, references_map, true);
+                if let Some(ref placeholder) = deferred.placeholder {
+                    match_directives_in_template(&placeholder.children, matcher, directives_map, eager_directives, bindings, references_map, false);
                 }
+                if let Some(ref loading) = deferred.loading {
+                    match_directives_in_template(&loading.children, matcher, directives_map, eager_directives, bindings, references_map, false);
+                }
+                if let Some(ref error) = deferred.error {
+                    match_directives_in_template(&error.children, matcher, directives_map, eager_directives, bindings, references_map, false);
+                }
+            }
+            t::R3Node::DeferredBlockPlaceholder(placeholder) => {
+                match_directives_in_template(&placeholder.children, matcher, directives_map, eager_directives, bindings, references_map, false);
+            }
+            t::R3Node::DeferredBlockLoading(loading) => {
+                match_directives_in_template(&loading.children, matcher, directives_map, eager_directives, bindings, references_map, false);
+            }
+            t::R3Node::DeferredBlockError(error) => {
+                match_directives_in_template(&error.children, matcher, directives_map, eager_directives, bindings, references_map, false);
+            }
+            t::R3Node::IfBlock(if_block) => {
+                // Explicitly handle IfBlock to recurse into branches
+                for branch in &if_block.branches {
+                    match_directives_in_template(&branch.children, matcher, directives_map, eager_directives, bindings, references_map, is_deferred);
+                }
+            }
+            t::R3Node::ForLoopBlock(for_block) => {
+                // Explicitly handle ForLoopBlock to recurse into main and empty blocks
+                match_directives_in_template(&for_block.children, matcher, directives_map, eager_directives, bindings, references_map, is_deferred);
+                if let Some(ref empty) = for_block.empty {
+                    match_directives_in_template(&empty.children, matcher, directives_map, eager_directives, bindings, references_map, is_deferred);
+                }
+            }
+            t::R3Node::SwitchBlock(switch_block) => {
+                // Explicitly handle SwitchBlock to recurse into cases
+                for case in &switch_block.cases {
+                    match_directives_in_template(&case.children, matcher, directives_map, eager_directives, bindings, references_map, is_deferred);
+                }
+            }
+            _ => {
+                // Skip other nodes that don't have children or are not relevant
             }
         }
     }
@@ -794,7 +904,8 @@ fn extract_entities_from_template(
     scoped_node_entities.insert(ScopedNodeWrapper { key: "root".to_string() }, entities_vec);
     
     // Visit all nodes and extract expressions, also populate nesting level and scoped node entities
-    visit_expressions_in_template(nodes, &scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level);
+    let root_wrapper = ScopedNodeWrapper { key: "root".to_string() };
+    visit_expressions_in_template(nodes, &scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level, root_wrapper);
 }
 
 // Visit expressions in template and map PropertyRead/SafePropertyRead to TemplateEntity
@@ -807,6 +918,7 @@ fn visit_expressions_in_template(
     scoped_nodes_by_span: &mut HashMap<String, ScopedNode>,
     scoped_node_entities: &mut HashMap<ScopedNodeWrapper, Vec<TemplateEntity>>,
     current_level: usize,
+    current_scope: ScopedNodeWrapper,
 ) {
     for node in nodes {
         match node {
@@ -826,14 +938,14 @@ fn visit_expressions_in_template(
                 for output in &el.outputs {
                     visit_ast_expressions(&output.handler, scope, expressions_map);
                 }
-                visit_expressions_in_template(&el.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level);
+                visit_expressions_in_template(&el.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level, current_scope.clone());
             }
             t::R3Node::Template(tmpl) => {
                 // Store Template as ScopedNode for nesting level and symbol mapping
                 let span_key = format!("{:?}", tmpl.source_span);
                 let wrapper = ScopedNodeWrapper { key: span_key.clone() };
                 scoped_nodes_by_span.insert(span_key.clone(), ScopedNode::Template(tmpl.clone()));
-                nesting_level.insert(wrapper.clone(), current_level);
+                nesting_level.insert(wrapper.clone(), current_level + 1);
                 
                 // Collect entities for this template scope
                 let mut template_entities = Vec::new();
@@ -854,14 +966,25 @@ fn visit_expressions_in_template(
                 for output in &tmpl.outputs {
                     visit_ast_expressions(&output.handler, scope, expressions_map);
                 }
-                visit_expressions_in_template(&tmpl.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level + 1);
+                visit_expressions_in_template(&tmpl.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level + 1, wrapper);
             }
             t::R3Node::LetDeclaration(decl) => {
-                // Track let declaration as symbol - LetDeclaration is not a ScopedNode, so use None/root scope
-                let span_key = "root".to_string();
-                let wrapper = ScopedNodeWrapper { key: span_key };
+                // Track let declaration as symbol - scoped to current scope
                 let key = EntityKey { key: format!("LetDeclaration:{}", decl.name) };
-                symbols_map.insert(key, wrapper);
+                symbols_map.insert(key, current_scope.clone());
+                
+                // Add to entities of current scope
+                if let Some(entities) = scoped_node_entities.get_mut(&current_scope) {
+                    entities.push(TemplateEntity::LetDeclaration(decl.clone()));
+                } else {
+                    // This creates a new entry if somehow missing, though it should be initialized
+                    // For root scope, it is initialized. For branches, it might not be if we didn't init it yet.
+                    // But we init it when entering the node.
+                    // EXCEPT: IfBlockBranch init logic was conditional on being non-empty.
+                    // We must ensure it is initialized.
+                    scoped_node_entities.insert(current_scope.clone(), vec![TemplateEntity::LetDeclaration(decl.clone())]);
+                }
+
                 // Visit the value expression
                 visit_ast_expressions(&decl.value, scope, expressions_map);
             }
@@ -870,7 +993,7 @@ fn visit_expressions_in_template(
                 let span_key = format!("{:?}", for_loop.block.source_span);
                 let wrapper = ScopedNodeWrapper { key: span_key.clone() };
                 scoped_nodes_by_span.insert(span_key.clone(), ScopedNode::ForLoopBlock(for_loop.clone()));
-                nesting_level.insert(wrapper.clone(), current_level);
+                nesting_level.insert(wrapper.clone(), current_level + 1);
                 
                 // Track item variable as symbol and entity
                 let variable_entity = TemplateEntity::Variable(for_loop.item.clone());
@@ -883,13 +1006,13 @@ fn visit_expressions_in_template(
                 
                 // Visit expression (ASTWithSource has .ast field)
                 visit_ast_expressions(&for_loop.expression.ast, scope, expressions_map);
-                visit_expressions_in_template(&for_loop.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level + 1);
+                visit_expressions_in_template(&for_loop.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level + 1, wrapper);
             }
             t::R3Node::IfBlockBranch(branch) => {
                 let span_key = format!("{:?}", branch.block.source_span);
                 let wrapper = ScopedNodeWrapper { key: span_key.clone() };
                 scoped_nodes_by_span.insert(span_key.clone(), ScopedNode::IfBlockBranch(branch.clone()));
-                nesting_level.insert(wrapper.clone(), current_level);
+                nesting_level.insert(wrapper.clone(), current_level + 1);
                 
                 // Collect entities for this branch scope
                 let mut branch_entities = Vec::new();
@@ -901,63 +1024,120 @@ fn visit_expressions_in_template(
                     symbols_map.insert(key, wrapper.clone());
                 }
                 
-                if !branch_entities.is_empty() {
-                    scoped_node_entities.insert(wrapper.clone(), branch_entities);
-                }
+                // Always insert entities, even if empty initially, so we can append LetDeclaration later
+                // Or insert if not present
+                scoped_node_entities.entry(wrapper.clone()).or_insert(branch_entities);
                 
-                // Visit expression if present
+                // Visit expression if present - Wait, expression is on branch? 
+                // t::IfBlockBranch has expression.
                 if let Some(ref expr) = branch.expression {
                     visit_ast_expressions(expr, scope, expressions_map);
                 }
-                visit_expressions_in_template(&branch.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level + 1);
+                visit_expressions_in_template(&branch.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level + 1, wrapper);
             }
             t::R3Node::SwitchBlockCase(case) => {
                 // Store SwitchBlockCase as ScopedNode
                 let span_key = format!("{:?}", case.block.source_span);
                 let wrapper = ScopedNodeWrapper { key: span_key.clone() };
                 scoped_nodes_by_span.insert(span_key.clone(), ScopedNode::SwitchBlockCase(case.clone()));
-                nesting_level.insert(wrapper.clone(), current_level);
+                nesting_level.insert(wrapper.clone(), current_level + 1);
                 
-                // SwitchBlockCase may have expression alias, but it's not a standard field
-                // For now, just track the scope with empty entities
-                scoped_node_entities.insert(wrapper.clone(), Vec::new());
+                // Initialize entities
+                scoped_node_entities.entry(wrapper.clone()).or_insert(Vec::new());
                 
                 // Visit expression if present
                 if let Some(ref expr) = case.expression {
                     visit_ast_expressions(expr, scope, expressions_map);
                 }
-                visit_expressions_in_template(&case.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level + 1);
+                visit_expressions_in_template(&case.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level + 1, wrapper);
             }
             t::R3Node::SwitchBlock(switch) => {
                 // Visit switch expression
                 visit_ast_expressions(&switch.expression, scope, expressions_map);
-                // Visit all cases
+                // Visit all cases - handled by SwitchBlockCase logic above? 
+                // No, cases are children but they are R3Nodes::SwitchBlockCase
+                // And visit_expressions_in_template iterates them.
+                // WE MUST manually iterate and call recursively because SwitchBlockCase is an R3Node that handles itself.
+                // But current implementation loops.
                 for case in &switch.cases {
+                     // Wait, cases in switch.cases are structs, NOT R3Node enum?
+                     // r3_ast::SwitchBlock { cases: Vec<SwitchBlockCase>, ... }
+                     // SwitchBlockCase is a struct.
+                     // So we must manually handle them here as if they were nodes, OR wrap logic.
+                     
+                     // My previous view logic had:
+                     // for case in &switch.cases { ... visit_expressions_in_template(&case.children, ...) }
+                     // It did NOT recurse into 'case' node itself because 'case' is not a node variant in the loop?
+                     // Ah, R3Node::SwitchBlockCase IS a variant.
+                     // But R3Node::SwitchBlock has a Vec of SwitchBlockCase structs.
+                     // Are children of SwitchBlock R3Nodes or SwitchBlockCase structs?
+                     // They are structs.
+                     
+                     // So I must keep the manual logic for SwitchBlock, but simulate the node behavior or just inline.
+                     // I will INLINE logic for creating scope for case.
+                     
+                    let span_key = format!("{:?}", case.block.source_span);
+                    let wrapper = ScopedNodeWrapper { key: span_key.clone() };
+                    scoped_nodes_by_span.insert(span_key.clone(), ScopedNode::SwitchBlockCase(case.clone()));
+                    nesting_level.insert(wrapper.clone(), current_level + 1);
+                    
+                    scoped_node_entities.entry(wrapper.clone()).or_insert(Vec::new());
+
                     if let Some(ref expr) = case.expression {
                         visit_ast_expressions(expr, scope, expressions_map);
                     }
-                    visit_expressions_in_template(&case.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level + 1);
+                    visit_expressions_in_template(&case.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level + 1, wrapper);
                 }
             }
             t::R3Node::IfBlock(if_block) => {
                 // Visit all branches
                 for branch in &if_block.branches {
-                    // Track expression alias if present
+                    // Logic similar to SwitchBlock - iterate explicitly
+                    // Branch is struct.
+                    
+                    let span_key = format!("{:?}", branch.block.source_span);
+                    let wrapper = ScopedNodeWrapper { key: span_key.clone() };
+                    scoped_nodes_by_span.insert(span_key.clone(), ScopedNode::IfBlockBranch(branch.clone()));
+                    nesting_level.insert(wrapper.clone(), current_level + 1);
+                    
+                    let mut branch_entities = Vec::new();
                     if let Some(ref alias) = branch.expression_alias {
+                        branch_entities.push(TemplateEntity::Variable(alias.clone()));
                         let key = EntityKey { key: format!("Variable:{}", alias.name) };
-                        symbols_map.insert(key, ScopedNodeWrapper { key: "IfBlockBranch".to_string() });
+                        symbols_map.insert(key, wrapper.clone());
                     }
-                    // Visit expression if present
+                    scoped_node_entities.entry(wrapper.clone()).or_insert(branch_entities);
+
                     if let Some(ref expr) = branch.expression {
                         visit_ast_expressions(expr, scope, expressions_map);
                     }
-                    visit_expressions_in_template(&branch.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level + 1);
+                    visit_expressions_in_template(&branch.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level + 1, wrapper);
                 }
             }
-            _ => {
-                if let Some(children) = get_node_children(node) {
-                    visit_expressions_in_template(&children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level);
+            t::R3Node::DeferredBlock(deferred) => {
+                // Explicitly handle DeferredBlock to avoid get_node_children re-wrapping
+                visit_expressions_in_template(&deferred.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level, current_scope.clone());
+                if let Some(ref placeholder) = deferred.placeholder {
+                    visit_expressions_in_template(&placeholder.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level, current_scope.clone());
                 }
+                if let Some(ref loading) = deferred.loading {
+                    visit_expressions_in_template(&loading.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level, current_scope.clone());
+                }
+                if let Some(ref error) = deferred.error {
+                    visit_expressions_in_template(&error.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level, current_scope.clone());
+                }
+            }
+            t::R3Node::DeferredBlockPlaceholder(placeholder) => {
+                visit_expressions_in_template(&placeholder.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level, current_scope.clone());
+            }
+            t::R3Node::DeferredBlockLoading(loading) => {
+                visit_expressions_in_template(&loading.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level, current_scope.clone());
+            }
+            t::R3Node::DeferredBlockError(error) => {
+                visit_expressions_in_template(&error.children, scope, expressions_map, symbols_map, nesting_level, scoped_nodes_by_span, scoped_node_entities, current_level, current_scope.clone());
+            }
+            _ => {
+                // For remaining node types, skip recursion to avoid issues
             }
         }
     }
@@ -1101,21 +1281,23 @@ fn extract_entities_recursive(nodes: &[t::R3Node], entities: &mut Vec<TemplateEn
                 extract_entities_recursive(&el.children, entities);
             }
             t::R3Node::Template(tmpl) => {
-                for variable in &tmpl.variables {
-                    entities.push(TemplateEntity::Variable(variable.clone()));
-                }
+                // references are available in the parent scope
                 for reference in &tmpl.references {
                     entities.push(TemplateEntity::Reference(reference.clone()));
                 }
-                extract_entities_recursive(&tmpl.children, entities);
+                // variables and children are in the inner scope - DO NOT recurse
             }
             t::R3Node::LetDeclaration(decl) => {
                 entities.push(TemplateEntity::LetDeclaration(decl.clone()));
             }
+            t::R3Node::IfBlock(_) | t::R3Node::ForLoopBlock(_) | t::R3Node::SwitchBlock(_) | t::R3Node::DeferredBlock(_) => {
+                // These create new scopes/views - DO NOT recurse
+            }
             _ => {
-                if let Some(children) = get_node_children(node) {
-                    extract_entities_recursive(&children, entities);
-                }
+                // For other nodes (e.g. Content), if they have children, we might need to recurse if they don't create a new view.
+                // But generally only Element has children in the same view.
+                // Content (content projection) ? <ng-content> doesn't have children in AST.
+                // So default to nothing.
             }
         }
     }
@@ -1389,13 +1571,19 @@ impl<DirectiveT: DirectiveMeta + Clone + 'static> BoundTarget<DirectiveT> for R3
         
         // Try to find reference in scope
         let ref_name = reference.as_ref().unwrap();
-        // TODO: Implement find_entity_in_scope and resolve reference to element
-        // For now, search in template nodes
+        
+        // Find element by reference in template
         if let Some(ref template_nodes) = self.target.template {
-            find_element_by_reference(template_nodes, ref_name)
-        } else {
-            None
+            if let Some(element) = find_element_by_reference(template_nodes, ref_name) {
+                // Check if the element is inside the main content of the defer block
+                // If it is, return None because triggers inside main content are invalid
+                if is_element_in_nodes(&block.children, &element) {
+                    return None;
+                }
+                return Some(element);
+            }
         }
+        None
     }
 
     fn is_deferred(&self, node: &Element) -> bool {
@@ -1408,7 +1596,15 @@ impl<DirectiveT: DirectiveMeta + Clone + 'static> BoundTarget<DirectiveT> for R3
     }
 
     fn referenced_directive_exists(&self, name: &str) -> bool {
-        !self.missing_directives.contains(name)
+        // Check if any matched directive has this name
+        for dirs in self.directives_map.values() {
+            for dir in dirs {
+                if dir.name() == name {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 
@@ -1468,12 +1664,52 @@ fn find_element_by_reference(nodes: &[t::R3Node], ref_name: &str) -> Option<Elem
                     return Some(result);
                 }
             }
-            _ => {
-                if let Some(children) = get_node_children(node) {
-                    if let Some(result) = find_element_by_reference(&children, ref_name) {
+            t::R3Node::DeferredBlock(deferred) => {
+                if let Some(result) = find_element_by_reference(&deferred.children, ref_name) {
+                    return Some(result);
+                }
+                if let Some(ref placeholder) = deferred.placeholder {
+                    if let Some(result) = find_element_by_reference(&placeholder.children, ref_name) {
                         return Some(result);
                     }
                 }
+                if let Some(ref loading) = deferred.loading {
+                    if let Some(result) = find_element_by_reference(&loading.children, ref_name) {
+                        return Some(result);
+                    }
+                }
+                if let Some(ref error) = deferred.error {
+                    if let Some(result) = find_element_by_reference(&error.children, ref_name) {
+                        return Some(result);
+                    }
+                }
+            }
+            t::R3Node::IfBlock(if_block) => {
+                for branch in &if_block.branches {
+                    if let Some(result) = find_element_by_reference(&branch.children, ref_name) {
+                        return Some(result);
+                    }
+                }
+            }
+            t::R3Node::ForLoopBlock(for_loop) => {
+                if let Some(result) = find_element_by_reference(&for_loop.children, ref_name) {
+                    return Some(result);
+                }
+                if let Some(ref empty) = for_loop.empty {
+                    if let Some(result) = find_element_by_reference(&empty.children, ref_name) {
+                        return Some(result);
+                    }
+                }
+            }
+            t::R3Node::SwitchBlock(switch) => {
+                for case in &switch.cases {
+                    if let Some(result) = find_element_by_reference(&case.children, ref_name) {
+                        return Some(result);
+                    }
+                }
+            }
+            _ => {
+                // Skip other node types that don't have children
             }
         }
     }
@@ -1525,12 +1761,57 @@ fn is_element_in_nodes(nodes: &[t::R3Node], target_element: &Element) -> bool {
                     return true;
                 }
             }
-            _ => {
-                if let Some(children) = get_node_children(node) {
-                    if is_element_in_nodes(&children, target_element) {
+            t::R3Node::Template(tmpl) => {
+                if is_element_in_nodes(&tmpl.children, target_element) {
+                    return true;
+                }
+            }
+            t::R3Node::DeferredBlock(deferred) => {
+                if is_element_in_nodes(&deferred.children, target_element) {
+                    return true;
+                }
+                if let Some(ref placeholder) = deferred.placeholder {
+                    if is_element_in_nodes(&placeholder.children, target_element) {
                         return true;
                     }
                 }
+                if let Some(ref loading) = deferred.loading {
+                    if is_element_in_nodes(&loading.children, target_element) {
+                        return true;
+                    }
+                }
+                if let Some(ref error) = deferred.error {
+                    if is_element_in_nodes(&error.children, target_element) {
+                        return true;
+                    }
+                }
+            }
+            t::R3Node::IfBlock(if_block) => {
+                for branch in &if_block.branches {
+                    if is_element_in_nodes(&branch.children, target_element) {
+                        return true;
+                    }
+                }
+            }
+            t::R3Node::ForLoopBlock(for_loop) => {
+                if is_element_in_nodes(&for_loop.children, target_element) {
+                    return true;
+                }
+                if let Some(ref empty) = for_loop.empty {
+                    if is_element_in_nodes(&empty.children, target_element) {
+                        return true;
+                    }
+                }
+            }
+            t::R3Node::SwitchBlock(switch) => {
+                for case in &switch.cases {
+                    if is_element_in_nodes(&case.children, target_element) {
+                        return true;
+                    }
+                }
+            }
+            _ => {
+                // Skip other node types
             }
         }
     }
@@ -1595,12 +1876,52 @@ fn find_reference_target_in_nodes<DirectiveT: DirectiveMeta>(
                     return Some(result);
                 }
             }
-            _ => {
-                if let Some(children) = get_node_children(node) {
-                    if let Some(result) = find_reference_target_in_nodes(&children, reference) {
+            t::R3Node::DeferredBlock(deferred) => {
+                if let Some(result) = find_reference_target_in_nodes(&deferred.children, reference) {
+                    return Some(result);
+                }
+                if let Some(ref placeholder) = deferred.placeholder {
+                    if let Some(result) = find_reference_target_in_nodes(&placeholder.children, reference) {
                         return Some(result);
                     }
                 }
+                if let Some(ref loading) = deferred.loading {
+                    if let Some(result) = find_reference_target_in_nodes(&loading.children, reference) {
+                        return Some(result);
+                    }
+                }
+                if let Some(ref error) = deferred.error {
+                    if let Some(result) = find_reference_target_in_nodes(&error.children, reference) {
+                        return Some(result);
+                    }
+                }
+            }
+            t::R3Node::IfBlock(if_block) => {
+                for branch in &if_block.branches {
+                    if let Some(result) = find_reference_target_in_nodes(&branch.children, reference) {
+                        return Some(result);
+                    }
+                }
+            }
+            t::R3Node::ForLoopBlock(for_loop) => {
+                if let Some(result) = find_reference_target_in_nodes(&for_loop.children, reference) {
+                    return Some(result);
+                }
+                if let Some(ref empty) = for_loop.empty {
+                    if let Some(result) = find_reference_target_in_nodes(&empty.children, reference) {
+                        return Some(result);
+                    }
+                }
+            }
+            t::R3Node::SwitchBlock(switch) => {
+                for case in &switch.cases {
+                    if let Some(result) = find_reference_target_in_nodes(&case.children, reference) {
+                        return Some(result);
+                    }
+                }
+            }
+            _ => {
+                // Skip other node types
             }
         }
     }
@@ -1688,10 +2009,25 @@ impl Scope {
                     }
                     self.ingest_nodes(&branch.children);
                 }
-                _ => {
-                    if let Some(children) = get_node_children(node) {
-                        self.ingest_nodes(&children);
+                t::R3Node::DeferredBlock(deferred) => {
+                    self.ingest_nodes(&deferred.children);
+                    if let Some(ref placeholder) = deferred.placeholder {
+                        self.ingest_nodes(&placeholder.children);
                     }
+                    if let Some(ref loading) = deferred.loading {
+                        self.ingest_nodes(&loading.children);
+                    }
+                    if let Some(ref error) = deferred.error {
+                        self.ingest_nodes(&error.children);
+                    }
+                }
+                t::R3Node::SwitchBlock(switch) => {
+                    for case in &switch.cases {
+                        self.ingest_nodes(&case.children);
+                    }
+                }
+                _ => {
+                    // Skip other node types that don't have children
                 }
             }
         }

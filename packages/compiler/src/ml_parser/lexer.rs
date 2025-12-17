@@ -711,12 +711,15 @@ impl Tokenizer {
         self.end_token(vec![self.process_carriage_returns(parts.join(""))]);
     }
 
-    fn consume_interpolation(&mut self, interpolation_token_type: TokenType, _interpolation_start: Box<dyn CharacterCursor>, end_char: Option<char>) {
+    fn consume_interpolation(&mut self, interpolation_token_type: TokenType, interpolation_start: Box<dyn CharacterCursor>, end_char: Option<char>) {
         // Consume {{
         self.cursor.advance();
         self.cursor.advance();
 
-        self.begin_token(interpolation_token_type);
+        // Use the passed start cursor which points to {{
+        self.current_token_start = Some(interpolation_start);
+        self.current_token_type = Some(interpolation_token_type);
+        
         let mut parts = vec!["{{".to_string()];
 
         self.in_interpolation = true;
@@ -1129,7 +1132,7 @@ impl Tokenizer {
         // Determine if it's a component
         let prefix_is_component = prefix.chars().next().map_or(false, |c| c.is_uppercase());
         let tag_is_component = !html_tags::check_is_known_tag(&tag_name) && tag_name.chars().next().map_or(false, |c| c.is_uppercase());
-        let is_component = prefix_is_component || tag_is_component || tag_name == "ng-content";
+        let is_component = prefix_is_component || tag_is_component;
 
         if is_component {
              self.current_token_type = Some(TokenType::ComponentOpenStart);
@@ -1346,7 +1349,9 @@ impl Tokenizer {
             return;
         }
 
-        if attr_name_start == '@' || attr_name_start == '*' {
+        // For @ prefix: only treat as directive when selectorless_enabled
+        // For * prefix: always treat as directive (structural directive)
+        if attr_name_start == '*' || (attr_name_start == '@' && self.selectorless_enabled) {
              self.begin_token(TokenType::DirectiveName);
         } else {
              self.begin_token(TokenType::AttrName);
@@ -1453,9 +1458,42 @@ impl Tokenizer {
 
         let name_start = self.cursor.clone_cursor();
         
-        // Consume name until space, =, or )
-        while !self.is_name_end(self.cursor.peek()) && self.cursor.peek() != ')' {
-            if self.cursor.peek() == chars::EOF { break; }
+        // Track parenthesis nesting for event bindings like (c) - we need to include the closing )
+        let mut paren_depth = 0;
+        if attr_name_start == '(' {
+            paren_depth = 1;
+        }
+        
+        // Consume name until space, =, or ) at depth 0
+        loop {
+            let ch = self.cursor.peek();
+            if ch == chars::EOF { break; }
+            
+            // Stop at '=' regardless of paren depth - marks end of name
+            if ch == '=' {
+                break;
+            }
+            
+            if ch == '(' {
+                paren_depth += 1;
+            } else if ch == ')' {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                    // Include this ) as part of the name (e.g., for "(c)")
+                    self.cursor.advance();
+                    if paren_depth == 0 {
+                        break; // Name complete after closing paren
+                    }
+                    continue;
+                } else {
+                    break; // End of directive attributes
+                }
+            }
+            
+            if self.is_name_end(ch) && paren_depth == 0 {
+                break;
+            }
+            
             self.cursor.advance();
         }
         
@@ -1538,7 +1576,6 @@ impl Tokenizer {
                 value.push(ch);
                 self.cursor.advance();
             }
-
             self.end_token(vec![self.process_carriage_returns(value)]);
         }
     }
@@ -1656,7 +1693,7 @@ impl Tokenizer {
         // Determine if it's a component close tag
         let prefix_is_component = prefix.chars().next().map_or(false, |c| c.is_uppercase());
         let tag_is_component = !html_tags::check_is_known_tag(&tag_name) && tag_name.chars().next().map_or(false, |c| c.is_uppercase());
-        let is_component = prefix_is_component || tag_is_component || tag_name == "ng-content";
+        let is_component = prefix_is_component || tag_is_component;
 
         if is_component {
             self.current_token_type = Some(TokenType::ComponentClose);
@@ -1891,17 +1928,28 @@ impl Tokenizer {
         }
 
         // Handle "else if"
-        if block_name == "else" && self.cursor.peek() == ' ' {
+        // Handle "else if" with arbitrary whitespace
+        if block_name == "else" && matches!(self.cursor.peek(), ' ' | '\t' | '\n' | '\r') {
              let mut temp = self.cursor.clone_cursor();
-             temp.advance(); // Skip space
+             
+             // Skip whitespace
+             while matches!(temp.peek(), ' ' | '\t' | '\n' | '\r') {
+                 temp.advance();
+             }
+             
              if temp.peek() == 'i' {
                  temp.advance();
                  if temp.peek() == 'f' {
                      temp.advance();
                      let next = temp.peek();
-                     if next == ' ' || next == '(' || next == '{' {
-                         // Consumed " if"
-                         self.cursor.advance(); // space
+                     // Check boundary after 'if' (space, (, {, or EOF)
+                     if matches!(next, ' ' | '\t' | '\n' | '\r' | '(' | '{' | chars::EOF) {
+                         // Consumed " if" - commit the cursor advancement from main cursor
+                         // First consume whitespace
+                         while matches!(self.cursor.peek(), ' ' | '\t' | '\n' | '\r') {
+                            self.cursor.advance();
+                         }
+                         // Then consume "if"
                          self.cursor.advance(); // i
                          self.cursor.advance(); // f
                          block_name.push_str(" if");
@@ -1910,7 +1958,7 @@ impl Tokenizer {
              }
         }
 
-        self.end_token(vec![block_name]);
+        self.end_token(vec![block_name.clone()]);
 
         // Track block depth
         self.block_depth += 1;
@@ -2250,7 +2298,6 @@ impl Tokenizer {
         }
         
         let is_block = matches!(name.as_str(), "if" | "for" | "switch" | "defer" | "default" | "else" | "empty" | "error" | "case" | "placeholder" | "loading");
-        // eprintln!("DEBUG: is_block_start name='{}' result={}", name, is_block);
         is_block
     }
     
@@ -2269,8 +2316,26 @@ impl Tokenizer {
         temp_cursor.advance(); // Skip @
 
         // Check for 'let'
-        // Just peek 'l' for optimization, consume_let_declaration verifies usage
-        temp_cursor.peek() == 'l'
+        if temp_cursor.peek() != 'l' {
+            return false;
+        }
+        temp_cursor.advance();
+        if temp_cursor.peek() != 'e' {
+            return false;
+        }
+        temp_cursor.advance();
+        if temp_cursor.peek() != 't' {
+            return false;
+        }
+        temp_cursor.advance();
+        
+        // Accept @let followed by:
+        // - whitespace (normal let declaration)
+        // - uppercase letter (incomplete let like @letFoo)
+        // - non-alphanumeric (incomplete let like @let= or @let;)
+        // Reject if followed by lowercase letter (would be a block name like @letter)
+        let next = temp_cursor.peek();
+        !next.is_ascii_lowercase()
     }
 
     fn is_selectorless_directive_start(&self) -> bool {
@@ -2296,37 +2361,46 @@ impl Tokenizer {
             }
         }
         
-        // Check for arguments (parentheses)
-    // Do NOT skip whitespace (Angular requires @dir(args) without space)
-    if self.cursor.peek() == '(' {
-         self.begin_token(TokenType::DirectiveOpen);
-         self.end_token(vec![name]);
+        // Always emit DirectiveName first
+        self.begin_token(TokenType::DirectiveName);
+        self.end_token(vec![name.clone()]);
+        
+        // Skip whitespace between name and potential parens
+        while matches!(self.cursor.peek(), ' ' | '\t' | '\n' | '\r') {
+             self.cursor.advance();
+        }
 
-         self.cursor.advance();
-         
-         // Loop to consume attributes until ')' or EOF
-         while self.cursor.peek() != ')' && self.cursor.peek() != chars::EOF {
-             self.consume_directive_attribute();
+        // Check for arguments (parentheses)
+        if self.cursor.peek() == '(' {
+             self.begin_token(TokenType::DirectiveOpen);
+             self.end_token(vec![]); // Empty parts, parser uses name from DirectiveName
+
+             self.cursor.advance();
              
-             // Skip whitespace/comma separating attributes
+             // Skip whitespace/comma separating attributes (including initial whitespace)
               while matches!(self.cursor.peek(), ' ' | '\t' | '\n' | '\r' | ',') {
                  self.cursor.advance();
              }
-         }
-         
-         if self.cursor.peek() == ')' {
-             self.cursor.advance();
-         } else if self.cursor.peek() == chars::EOF {
-             self.handle_error("Unexpected character \"EOF\", expected \")\"".to_string());
-         }
-         
-         self.begin_token(TokenType::DirectiveClose);
-         self.end_token(vec![]);
-    } else {
-        // No arguments -> DirectiveName
-        self.begin_token(TokenType::DirectiveName);
-        self.end_token(vec![name]);
-    }
+             
+             // Loop to consume attributes until ')' or EOF
+             while self.cursor.peek() != ')' && self.cursor.peek() != chars::EOF {
+                 self.consume_directive_attribute();
+                 
+                 // Skip whitespace/comma separating attributes
+                  while matches!(self.cursor.peek(), ' ' | '\t' | '\n' | '\r' | ',') {
+                     self.cursor.advance();
+                 }
+             }
+             
+             if self.cursor.peek() == ')' {
+                 self.cursor.advance();
+             } else if self.cursor.peek() == chars::EOF {
+                 self.handle_error("Unexpected character \"EOF\", expected \")\"".to_string());
+             }
+             
+             self.begin_token(TokenType::DirectiveClose);
+             self.end_token(vec![]);
+        }
     }
 
 
@@ -2372,15 +2446,7 @@ impl Tokenizer {
 
         // Block closing brace (but NOT }} from interpolation)
         if ch == '}' && self.tokenize_blocks && !self.in_interpolation {
-            // Check if this is }} (interpolation end) or just } (block end)
-            let mut temp = self.cursor.clone_cursor();
-            temp.advance();
-            if temp.peek() != '}' {
-                // Single }, not }}, so it's block end (only if we have open blocks)
-                return true;
-            }
-            // This is }}, continue to let interpolation handler deal with it
-            return false;
+            return true;
         }
 
         if ch == '@' && (self.is_block_start() || self.is_let_start()) {

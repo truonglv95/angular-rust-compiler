@@ -40,7 +40,7 @@ use crate::parse_util::ParseError;
 use super::util::{has_i18n_attrs, I18N_ATTR, I18N_ATTR_PREFIX};
 
 /// i18n metadata
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct I18nMeta {
     pub id: Option<String>,
     pub custom_id: Option<String>,

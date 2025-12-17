@@ -3,7 +3,7 @@
 //! Corresponds to packages/compiler/src/render3/r3_template_transform.ts
 //! Contains HTML AST to Ivy AST transformation
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -14,7 +14,7 @@ use crate::i18n::i18n_ast as i18n;
 use crate::ml_parser::ast as html;
 use crate::ml_parser::html_whitespaces::replace_ngsp;
 use crate::ml_parser::tags::is_ng_template;
-// use crate::ml_parser::tokens::{InterpolatedAttributeToken, InterpolatedTextToken};
+use crate::ml_parser::tokens::Token;
 use crate::parse_util::{ParseError, ParseSourceSpan};
 use crate::style_url_resolver::is_style_url_resolvable;
 use crate::template_parser::binding_parser::BindingParser;
@@ -22,7 +22,7 @@ use crate::template_parser::template_preparser::{preparse_element, PreparsedElem
 
 use super::r3_ast as t;
 use super::r3_control_flow::{
-    create_for_loop, create_if_block, create_switch_block, is_connected_for_loop_block,
+    create_for_loop, preprocess_if_block, create_switch_block, is_connected_for_loop_block,
     is_connected_if_loop_block,
 };
 use super::r3_deferred_blocks::{create_deferred_block, is_connected_defer_loop_block};
@@ -231,7 +231,107 @@ impl<'a> HtmlAstToIvyAst<'a> {
         }
 
         let is_template_element = is_ng_template(&element.name);
-        let prepared = self.prepare_attributes(&element.attrs, is_template_element);
+        let mut prepared = self.prepare_attributes(&element.attrs, is_template_element);
+        
+        // Process html::Directive nodes as inline template bindings
+        // These are parsed by ml_parser for *ngFor, *ngIf etc.
+        // Process html::Directive nodes
+        let mut r3_directives: Vec<t::Directive> = vec![];
+
+        // Scan for structural directives in attributes (e.g. *ngIf)
+        // because html_parser might not distinguish them from regular attributes
+        let structural_directives: Vec<html::Directive> = element.attrs.iter()
+            .filter(|a| a.name.starts_with('*'))
+            .map(|a| html::Directive {
+                name: a.name.clone(),
+                attrs: vec![a.clone()],
+                source_span: a.source_span.clone(),
+                start_source_span: a.source_span.clone(),
+                end_source_span: None,
+            })
+            .collect();
+        
+        for directive in element.directives.iter().chain(structural_directives.iter()) {
+            // Check if it's a structural directive (*) or selectorless directive (@)
+            // We look at the source content to determine the prefix
+            let content = &directive.source_span.start.file.content;
+            let offset = directive.source_span.start.offset;
+            let is_structural = content[offset..].starts_with('*');
+            
+            if is_structural {
+                // Structural Directive (*ngIf, *ngFor, etc.) -> Convert to inline template binding
+                // The directive.attrs contains the parsed attribute like 'let item of items'
+                let template_key = &directive.name;
+                
+                // Get the value from the directive's first attr (if any) - the full binding expression
+                let first_attr = directive.attrs.first();
+                let directive_value = first_attr
+                    .map(|a| a.value.clone())
+                    .unwrap_or_default();
+                
+                // Use the value_span for correct absolute offset, falling back to directive source_span
+                let absolute_value_offset = first_attr
+                    .and_then(|a| a.value_span.as_ref())
+                    .map(|vs| vs.start.offset)
+                    .unwrap_or(directive.source_span.start.offset);
+                
+                let mut parsed_variables = vec![];
+                self.binding_parser.parse_inline_template_binding(
+                    template_key,
+                    &directive_value,
+                    &directive.source_span,
+                    absolute_value_offset,
+                    &mut vec![],
+                    &mut prepared.template_parsed_properties,
+                    &mut parsed_variables,
+                    true,
+                );
+                
+                for v in parsed_variables {
+                    prepared.template_variables.push(t::Variable {
+                        name: v.name,
+                        value: v.value,
+                        source_span: v.source_span,
+                        key_span: v.key_span,
+                        value_span: v.value_span,
+                    });
+                }
+                
+                prepared.element_has_inline_template = true;
+            } else {
+                // Selectorless Directive (@Dir) -> Create t::Directive node
+                // Parse directive's nested attributes to populate inputs/outputs
+                let dir_prepared = self.prepare_attributes(
+                    &directive.attrs,
+                    false, // is_template_element=false for directives
+                );
+
+                let categorized = self.categorize_property_attributes(None, &dir_prepared.parsed_properties, &std::collections::HashMap::new());
+                
+                // Validate directive bindings
+                self.validate_directive_bindings(&categorized.bound, &dir_prepared.attributes, &dir_prepared.references);
+
+                // Check for duplicate directives
+                if r3_directives.iter().any(|d| d.name == directive.name) {
+                    self.report_error(
+                        &format!("Directive @{} has already been applied to this element", directive.name),
+                        &directive.source_span,
+                    );
+                }
+
+                r3_directives.push(t::Directive {
+                    name: directive.name.clone(),
+                    attributes: dir_prepared.attributes,
+                    inputs: categorized.bound,
+                    outputs: dir_prepared.bound_events,
+                    references: dir_prepared.references,
+                    source_span: directive.source_span.clone(),
+                    start_source_span: directive.start_source_span.clone(),
+                    end_source_span: directive.end_source_span.clone(),
+                    i18n: None,
+                });
+            }
+        }
 
         let children = if preparsed.non_bindable {
             visit_all_non_bindable(&element.children)
@@ -303,7 +403,7 @@ impl<'a> HtmlAstToIvyAst<'a> {
                 prepared.attributes,
                 attrs.bound,
                 prepared.bound_events,
-                vec![], // directives
+                r3_directives, // directives
                 children,
                 prepared.references,
                 element.is_self_closing,
@@ -314,6 +414,10 @@ impl<'a> HtmlAstToIvyAst<'a> {
                 element.i18n.clone(),
             ))
         };
+
+        if is_i18n_root {
+            // self.i18n_tree.pop(); // Not implemented yet
+        }
 
         let result = if prepared.element_has_inline_template {
             self.wrap_in_template(
@@ -347,16 +451,70 @@ impl<'a> HtmlAstToIvyAst<'a> {
     }
 
     fn visit_text(&mut self, text: &html::Text) -> Option<t::R3Node> {
-        self.visit_text_with_interpolation(&text.value, &text.source_span, &text.i18n)
+
+        self.visit_text_with_interpolation(&text.value, &text.source_span, &text.i18n, Some(text.tokens.clone()))
     }
 
     fn visit_expansion(&mut self, expansion: &html::Expansion) -> Option<t::R3Node> {
-        if expansion.i18n.is_none() {
-            return None;
+        let mut vars = HashMap::new();
+        let mut placeholders = HashMap::new();
+
+        // 1. Process switch value (as a variable)
+        let switch_value = &expansion.switch_value;
+        let switch_span = &expansion.switch_value_source_span;
+        
+        let switch_expr = self.binding_parser.parse_binding(
+            switch_value,
+            false,
+            switch_span.clone(),
+            switch_span.start.offset,
+        );
+
+        let bound_text = t::BoundText::new(
+             (*switch_expr.ast).clone(),
+             switch_span.clone(),
+             None, // switch value itself doesn't have i18n meta usually
+        );
+        vars.insert(switch_value.clone(), bound_text);
+
+        // 2. Process cases recursively
+        for case in &expansion.cases {
+            for node in &case.expression {
+                let r3_node = match node {
+                    html::Node::Element(e) => self.visit_element(e),
+                    html::Node::Text(txt) => self.visit_text(txt),
+                    // html::Node::BoundText does not exist in ml_parser
+                    html::Node::Expansion(e) => self.visit_expansion(e),
+                    _ => None,
+                };
+
+                if let Some(node) = r3_node {
+                    match node {
+                        t::R3Node::BoundText(bt) => {
+                            let key = bt.source_span.to_string(); 
+                            placeholders.insert(key, t::IcuPlaceholder::BoundText(bt));
+                        },
+                        t::R3Node::Text(txt) => {
+                             let key = txt.source_span.to_string();
+                             placeholders.insert(key, t::IcuPlaceholder::Text(txt));
+                        },
+                        t::R3Node::Icu(nested_icu) => {
+                            // Merge variables and placeholders from nested ICU
+                            vars.extend(nested_icu.vars);
+                            placeholders.extend(nested_icu.placeholders);
+                        }
+                        _ => {}
+                    }
+                }
+            }
         }
 
-        // TODO: Implement ICU handling
-        None
+        Some(t::R3Node::Icu(t::Icu {
+            vars,
+            placeholders,
+            source_span: expansion.source_span.clone(),
+            i18n: expansion.i18n.clone(),
+        }))
     }
 
     fn visit_comment(&mut self, comment: &html::Comment) -> Option<t::R3Node> {
@@ -413,7 +571,9 @@ impl<'a> HtmlAstToIvyAst<'a> {
             }
         }
 
-        let prepared = self.prepare_attributes(&component.attrs, false);
+        let mut prepared = self.prepare_attributes(&component.attrs, false);
+        self.validate_selectorless_references(&prepared.references);
+
         let children = if component.attrs.iter().any(|a| a.name == "ngNonBindable") {
             visit_all_non_bindable(&component.children)
         } else {
@@ -426,6 +586,95 @@ impl<'a> HtmlAstToIvyAst<'a> {
             &prepared.i18n_attrs_meta,
         );
 
+        // Process html::Directive nodes
+        let mut r3_directives: Vec<t::Directive> = vec![];
+        
+        for directive in &component.directives {
+            // Check if it's a structural directive (*) or selectorless directive (@)
+            // We look at the source content to determine the prefix
+            let content = &directive.source_span.start.file.content;
+            let offset = directive.source_span.start.offset;
+            let is_structural = content[offset..].starts_with('*');
+            
+
+
+            if is_structural {
+                // Structural Directive (*ngIf, *ngFor, etc.) -> Convert to inline template binding
+                // The directive.attrs contains the parsed attribute like 'let item of items'
+                let template_key = &directive.name; 
+                
+                // Get the value from the directive's first attr (if any) - the full binding expression
+                let first_attr = directive.attrs.first();
+                let directive_value = first_attr
+                    .map(|a| a.value.clone())
+                    .unwrap_or_default();
+                
+                // Use the value_span for correct absolute offset, falling back to directive source_span
+                let absolute_value_offset = first_attr
+                    .and_then(|a| a.value_span.as_ref())
+                    .map(|vs| vs.start.offset)
+                    .unwrap_or(directive.source_span.start.offset);
+                
+                let mut parsed_variables = vec![];
+                self.binding_parser.parse_inline_template_binding(
+                    template_key,
+                    &directive_value,
+                    &directive.source_span,
+                    absolute_value_offset,
+                    &mut vec![],
+                    &mut prepared.template_parsed_properties,
+                    &mut parsed_variables,
+                    true,
+                );
+                
+                for v in parsed_variables {
+                    prepared.template_variables.push(t::Variable {
+                        name: v.name,
+                        value: v.value,
+                        source_span: v.source_span,
+                        key_span: v.key_span,
+                        value_span: v.value_span,
+                    });
+                }
+                
+                prepared.element_has_inline_template = true;
+            } else {
+                // Selectorless Directive (@Dir) -> Create t::Directive node
+                // Parse directive's nested attributes to populate inputs/outputs
+                let dir_prepared = self.prepare_attributes(
+                    &directive.attrs,
+                    false, // is_template_element=false for directives
+                );
+
+                let categorized = self.categorize_property_attributes(None, &dir_prepared.parsed_properties, &std::collections::HashMap::new());
+                
+                // Validate directive bindings
+                self.validate_directive_bindings(&categorized.bound, &dir_prepared.attributes, &dir_prepared.references);
+
+                // Check for duplicate directives
+                // println!("Checking duplicate for {}. Existing: {:?}", directive.name, r3_directives.iter().map(|d| &d.name).collect::<Vec<_>>());
+                if r3_directives.iter().any(|d| d.name == directive.name) {
+                    // println!("Found duplicate!");
+                    self.report_error(
+                        &format!("Directive @{} has already been applied to this element", directive.name),
+                        &directive.source_span,
+                    );
+                }
+
+                r3_directives.push(t::Directive {
+                    name: directive.name.clone(),
+                    attributes: dir_prepared.attributes,
+                    inputs: categorized.bound,
+                    outputs: dir_prepared.bound_events,
+                    references: dir_prepared.references,
+                    source_span: directive.source_span.clone(),
+                    start_source_span: directive.start_source_span.clone(),
+                    end_source_span: directive.end_source_span.clone(),
+                    i18n: None,
+                });
+            }
+        }
+
         let node = t::R3Node::Component(t::Component {
             component_name: component.component_name.clone(),
             tag_name: component.tag_name.clone(),
@@ -433,7 +682,7 @@ impl<'a> HtmlAstToIvyAst<'a> {
             attributes: prepared.attributes,
             inputs: attrs.bound,
             outputs: prepared.bound_events,
-            directives: vec![], // directives
+            directives: r3_directives, // directives
             children,
             references: prepared.references,
             is_self_closing: component.is_self_closing,
@@ -478,26 +727,108 @@ impl<'a> HtmlAstToIvyAst<'a> {
         let result = match block.name.as_str() {
             "defer" => {
                 let connected = self.find_connected_blocks(index, siblings, is_connected_defer_loop_block);
-                let result = create_deferred_block(block, &connected, self.binding_parser);
+                let mut result = create_deferred_block(block, &connected, self.binding_parser);
                 self.errors.extend(result.errors);
+                
+                // Transform and populate main children
+                result.node.children = self.visit_all(&block.children);
+                
+                // Transform and populate children for connected blocks (placeholder, loading, error)
+                for connected_block in &connected {
+                    let children = self.visit_all(&connected_block.children);
+                    match connected_block.name.as_str() {
+                        "placeholder" => {
+                            if let Some(ref mut pl) = result.node.placeholder {
+                                pl.children = children;
+                            }
+                        }
+                        "loading" => {
+                            if let Some(ref mut ld) = result.node.loading {
+                                ld.children = children;
+                            }
+                        }
+                        "error" => {
+                            if let Some(ref mut er) = result.node.error {
+                                er.children = children;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                
                 Some(t::R3Node::DeferredBlock(result.node))
             }
             "switch" => {
                 let result = create_switch_block(block, self.binding_parser);
                 self.errors.extend(result.errors);
-                result.node.map(t::R3Node::SwitchBlock)
+                
+                // Transform children for each case via visitor
+                result.node.map(|mut switch_block| {
+                    // Match case blocks with their children from the original AST
+                    for case in &mut switch_block.cases {
+                        // Find the corresponding case block in AST children
+                        for child in &block.children {
+                            if let html::Node::Block(case_block) = child {
+                                // Match by checking if this is the right case block (compare by start position)
+                                if case_block.source_span.start.offset == case.block.source_span.start.offset {
+                                    case.children = self.visit_all(&case_block.children);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    t::R3Node::SwitchBlock(switch_block)
+                })
             }
             "for" => {
                 let connected = self.find_connected_blocks(index, siblings, is_connected_for_loop_block);
                 let result = create_for_loop(block, &connected, self.binding_parser);
                 self.errors.extend(result.errors);
-                result.node.map(t::R3Node::ForLoopBlock)
+                
+                // Transform children via visitor
+                result.node.map(|mut for_block| {
+                    for_block.children = self.visit_all(&block.children);
+                    
+                    // Transform empty block children if present
+                    if let Some(ref mut empty) = for_block.empty {
+                        // Find the empty connected block to get its children
+                        for conn_block in &connected {
+                            if conn_block.name == "empty" {
+                                empty.children = self.visit_all(&conn_block.children);
+                                break;
+                            }
+                        }
+                    }
+                    
+                    t::R3Node::ForLoopBlock(for_block)
+                })
             }
             "if" => {
                 let connected = self.find_connected_blocks(index, siblings, is_connected_if_loop_block);
-                let result = create_if_block(block, &connected, self.binding_parser);
-                self.errors.extend(result.errors);
-                result.node.map(t::R3Node::IfBlock)
+                let preprocess = preprocess_if_block(block, &connected, self.binding_parser);
+                self.errors.extend(preprocess.errors);
+                
+                // Transform children for each branch
+                let branches = preprocess.branches.into_iter().map(|branch| {
+                    t::IfBlockBranch {
+                        expression: branch.expression,
+                        children: self.visit_all(branch.html_children),
+                        expression_alias: branch.expression_alias,
+                        block: branch.block,
+                        i18n: branch.i18n,
+                    }
+                }).collect();
+                
+                Some(t::R3Node::IfBlock(t::IfBlock {
+                    branches,
+                    block: t::BlockNode::new(
+                        preprocess.name_span,
+                        preprocess.whole_source_span,
+                        preprocess.start_source_span,
+                        preprocess.end_source_span,
+                    ),
+                }))
             }
             _ => {
                 let error_message = if is_connected_defer_loop_block(&block.name) {
@@ -581,7 +912,7 @@ impl<'a> HtmlAstToIvyAst<'a> {
         let mut literal = vec![];
 
         for prop in properties {
-            if prop.is_literal {
+            if prop.is_literal && !prop.is_legacy_animation {
                 literal.push(t::TextAttribute::new(
                     prop.name.clone(),
                     prop.expression.source.clone().unwrap_or_default(),
@@ -813,9 +1144,11 @@ impl<'a> HtmlAstToIvyAst<'a> {
                 return true;
             } else if captures.get(KW_AT_IDX).is_some() {
                 let key_span = create_key_span(src_span, &attribute.name, &name, "", &name);
+                // For @animation without value, pass None instead of Some("")
+                let value_opt: Option<&str> = if value.is_empty() { None } else { Some(value) };
                 self.binding_parser.parse_literal_attr(
                     &name,
-                    Some(value),
+                    value_opt,
                     src_span.clone(),
                     absolute_offset,
                     attribute.value_span.clone(),
@@ -899,21 +1232,26 @@ impl<'a> HtmlAstToIvyAst<'a> {
         // Check for interpolation
         let key_span = create_key_span(src_span, &attribute.name, &name, "", &name);
         let value_span_or_src = attribute.value_span.as_ref().unwrap_or(src_span);
-        let expr = self.binding_parser.parse_interpolation(value, value_span_or_src, None);
-        // If interpolation was found, parse it as a property binding
-        if matches!(*expr.ast, AST::Interpolation(_)) {
-            let absolute_offset = value_span_or_src.start.offset;
-            self.binding_parser.parse_property_binding(
+        let expr = self.binding_parser.parse_interpolation(value, value_span_or_src, attribute.value_tokens.clone());
+        
+        // If interpolation was found AND it has expressions, parse it as a property binding
+        // If it's pure text (empty expressions), treat as attribute.
+        let is_interpolation = if let AST::Interpolation(ref interp) = *expr.ast {
+            !interp.expressions.is_empty()
+        } else {
+            false
+        };
+
+        if is_interpolation {
+            self.binding_parser.parse_property_ast(
                 &name,
-                value,
+                expr,
                 false,
-                false,
-                src_span.clone(),
-                absolute_offset,
-                attribute.value_span.clone(),
+                &src_span,
+                &key_span,
+                attribute.value_span.as_ref(),
                 &mut vec![],
                 parsed_properties,
-                key_span.clone(),
             );
             true
         } else {
@@ -1002,9 +1340,24 @@ impl<'a> HtmlAstToIvyAst<'a> {
         value: &str,
         source_span: &ParseSourceSpan,
         i18n: &Option<i18n::I18nMeta>,
+        tokens: Option<Vec<Token>>,
     ) -> Option<t::R3Node> {
         let value_no_ngsp = replace_ngsp(value);
-        let expr = self.binding_parser.parse_interpolation(&value_no_ngsp, source_span, None);
+        let expr = self.binding_parser.parse_interpolation(&value_no_ngsp, source_span, tokens);
+
+        // Check if interpolation is actually static (no expressions)
+        let is_static = match &*expr.ast {
+             AST::Interpolation(interp) => interp.expressions.is_empty(),
+             AST::LiteralPrimitive(_) => true,
+             _ => false 
+        };
+
+        if is_static {
+             return Some(t::R3Node::Text(t::Text::new(
+                 value_no_ngsp, // Use processed value or original? TypeScript uses processed.
+                 source_span.clone(),
+             )));
+        }
 
         Some(t::R3Node::BoundText(t::BoundText::new(
             (*expr.ast).clone(),
@@ -1076,6 +1429,82 @@ impl<'a> HtmlAstToIvyAst<'a> {
 
     fn report_error(&mut self, message: &str, source_span: &ParseSourceSpan) {
         self.errors.push(ParseError::new(source_span.clone(), message.to_string()));
+    }
+
+    fn validate_directive_bindings(
+        &mut self,
+        bound_attributes: &[t::BoundAttribute],
+        literal_attributes: &[t::TextAttribute],
+        references: &[t::Reference],
+    ) {
+        use crate::expression_parser::ast::BindingType;
+
+        if !references.is_empty() {
+             self.validate_selectorless_references(references);
+        }
+
+        for attr in bound_attributes {
+            match attr.type_ {
+                BindingType::Property | BindingType::TwoWay => {}
+                BindingType::Attribute => {
+                    self.report_error(
+                        "Attribute bindings are not allowed inside of @Directive(...)",
+                        &attr.source_span,
+                    );
+                }
+                BindingType::Class => {
+                    self.report_error(
+                        "Class bindings are not allowed inside of @Directive(...)",
+                        &attr.source_span,
+                    );
+                }
+                BindingType::Style => {
+                    self.report_error(
+                        "Style bindings are not allowed inside of @Directive(...)", 
+                        &attr.source_span,
+                    );
+                }
+                BindingType::Animation | BindingType::LegacyAnimation => {
+                    self.report_error(
+                        "Animation bindings are not allowed inside of @Directive(...)",
+                        &attr.source_span,
+                    );
+                }
+            }
+        }
+
+        for attr in literal_attributes {
+            if attr.name == "ngNonBindable" {
+                self.report_error(
+                    "ngNonBindable is not allowed inside of @Directive(...)",
+                    &attr.source_span,
+                );
+            } else if attr.name == "ngProjectAs" {
+                self.report_error(
+                    "ngProjectAs is not allowed inside of @Directive(...)",
+                    &attr.source_span,
+                );
+            }
+        }
+    }
+
+    fn validate_selectorless_references(&mut self, references: &[t::Reference]) {
+        let mut seen_names = std::collections::HashSet::new();
+        for reference in references {
+            if !reference.value.is_empty() {
+                self.report_error(
+                    "Cannot specify a value for a local reference in this context",
+                   reference.value_span.as_ref().unwrap_or(&reference.source_span),
+                );
+            } else if seen_names.contains(&reference.name) {
+                self.report_error(
+                    "Duplicate reference names are not allowed",
+                    &reference.source_span,
+                );
+            } else {
+                seen_names.insert(reference.name.clone());
+            }
+        }
     }
 }
 
@@ -1171,6 +1600,40 @@ fn visit_non_bindable_node(node: &html::Node) -> Option<t::R3Node> {
             format!("@let {} = {};", decl.name, decl.value),
             decl.source_span.clone(),
         ))),
+        html::Node::Component(component) => {
+            let children = visit_all_non_bindable(&component.children);
+            let attrs: Vec<t::TextAttribute> = component
+                .attrs
+                .iter()
+                .map(|attr| t::TextAttribute::new(
+                    attr.name.clone(),
+                    attr.value.clone(),
+                    attr.source_span.clone(),
+                    attr.key_span.clone(),
+                    attr.value_span.clone(),
+                    attr.i18n.clone(),
+                ))
+                .collect();
+
+            // Use tag_name if available, otherwise component_name
+            let name = component.tag_name.as_ref().unwrap_or(&component.component_name).clone();
+
+            Some(t::R3Node::Element(t::Element::new(
+                name,
+                attrs,
+                vec![],
+                vec![],
+                vec![],
+                children,
+                vec![],
+                component.is_self_closing,
+                component.source_span.clone(),
+                component.start_source_span.clone(),
+                component.end_source_span.clone(),
+                false, // Components are custom elements, not void (usually)
+                None,
+            )))
+        }
         _ => None,
     }
 }

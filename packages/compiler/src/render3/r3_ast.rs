@@ -973,6 +973,11 @@ pub trait Visitor {
     fn visit_let_declaration(&mut self, decl: &LetDeclaration) -> Self::Result;
     fn visit_component(&mut self, component: &Component) -> Self::Result;
     fn visit_directive(&mut self, directive: &Directive) -> Self::Result;
+    
+    // Optional method for visiting comments (not in TypeScript Visitor interface but used in tests)
+    // Note: This method must be implemented by each visitor implementation
+    // It's not in the TypeScript Visitor interface but is used in test code
+    fn visit_comment(&mut self, _comment: &Comment) -> Self::Result;
 }
 
 /// Visit all nodes in a list

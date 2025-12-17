@@ -585,6 +585,8 @@ pub enum ParsedPropertyType {
 pub enum ParsedEventType {
     Regular,
     Animation,
+    LegacyAnimation,
+    TwoWay,
 }
 
 /// Binding types

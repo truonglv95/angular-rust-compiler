@@ -300,6 +300,28 @@ pub fn create_css_selector_from_node(node: &t::R3Node) -> Option<CssSelector> {
         css_selector.add_attribute(&output.name, "");
     }
 
+    // For Templates, also include template_attrs (from structural directives)
+    if let t::R3Node::Template(tpl) = node {
+        for attr in &tpl.template_attrs {
+            match attr {
+                t::TemplateAttr::Text(text_attr) => {
+                    if let Ok((_, name_no_ns)) = split_ns_name(&text_attr.name, false) {
+                        css_selector.add_attribute(&name_no_ns, &text_attr.value);
+                    }
+                }
+                t::TemplateAttr::Bound(bound_attr) => {
+                     // Bound attributes (e.g. from *ngIf="value") usually match as input [ngIf]
+                     // But strictly speaking, the attribute name itself should be present.
+                     // Synthesized structural directives often appear as Text attributes (e.g. *f -> f="")
+                     // But if it is bound, we add the name.
+                     if let Ok((_, name_no_ns)) = split_ns_name(&bound_attr.name, false) {
+                        css_selector.add_attribute(&name_no_ns, "");
+                     }
+                }
+            }
+        }
+    }
+
     Some(css_selector)
 }
 

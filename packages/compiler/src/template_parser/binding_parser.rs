@@ -10,8 +10,10 @@ use crate::expression_parser::ast::{
 };
 use crate::expression_parser::parser::Parser;
 use crate::ml_parser::tags::merge_ns_and_name;
-use crate::ml_parser::tokens::InterpolatedAttributeToken;
-use crate::parse_util::{ParseError, ParseErrorLevel, ParseSourceSpan};
+use crate::ml_parser::tokens::{Token, TokenType, InterpolatedAttributeToken};
+use crate::ml_parser::entities::NAMED_ENTITIES;
+use crate::parse_util::{ParseError, ParseErrorLevel, ParseSourceSpan, ParseLocation};
+use std::u32;
 use crate::schema::element_schema_registry::ElementSchemaRegistry;
 use crate::util::{split_at_colon, split_at_period};
 use std::collections::HashMap;
@@ -259,30 +261,136 @@ impl<'a> BindingParser<'a> {
         &mut self,
         value: &str,
         source_span: &ParseSourceSpan,
-        _interpolated_tokens: Option<Vec<InterpolatedAttributeToken>>,
+        interpolated_tokens: Option<Vec<InterpolatedAttributeToken>>,
     ) -> ASTWithSource {
-        let absolute_offset = source_span.start.offset;
+        if let Some(tokens) = interpolated_tokens {
+            let mut strings = Vec::new();
+            let mut expressions = Vec::new();
+            let mut current_string = String::new();
 
-        match self.expr_parser.parse_interpolation(value, absolute_offset) {
-            Ok(interpolation) => {
-                 ASTWithSource::new(
+            for token in tokens {
+                match token {
+                    Token::Text(t) => {
+                         current_string.push_str(&decode_entities(&t.parts.join("")));
+                    },
+                    Token::AttrValueText(t) => {
+                         current_string.push_str(&decode_entities(&t.parts.join("")));
+                    },
+                    Token::EncodedEntity(t) => {
+                         current_string.push_str(&decode_entities(&t.parts[0]));
+                    },
+                    Token::Interpolation(t) => {
+                        strings.push(current_string);
+                        current_string = String::new();
+                        
+                        let expr_string = if t.parts.len() > 1 { &t.parts[1] } else { "" };
+                        let prefix_len = if t.parts.len() > 0 { t.parts[0].len() } else { 0 };
+                        let start_location = t.source_span.start.move_by(prefix_len as i32);
+                        let absolute_offset = start_location.offset;
+                        
+                        match self.expr_parser.parse_binding(expr_string, absolute_offset) {
+                            Ok(ast) => {
+                                expressions.push(ASTWithSource::new(
+                                    Box::new(ast),
+                                    Some(expr_string.to_string()),
+                                    start_location.to_string(),
+                                    absolute_offset,
+                                    vec![]
+                                ));
+                            },
+                            Err(e) => {
+                                self._report_error(&e.to_string(), &t.source_span, ParseErrorLevel::Error);
+                                let err_ast = self._wrap_literal_primitive("ERROR", &t.source_span, absolute_offset);
+                                expressions.push(ASTWithSource::new(
+                                     Box::new(err_ast),
+                                     Some(expr_string.to_string()),
+                                     start_location.to_string(),
+                                     absolute_offset,
+                                     vec![]
+                                 ));
+                            }
+                        }
+                    },
+                    Token::AttrValueInterpolation(t) => {
+                        strings.push(current_string);
+                        current_string = String::new();
+                        
+                        let expr_string = if t.parts.len() > 1 { &t.parts[1] } else { "" };
+                        let prefix_len = if t.parts.len() > 0 { t.parts[0].len() } else { 0 };
+                        let start_location = t.source_span.start.move_by(prefix_len as i32);
+                        let absolute_offset = start_location.offset;
+                        
+                        match self.expr_parser.parse_binding(expr_string, absolute_offset) {
+                            Ok(ast) => {
+                                expressions.push(ASTWithSource::new(
+                                    Box::new(ast),
+                                    Some(expr_string.to_string()),
+                                    start_location.to_string(),
+                                    absolute_offset,
+                                    vec![]
+                                ));
+                            },
+                            Err(e) => {
+                                self._report_error(&e.to_string(), &t.source_span, ParseErrorLevel::Error);
+                                let err_ast = self._wrap_literal_primitive("ERROR", &t.source_span, absolute_offset);
+                                expressions.push(ASTWithSource::new(
+                                     Box::new(err_ast),
+                                     Some(expr_string.to_string()),
+                                     start_location.to_string(),
+                                     absolute_offset,
+                                     vec![]
+                                 ));
+                            }
+                        }
+                    },
+                    _ => {}
+                }
+            }
+            strings.push(current_string);
+            
+            let expr_asts: Vec<Box<ExprAST>> = expressions.into_iter().map(|e| e.ast).collect();
+            
+            let span = ParseSpan::new(0, source_span.end.offset - source_span.start.offset);
+            let abs_source_span = AbsoluteSourceSpan::new(source_span.start.offset, source_span.end.offset);
+
+            let interpolation = crate::expression_parser::ast::Interpolation {
+                span,
+                source_span: abs_source_span,
+                strings,
+                expressions: expr_asts,
+            };
+            
+            ASTWithSource::new(
                     Box::new(ExprAST::Interpolation(interpolation)),
                     Some(value.to_string()),
                     source_span.start.to_string(),
-                    absolute_offset,
+                    source_span.start.offset,
                     vec![],
-                )
-            },
-            Err(e) => {
-                 self._report_error(&e.to_string(), source_span, ParseErrorLevel::Error);
-                 let err_ast = self._wrap_literal_primitive("ERROR", source_span, absolute_offset);
-                 ASTWithSource::new(
-                    Box::new(err_ast),
-                     Some(value.to_string()),
-                     source_span.start.to_string(),
-                     absolute_offset,
-                     vec![],
-                 )
+            )
+        } else {
+             // Fallback to original logic
+             let absolute_offset = source_span.start.offset;
+             match self.expr_parser.parse_interpolation(value, absolute_offset) {
+                Ok(interpolation) => {
+                     ASTWithSource::new(
+                        Box::new(ExprAST::Interpolation(interpolation)),
+                        Some(value.to_string()),
+                        source_span.start.to_string(),
+                        absolute_offset,
+                        vec![],
+                    )
+                },
+                Err(e) => {
+                     self._report_error(&e.to_string(), source_span, ParseErrorLevel::Error);
+                     let err_ast = self._wrap_literal_primitive("ERROR", source_span, absolute_offset);
+                     ASTWithSource::new(
+                        Box::new(err_ast),
+                         Some(value.to_string()),
+                         source_span.start.to_string(),
+                         absolute_offset,
+                         vec![],
+                     )
+                }
             }
         }
     }
@@ -337,6 +445,7 @@ impl<'a> BindingParser<'a> {
             absolute_value_offset,
         );
 
+        let mut key_bound = false;
         for binding in bindings {
             match binding {
                 TemplateBinding::Variable(var_binding) => {
@@ -355,10 +464,21 @@ impl<'a> BindingParser<'a> {
                      target_vars.push(ParsedVariable::new(key, value, binding_span, key_span, value_span));
                 },
                 TemplateBinding::Expression(expr_binding) => {
-                     let binding_span = move_parse_source_span(source_span, &expr_binding.span);
+                     let mut binding_span = move_parse_source_span(source_span, &expr_binding.span);
                      let key = expr_binding.key.source.clone();
-                     let key_span = move_parse_source_span(source_span, &expr_binding.key.span);
+                     let mut key_span = move_parse_source_span(source_span, &expr_binding.key.span);
                      
+                     if key == tpl_key {
+                         key_bound = true;
+                         // If synthesized binding (empty span), fix it to cover directive name
+                         if key_span.start == key_span.end {
+                             let start = source_span.start.move_by(1); // Skip *
+                             let end = start.move_by(tpl_key.len() as i32);
+                             key_span = ParseSourceSpan::new(start, end).with_details(source_span.details.clone().unwrap_or_default());
+                             binding_span = key_span.clone();
+                         }
+                     }
+
                      if let Some(value_ast) = expr_binding.value {
                          let src_span = if is_ivy_ast { binding_span.clone() } else { source_span.clone() };
                          let value_span = move_parse_source_span(source_span, &value_ast.source_span());
@@ -371,7 +491,7 @@ impl<'a> BindingParser<'a> {
                              vec![]
                          );
                          
-                         self._parse_property_ast(
+                         self.parse_property_ast(
                              &key,
                              ast_with_source,
                              false,
@@ -391,11 +511,30 @@ impl<'a> BindingParser<'a> {
                              None,
                              target_matchable_attrs,
                              target_props,
-                             key_span
+                             key_span.clone()
                          );
                      }
                 }
             }
+        }
+
+        if !key_bound {
+             // If the template key was not bound, add it as a literal attribute
+             let start = source_span.start.move_by(1);
+             let end = start.move_by(tpl_key.len() as i32);
+             let name_span = ParseSourceSpan::new(start, end).with_details(source_span.details.clone().unwrap_or_default());
+             
+             target_matchable_attrs.push(vec![tpl_key.to_string(), "".to_string()]);
+             self.parse_literal_attr(
+                 tpl_key,
+                 None,
+                 name_span.clone(),
+                 absolute_value_offset,
+                 None,
+                 target_matchable_attrs,
+                 target_props,
+                 name_span 
+             );
         }
     }
 
@@ -528,7 +667,7 @@ impl<'a> BindingParser<'a> {
             );
         } else {
              let binding_ast = self.parse_binding(expression, is_host, value_span.clone().unwrap_or(source_span.clone()), absolute_offset);
-             self._parse_property_ast(
+             self.parse_property_ast(
                 &name,
                 binding_ast,
                 is_part_of_assignment_binding,
@@ -687,7 +826,7 @@ impl<'a> BindingParser<'a> {
         }
     }
 
-    fn _parse_property_ast(
+    pub fn parse_property_ast(
         &mut self,
         name: &str,
         ast: ASTWithSource,
@@ -1015,4 +1154,70 @@ pub fn calc_possible_security_contexts(
         ctxs.dedup();
         ctxs
     }
+}
+
+fn decode_entities(value: &str) -> String {
+    let mut result = String::new();
+    let mut chars = value.chars().peekable();
+    
+    while let Some(ch) = chars.next() {
+        if ch == '&' {
+             let mut entity_buf = String::new();
+             let mut is_hex = false;
+             let mut is_decimal = false;
+             
+             if chars.peek() == Some(&'#') {
+                 entity_buf.push(chars.next().unwrap());
+                 if chars.peek() == Some(&'x') || chars.peek() == Some(&'X') {
+                     entity_buf.push(chars.next().unwrap());
+                     is_hex = true;
+                 } else {
+                     is_decimal = true;
+                 }
+             }
+             
+             let mut consumed_semicolon = false;
+             while let Some(&next_ch) = chars.peek() {
+                 if next_ch == ';' {
+                     chars.next(); 
+                     consumed_semicolon = true;
+                     break;
+                 }
+                 if !next_ch.is_alphanumeric() && next_ch != '#' {
+                     break;
+                 }
+                 entity_buf.push(chars.next().unwrap());
+             }
+             
+             let decoded = if is_hex {
+                 let code_str = &entity_buf[2..]; // skip #x
+                 u32::from_str_radix(code_str, 16)
+                    .ok()
+                    .and_then(std::char::from_u32)
+                    .map(|c| c.to_string())
+             } else if is_decimal {
+                 let code_str = &entity_buf[1..]; // skip #
+                 u32::from_str_radix(code_str, 10)
+                    .ok()
+                    .and_then(std::char::from_u32)
+                    .map(|c| c.to_string())
+             } else {
+                 NAMED_ENTITIES.get(entity_buf.as_str()).map(|s| s.to_string())
+             };
+             
+             if let Some(dec) = decoded {
+                 result.push_str(&dec);
+             } else {
+                 result.push('&');
+                 result.push_str(&entity_buf);
+                 if consumed_semicolon {
+                     result.push(';');
+                 }
+             }
+             
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }

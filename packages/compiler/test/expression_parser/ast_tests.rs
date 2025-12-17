@@ -484,7 +484,7 @@ mod tests {
     fn should_visit_safe_call() {
         let parser = Parser::new();
         let ast = parser
-            .parse_binding("obj?.method()", 0)
+            .parse_binding("obj.method?.()", 0)
             .expect("Should parse successfully");
 
         let mut visitor = PathCollector::new();
