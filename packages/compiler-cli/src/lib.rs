@@ -11,7 +11,10 @@
 // to avoid conflicts and make dependencies explicit
 pub use angular_compiler as compiler;
 
-// CLI-specific modules will be added here
+// CLI-specific modules
+pub mod ngtsc;
+pub mod perform_compile;
+pub mod transformers;
 // For now, this is a thin wrapper around the compiler
 
 /// CLI version
