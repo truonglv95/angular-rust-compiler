@@ -18,6 +18,7 @@ path = "src/bin/ng_xi18n.rs"
 [dependencies]
 # Depend on compiler package
 angular-compiler = { path = "../compiler" }
+ts = { path = "../ts" }
 
 # Workspace dependencies
 serde = { workspace = true }
@@ -41,6 +42,10 @@ oxc_allocator = "0.96.0"
 oxc_span = "0.96.0"
 oxc_semantic = "0.96.0"
 oxc_ast = "0.96.0"
+oxc_syntax = "0.96.0"
+oxc_codegen = "0.96.0"
+oxc_transformer = "0.96.0"
+glob = "0.3"
 
 [build-dependencies]
 napi-build = "2.1"

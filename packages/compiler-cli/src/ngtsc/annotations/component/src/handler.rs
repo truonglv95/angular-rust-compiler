@@ -21,6 +21,121 @@ use angular_compiler::template::pipeline::src::emit::emit_component;
 use angular_compiler::template::pipeline::src::compilation::TemplateCompilationMode;
 use angular_compiler::constant_pool::ConstantPool as CompilerConstantPool; // Distinct from ngtsc ConstantPool if needed
 
+/// Get metadata for known Angular directives (NgFor, NgIf, etc.)
+/// This is a workaround until proper static analysis of imported modules is implemented.
+fn get_known_directive_metadata(name: &str) -> Option<angular_compiler::render3::view::api::R3DirectiveDependencyMetadata> {
+    use angular_compiler::render3::view::api::{R3DirectiveDependencyMetadata, R3TemplateDependencyKind};
+    use angular_compiler::output::output_ast::{Expression, ReadVarExpr};
+    
+    match name {
+        "NgForOf" | "NgFor" => Some(R3DirectiveDependencyMetadata {
+            selector: "[ngFor][ngForOf]".to_string(),
+            type_: Expression::ReadVar(ReadVarExpr {
+                name: name.to_string(),
+                type_: None,
+                source_span: None,
+            }),
+            inputs: vec!["ngForOf".to_string(), "ngForTrackBy".to_string(), "ngForTemplate".to_string()],
+            outputs: vec![],
+            export_as: vec![].into(),
+            kind: R3TemplateDependencyKind::Directive,
+            is_component: false,
+        }),
+        "NgIf" => Some(R3DirectiveDependencyMetadata {
+            selector: "[ngIf]".to_string(),
+            type_: Expression::ReadVar(ReadVarExpr {
+                name: name.to_string(),
+                type_: None,
+                source_span: None,
+            }),
+            inputs: vec!["ngIf".to_string(), "ngIfThen".to_string(), "ngIfElse".to_string()],
+            outputs: vec![],
+            export_as: vec![].into(),
+            kind: R3TemplateDependencyKind::Directive,
+            is_component: false,
+        }),
+        "NgSwitch" => Some(R3DirectiveDependencyMetadata {
+            selector: "[ngSwitch]".to_string(),
+            type_: Expression::ReadVar(ReadVarExpr {
+                name: name.to_string(),
+                type_: None,
+                source_span: None,
+            }),
+            inputs: vec!["ngSwitch".to_string()],
+            outputs: vec![],
+            export_as: vec![].into(),
+            kind: R3TemplateDependencyKind::Directive,
+            is_component: false,
+        }),
+        "NgSwitchCase" => Some(R3DirectiveDependencyMetadata {
+            selector: "[ngSwitchCase]".to_string(),
+            type_: Expression::ReadVar(ReadVarExpr {
+                name: name.to_string(),
+                type_: None,
+                source_span: None,
+            }),
+            inputs: vec!["ngSwitchCase".to_string()],
+            outputs: vec![],
+            export_as: vec![].into(),
+            kind: R3TemplateDependencyKind::Directive,
+            is_component: false,
+        }),
+        "NgSwitchDefault" => Some(R3DirectiveDependencyMetadata {
+            selector: "[ngSwitchDefault]".to_string(),
+            type_: Expression::ReadVar(ReadVarExpr {
+                name: name.to_string(),
+                type_: None,
+                source_span: None,
+            }),
+            inputs: vec![],
+            outputs: vec![],
+            export_as: vec![].into(),
+            kind: R3TemplateDependencyKind::Directive,
+            is_component: false,
+        }),
+        "NgClass" => Some(R3DirectiveDependencyMetadata {
+            selector: "[ngClass]".to_string(),
+            type_: Expression::ReadVar(ReadVarExpr {
+                name: name.to_string(),
+                type_: None,
+                source_span: None,
+            }),
+            inputs: vec!["ngClass".to_string()],
+            outputs: vec![],
+            export_as: vec![].into(),
+            kind: R3TemplateDependencyKind::Directive,
+            is_component: false,
+        }),
+        "NgStyle" => Some(R3DirectiveDependencyMetadata {
+            selector: "[ngStyle]".to_string(),
+            type_: Expression::ReadVar(ReadVarExpr {
+                name: name.to_string(),
+                type_: None,
+                source_span: None,
+            }),
+            inputs: vec!["ngStyle".to_string()],
+            outputs: vec![],
+            export_as: vec![].into(),
+            kind: R3TemplateDependencyKind::Directive,
+            is_component: false,
+        }),
+        "RouterOutlet" => Some(R3DirectiveDependencyMetadata {
+            selector: "router-outlet".to_string(),
+            type_: Expression::ReadVar(ReadVarExpr {
+                name: name.to_string(),
+                type_: None,
+                source_span: None,
+            }),
+            inputs: vec!["name".to_string()],
+            outputs: vec!["activate".to_string(), "deactivate".to_string()],
+            export_as: vec![].into(),
+            kind: R3TemplateDependencyKind::Directive,
+            is_component: true,
+        }),
+        _ => None,
+    }
+}
+
 pub struct ComponentDecoratorHandler;
 
 impl ComponentDecoratorHandler {
@@ -46,7 +161,7 @@ impl DecoratorHandler<DirectiveMetadata, DirectiveMetadata, (), ()> for Componen
 
         for decorator in converted_decorators {
             if decorator.name == "Component" {
-                 if let Some(metadata) = extract_directive_metadata(node, &decorator, true) {
+                 if let Some(metadata) = extract_directive_metadata(node, &decorator, true, std::path::Path::new("")) {
                      return Some(DetectResult {
                          trigger: Some("Component".to_string()),
                          decorator: Some("Component".to_string()),
@@ -173,19 +288,24 @@ impl ComponentDecoratorHandler {
                 preserve_whitespaces: preserve_whitespaces,
             },
             declarations: analysis.imports.iter().flatten().map(|import_name| {
-                angular_compiler::render3::view::api::R3TemplateDependencyMetadata::Directive(angular_compiler::render3::view::api::R3DirectiveDependencyMetadata {
-                    selector: "".to_string(), // Selector would need full analysis, empty for now to just emit type
-                    type_: angular_compiler::output::output_ast::Expression::ReadVar(angular_compiler::output::output_ast::ReadVarExpr {
-                        name: import_name.clone(),
-                        type_: None,
-                        source_span: None,
-                    }),
-                    inputs: vec![],
-                    outputs: vec![],
-                    export_as: vec![].into(),
-                    kind: angular_compiler::render3::view::api::R3TemplateDependencyKind::Directive,
-                    is_component: false, // Default to false if unknown, or true? selector matching handles it. dependencies array just needs type.
-                })
+                // Try to get known directive metadata first, fall back to empty values
+                if let Some(known_metadata) = get_known_directive_metadata(import_name) {
+                    angular_compiler::render3::view::api::R3TemplateDependencyMetadata::Directive(known_metadata)
+                } else {
+                    angular_compiler::render3::view::api::R3TemplateDependencyMetadata::Directive(angular_compiler::render3::view::api::R3DirectiveDependencyMetadata {
+                        selector: "".to_string(), // Selector would need full analysis
+                        type_: angular_compiler::output::output_ast::Expression::ReadVar(angular_compiler::output::output_ast::ReadVarExpr {
+                            name: import_name.clone(),
+                            type_: None,
+                            source_span: None,
+                        }),
+                        inputs: vec![],
+                        outputs: vec![],
+                        export_as: vec![].into(),
+                        kind: angular_compiler::render3::view::api::R3TemplateDependencyKind::Directive,
+                        is_component: false,
+                    })
+                }
             }).collect(),
             declaration_list_emit_mode: DeclarationListEmitMode::Direct,
             styles: {
@@ -194,7 +314,7 @@ impl ComponentDecoratorHandler {
                 combined
             },
             encapsulation: ViewEncapsulation::Emulated,
-            change_detection: None,
+            change_detection: analysis.change_detection.map(|s| angular_compiler::render3::view::api::ChangeDetectionOrExpression::Strategy(s)),
             animations: None,
             view_providers: None,
             relative_context_file_path: "".to_string(),
@@ -289,6 +409,8 @@ mod tests {
             style_urls: None,
             imports: None,
             template_ast: None,
+            source_file: None,
+            change_detection: None,
         };
         
         let handler = ComponentDecoratorHandler::new();

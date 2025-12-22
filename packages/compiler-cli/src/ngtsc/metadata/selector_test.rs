@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
     
+use std::path::PathBuf;
+
 use crate::ngtsc::metadata::{OxcMetadataReader, MetadataReader};
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
@@ -30,7 +32,7 @@ fn test_extract_selector() {
     assert!(ret.errors.is_empty(), "Parser errors: {:?}", ret.errors);
 
     let reader = OxcMetadataReader;
-    let directives = reader.get_directive_metadata(&ret.program);
+    let directives = reader.get_directive_metadata(&ret.program, &PathBuf::from("test.ts"));
 
     assert_eq!(directives.len(), 1);
     let meta = &directives[0];
@@ -80,7 +82,7 @@ fn test_extract_component_assets() {
     assert!(ret.errors.is_empty(), "Parser errors: {:?}", ret.errors);
 
     let reader = OxcMetadataReader;
-    let directives = reader.get_directive_metadata(&ret.program);
+    let directives = reader.get_directive_metadata(&ret.program, &PathBuf::from("test.ts"));
 
     assert_eq!(directives.len(), 1);
     let meta = &directives[0];
@@ -113,7 +115,7 @@ fn test_extract_directive_selector() {
     assert!(ret.errors.is_empty(), "Parser errors: {:?}", ret.errors);
 
     let reader = OxcMetadataReader;
-    let directives = reader.get_directive_metadata(&ret.program);
+    let directives = reader.get_directive_metadata(&ret.program, &PathBuf::from("test.ts"));
 
     assert_eq!(directives.len(), 1);
     let meta = &directives[0];

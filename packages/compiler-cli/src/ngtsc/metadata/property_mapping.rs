@@ -37,23 +37,18 @@ impl ClassPropertyMapping {
         }
     }
 
-    pub fn from_map(map: std::collections::HashMap<String, String>) -> Self {
+    pub fn from_map(map: IndexMap<String, String>) -> Self {
         let mut forward_map = IndexMap::new();
-        // Sort keys to ensure deterministic order if input is HashMap
-        let mut keys: Vec<_> = map.keys().cloned().collect();
-        keys.sort();
-        
-        for key in keys {
-            if let Some(binding_prop) = map.get(&key) {
-                forward_map.insert(
-                    key.clone(),
-                    InputOrOutput {
-                        class_property_name: key,
-                        binding_property_name: binding_prop.clone(),
-                        is_signal: false,
-                    },
-                );
-            }
+        // IndexMap preserves insertion order - no sorting needed
+        for (key, binding_prop) in map {
+            forward_map.insert(
+                key.clone(),
+                InputOrOutput {
+                    class_property_name: key,
+                    binding_property_name: binding_prop,
+                    is_signal: false,
+                },
+            );
         }
         Self { forward_map }
     }

@@ -15,7 +15,11 @@ pub use angular_compiler as compiler;
 pub mod ngtsc;
 pub mod perform_compile;
 pub mod transformers;
-// For now, this is a thin wrapper around the compiler
+pub mod linker;
+pub mod extract_i18n;
+pub mod perform_watch;
+pub mod version;
+pub mod main_entry;
 
 /// CLI version
 pub fn version() -> &'static str {

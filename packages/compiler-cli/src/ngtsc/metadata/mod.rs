@@ -25,6 +25,7 @@ pub struct DirectiveMetadata {
     pub imports: Option<Vec<String>>,
     pub template_ast: Option<Vec<HtmlNode>>,
     pub source_file: Option<PathBuf>,
+    pub change_detection: Option<angular_compiler::core::ChangeDetectionStrategy>,
 }
 
 pub trait MetadataReader {
@@ -97,6 +98,7 @@ pub fn extract_directive_metadata(
     let mut styles = None;
     let mut style_urls = None;
     let mut imports = None;
+    let mut change_detection = None;
 
     // Scan class body for @Input and signals (input(), input.required())
     for element in &class_decl.body.body {
@@ -108,7 +110,6 @@ pub fn extract_directive_metadata(
                 let mut is_input = false;
                 let mut binding_name = prop_name.to_string();
                 
-                println!("DEBUG: Property {} has {} decorators", prop_name, prop.decorators.len());
                 for decorator in &prop.decorators {
                     if let Expression::CallExpression(call) = &decorator.expression {
                         if let Expression::Identifier(ident) = &call.callee {
@@ -136,7 +137,7 @@ pub fn extract_directive_metadata(
                         is_signal: false,
                     });
                 }
-
+                
                 // 2. Check for signal input: input() or input.required()
                 if let Some(value) = &prop.value {
                     if let Expression::CallExpression(call) = value {
@@ -190,6 +191,77 @@ pub fn extract_directive_metadata(
                                 class_property_name: prop_name.to_string(),
                                 binding_property_name: signal_alias,
                                 is_signal: true,
+                            });
+                        }
+                    }
+                }
+
+                // 3. Check for @Output decorator
+                let mut is_output = false;
+                let mut output_binding_name = prop_name.to_string();
+
+                for decorator in &prop.decorators {
+                    if let Expression::CallExpression(call) = &decorator.expression {
+                        if let Expression::Identifier(ident) = &call.callee {
+                            if ident.name == "Output" {
+                                is_output = true;
+                                // Check for alias: @Output('alias')
+                                if let Some(arg) = call.arguments.first() {
+                                    if let Some(Expression::StringLiteral(s)) = arg.as_expression() {
+                                        output_binding_name = s.value.to_string();
+                                    }
+                                }
+                            }
+                        }
+                    } else if let Expression::Identifier(ident) = &decorator.expression {
+                        if ident.name == "Output" {
+                            is_output = true;
+                        }
+                    }
+                }
+
+                if is_output {
+                    outputs.insert(property_mapping::InputOrOutput {
+                        class_property_name: prop_name.to_string(),
+                        binding_property_name: output_binding_name.clone(),
+                        is_signal: false,
+                    });
+                }
+
+                // 4. Check for output() signal-like function
+                if let Some(value) = &prop.value {
+                    if let Expression::CallExpression(call) = value {
+                        let mut is_output_fn = false;
+                        let mut output_alias = prop_name.to_string();
+
+                        if let Expression::Identifier(ident) = &call.callee {
+                            if ident.name == "output" {
+                                is_output_fn = true;
+                            }
+                        }
+
+                        if is_output_fn {
+                            // output({ alias: '...' }) - options is 1st arg
+                            if let Some(arg) = call.arguments.first() {
+                                if let Some(Expression::ObjectExpression(obj)) = arg.as_expression() {
+                                    for p in &obj.properties {
+                                        if let ObjectPropertyKind::ObjectProperty(op) = p {
+                                            if let PropertyKey::StaticIdentifier(k) = &op.key {
+                                                if k.name == "alias" {
+                                                    if let Expression::StringLiteral(s) = &op.value {
+                                                        output_alias = s.value.to_string();
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            outputs.insert(property_mapping::InputOrOutput {
+                                class_property_name: prop_name.to_string(),
+                                binding_property_name: output_alias,
+                                is_signal: true, 
                             });
                         }
                     }
@@ -350,7 +422,24 @@ pub fn extract_directive_metadata(
                                     imports = Some(collected);
                                 }
                             },
-// ...
+                            "changeDetection" => {
+                                // Handle ChangeDetectionStrategy.OnPush or ChangeDetectionStrategy.Default
+                                // It's usually a member expression like ChangeDetectionStrategy.OnPush
+                                if let Expression::StaticMemberExpression(member) = &prop.value {
+                                    if member.property.name == "OnPush" {
+                                        change_detection = Some(angular_compiler::core::ChangeDetectionStrategy::OnPush);
+                                    } else if member.property.name == "Default" {
+                                        change_detection = Some(angular_compiler::core::ChangeDetectionStrategy::Default);
+                                    }
+                                } else if let Expression::NumericLiteral(num) = &prop.value {
+                                    // Fallback for numeric literal (0 = OnPush, 1 = Default)
+                                    if num.value as i32 == 0 {
+                                        change_detection = Some(angular_compiler::core::ChangeDetectionStrategy::OnPush);
+                                    } else {
+                                        change_detection = Some(angular_compiler::core::ChangeDetectionStrategy::Default);
+                                    }
+                                }
+                            },
                             _ => {}
                         }
                     }
@@ -375,6 +464,7 @@ pub fn extract_directive_metadata(
         imports, // Add this
         template_ast: None,
         source_file: Some(source_file.to_path_buf()),
+        change_detection,
     })
 }
 

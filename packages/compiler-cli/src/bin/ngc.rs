@@ -18,28 +18,31 @@ fn main() {
                 .value_name("PATH")
                 .help("Path to tsconfig.json"),
         )
-        .arg(
-            Arg::new("watch")
-                .short('w')
-                .long("watch")
-                .help("Watch for file changes"),
-        )
         .get_matches();
 
-    // TODO: Implement actual compilation logic
-    println!("Angular Compiler (Rust) - ngc");
-    println!("Version: {}", env!("CARGO_PKG_VERSION"));
+    // TODO: Handle watch mode via perform_watch
     
-    if let Some(project) = matches.get_one::<String>("project") {
-        println!("Project: {}", project);
-    }
-    
-    if matches.get_flag("watch") {
-        println!("Watch mode enabled");
-    }
+    let temp_project;
+    let project = if let Some(p) = matches.get_one::<String>("project") {
+        Some(p.as_str())
+    } else {
+        // Check if tsconfig.json exists in cwd
+        if std::path::Path::new("tsconfig.json").exists() {
+            temp_project = Some("tsconfig.json".to_string());
+            temp_project.as_deref()
+        } else {
+            None
+        }
+    };
 
-    // Placeholder - will implement actual compilation
-    eprintln!("Compilation not yet implemented");
-    process::exit(1);
+    use angular_compiler_cli::perform_compile::perform_compilation_simple;
+    
+    let result = perform_compilation_simple(project, None, None);
+    
+    if !result.diagnostics.is_empty() {
+        for diag in result.diagnostics {
+            eprintln!("Error: {}", diag);
+        }
+        process::exit(1);
+    }
 }
-

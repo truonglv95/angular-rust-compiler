@@ -260,3 +260,70 @@ impl DecoratorHandler<DirectiveHandlerData, DirectiveHandlerData, DirectiveSymbo
     }
 }
 
+
+use crate::ngtsc::metadata::DirectiveMetadata;
+
+impl DirectiveDecoratorHandler {
+    pub fn compile_ivy(&self, analysis: &DirectiveMetadata) -> Vec<CompileResult> {
+        let define_directive_name = Identifiers::define_directive().name.unwrap_or_default();
+        
+        // ɵfac
+        let fac_definition = format!(
+            "(t) => new (t || {})()",
+            analysis.name
+        );
+        let fac_result = CompileResult {
+            name: "ɵfac".to_string(),
+            initializer: Some(fac_definition),
+            statements: vec![],
+            type_desc: "FactoryDef".to_string(),
+            deferrable_imports: None,
+        };
+
+        // ɵdir
+        // Construct definition object with i0 prefix
+        let definition = format!(
+            "i0.{}({{ type: {}, selectors: [[\"{}\"]]{}{}{} }})",
+            define_directive_name,
+            analysis.name,
+            analysis.selector.as_deref().unwrap_or(""),
+            if !analysis.inputs.is_empty() {
+                let mut inputs_str = String::from(", inputs: {");
+                for (i, (prop, input)) in analysis.inputs.iter().enumerate() {
+                    if i > 0 { inputs_str.push_str(", "); }
+                    if input.is_signal {
+                        inputs_str.push_str(&format!("{}: [1, \"{}\"]", prop, input.binding_property_name));
+                    } else {
+                        inputs_str.push_str(&format!("{}: \"{}\"", prop, input.binding_property_name));
+                    }
+                }
+                inputs_str.push_str("}");
+                inputs_str
+            } else {
+                String::new()
+            },
+            if !analysis.outputs.is_empty() {
+                let mut outputs_str = String::from(", outputs: {");
+                for (i, (prop, binding)) in analysis.outputs.iter().enumerate() {
+                    if i > 0 { outputs_str.push_str(", "); }
+                    outputs_str.push_str(&format!("{}: \"{}\"", prop, binding.binding_property_name));
+                }
+                outputs_str.push_str("}");
+                outputs_str
+            } else {
+                String::new()
+            },
+            "" // Placeholder for other fields if needed
+        );
+        
+        let dir_result = CompileResult {
+            name: "ɵdir".to_string(),
+            initializer: Some(definition),
+            statements: vec![],
+            type_desc: "DirectiveDef".to_string(),
+            deferrable_imports: None,
+        };
+
+        vec![fac_result, dir_result]
+    }
+}
