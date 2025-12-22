@@ -261,16 +261,22 @@ impl DecoratorHandler<DirectiveHandlerData, DirectiveHandlerData, DirectiveSymbo
 }
 
 
-use crate::ngtsc::metadata::DirectiveMetadata;
+use crate::ngtsc::metadata::{DirectiveMetadata, DecoratorMetadata};
 
 impl DirectiveDecoratorHandler {
     pub fn compile_ivy(&self, analysis: &DirectiveMetadata) -> Vec<CompileResult> {
+        // Extract DirectiveMeta from DecoratorMetadata enum
+        let dir = match analysis {
+            DecoratorMetadata::Directive(d) => d,
+            _ => return vec![], // Not a directive, cannot compile
+        };
+        
         let define_directive_name = Identifiers::define_directive().name.unwrap_or_default();
         
         // ɵfac
         let fac_definition = format!(
             "(t) => new (t || {})()",
-            analysis.name
+            dir.name
         );
         let fac_result = CompileResult {
             name: "ɵfac".to_string(),
@@ -281,15 +287,14 @@ impl DirectiveDecoratorHandler {
         };
 
         // ɵdir
-        // Construct definition object with i0 prefix
         let definition = format!(
-            "i0.{}({{ type: {}, selectors: [[\"{}\"]]{}{}{} }})",
+            "i0.{}({{ type: {}, selectors: [[\"{}\"]]{}{}{}}})",
             define_directive_name,
-            analysis.name,
-            analysis.selector.as_deref().unwrap_or(""),
-            if !analysis.inputs.is_empty() {
+            dir.name,
+            dir.selector.as_deref().unwrap_or(""),
+            if !dir.inputs.is_empty() {
                 let mut inputs_str = String::from(", inputs: {");
-                for (i, (prop, input)) in analysis.inputs.iter().enumerate() {
+                for (i, (prop, input)) in dir.inputs.iter().enumerate() {
                     if i > 0 { inputs_str.push_str(", "); }
                     if input.is_signal {
                         inputs_str.push_str(&format!("{}: [1, \"{}\"]", prop, input.binding_property_name));
@@ -302,9 +307,9 @@ impl DirectiveDecoratorHandler {
             } else {
                 String::new()
             },
-            if !analysis.outputs.is_empty() {
+            if !dir.outputs.is_empty() {
                 let mut outputs_str = String::from(", outputs: {");
-                for (i, (prop, binding)) in analysis.outputs.iter().enumerate() {
+                for (i, (prop, binding)) in dir.outputs.iter().enumerate() {
                     if i > 0 { outputs_str.push_str(", "); }
                     outputs_str.push_str(&format!("{}: \"{}\"", prop, binding.binding_property_name));
                 }

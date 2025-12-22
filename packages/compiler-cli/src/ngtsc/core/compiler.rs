@@ -1,7 +1,7 @@
 
 use crate::ngtsc::core::NgCompilerOptions;
 use crate::ngtsc::file_system::{FileSystem, AbsoluteFsPath};
-use crate::ngtsc::metadata::{MetadataReader, OxcMetadataReader, DirectiveMetadata};
+use crate::ngtsc::metadata::{MetadataReader, OxcMetadataReader, DirectiveMetadata, DecoratorMetadata, DirectiveMeta};
 use std::path::PathBuf;
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
@@ -74,49 +74,54 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                 let mut directives = metadata_reader.get_directive_metadata(&ret.program, &path);
                 println!("Analyzed {:?} with OXC. Found {} directives.", path, directives.len());
                 
-                // Parse templates for directives that have inline templates
+                // Parse templates for components that have inline templates
                 for directive in &mut directives {
-                    let template_str = if let Some(template) = &directive.template {
-                        Some(template.clone())
-                    } else if let Some(template_url) = &directive.template_url {
-                        let component_dir = self.fs.dirname(abs_path.as_str());
-                        let template_path = self.fs.resolve(&[&component_dir, template_url]);
-                        match self.fs.read_file(&template_path) {
-                            Ok(content) => Some(content),
-                            Err(e) => {
-                                println!("Failed to read template file at {:?}: {}", template_path, e);
-                                None
+                    // Only components have templates and styles
+                    if let DecoratorMetadata::Directive(ref mut dir) = directive {
+                        if !dir.is_component { continue; }
+                        
+                        let template_str = if let Some(template) = &dir.template {
+                            Some(template.clone())
+                        } else if let Some(template_url) = &dir.template_url {
+                            let component_dir = self.fs.dirname(abs_path.as_str());
+                            let template_path = self.fs.resolve(&[&component_dir, template_url]);
+                            match self.fs.read_file(&template_path) {
+                                Ok(content) => Some(content),
+                                Err(e) => {
+                                    println!("Failed to read template file at {:?}: {}", template_path, e);
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        };
+
+                        if let Some(template) = template_str {
+                            let parser = HtmlParser::new(get_html_tag_definition_wrapper);
+                            let parse_result = parser.parse(&template, "template.html", None);
+                            
+                            if !parse_result.errors.is_empty() {
+                                println!("Errors parsing template for {}: {:?}", dir.name, parse_result.errors);
+                            } else {
+                                dir.template_ast = Some(parse_result.root_nodes);
                             }
                         }
-                    } else {
-                        None
-                    };
 
-                    if let Some(template) = template_str {
-                        let parser = HtmlParser::new(get_html_tag_definition_wrapper);
-                        let parse_result = parser.parse(&template, "template.html", None);
-                        
-                        if !parse_result.errors.is_empty() {
-                            println!("Errors parsing template for {}: {:?}", directive.name, parse_result.errors);
-                        } else {
-                            directive.template_ast = Some(parse_result.root_nodes);
+                        if let Some(style_urls) = &dir.style_urls {
+                            let component_dir = self.fs.dirname(abs_path.as_str());
+                            let mut resolved_styles = dir.styles.take().unwrap_or_default();
+                            
+                            for url in style_urls {
+                                 let style_path = self.fs.resolve(&[&component_dir, url]);
+                                 match self.fs.read_file(&style_path) {
+                                    Ok(content) => resolved_styles.push(content),
+                                    Err(e) => {
+                                        println!("Failed to read style file at {:?}: {}", style_path, e);
+                                    }
+                                 }
+                            }
+                            dir.styles = Some(resolved_styles);
                         }
-                    }
-
-                    if let Some(style_urls) = &directive.style_urls {
-                        let component_dir = self.fs.dirname(abs_path.as_str());
-                        let mut resolved_styles = directive.styles.take().unwrap_or_default();
-                        
-                        for url in style_urls {
-                             let style_path = self.fs.resolve(&[&component_dir, url]);
-                             match self.fs.read_file(&style_path) {
-                                Ok(content) => resolved_styles.push(content),
-                                Err(e) => {
-                                    println!("Failed to read style file at {:?}: {}", style_path, e);
-                                }
-                             }
-                        }
-                        directive.styles = Some(resolved_styles);
                     }
                 }
 
@@ -139,55 +144,100 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
         // First pass: emit Angular component files with decorators
         println!("DEBUG: Emit loop starting with {} directives", compilation_result.directives.len());
         for directive in &compilation_result.directives {
-             let compiled_results = if directive.is_component {
-                 component_handler.compile_ivy(directive)
-             } else if directive.is_pipe {
-                 // Compile pipe to ɵpipe definition
-                 let pipe_name = directive.pipe_name.as_deref().unwrap_or(&directive.name);
-                 let initializer = format!(
-                     "/*@__PURE__*/ i0.ɵɵdefinePipe({{ name: \"{}\", type: {}, pure: {}{} }})",
-                     pipe_name,
-                     directive.name,
-                     directive.pure,
-                     if directive.is_standalone { ", standalone: true" } else { "" }
-                 );
-                 vec![crate::ngtsc::transform::src::api::CompileResult {
-                     name: "ɵpipe".to_string(),
-                     initializer: Some(initializer),
-                     statements: vec![],
-                     type_desc: format!("i0.ɵɵPipeDeclaration<{}, \"{}\", {}>", 
-                         directive.name, 
-                         pipe_name,
-                         directive.is_standalone
-                     ),
-                     deferrable_imports: None,
-                 }]
-             } else {
-                 directive_handler.compile_ivy(directive)
+             let (compiled_results, directive_name, source_file) = match directive {
+                 DecoratorMetadata::Directive(dir) => {
+                     // Check is_component flag to route to correct handler
+                     let results = if dir.is_component {
+                         component_handler.compile_ivy(directive)
+                     } else {
+                         directive_handler.compile_ivy(directive)
+                     };
+                     (results, dir.name.clone(), dir.source_file.clone())
+                 },
+                 DecoratorMetadata::Pipe(pipe) => {
+                     // Compile pipe to ɵpipe definition
+                     let initializer = format!(
+                         "/*@__PURE__*/ i0.ɵɵdefinePipe({{ name: \"{}\", type: {}, pure: {}{} }})",
+                         pipe.pipe_name,
+                         pipe.name,
+                         pipe.is_pure,
+                         if pipe.is_standalone { ", standalone: true" } else { "" }
+                     );
+                     let results = vec![crate::ngtsc::transform::src::api::CompileResult {
+                         name: "ɵpipe".to_string(),
+                         initializer: Some(initializer),
+                         statements: vec![],
+                         type_desc: format!("i0.ɵɵPipeDeclaration<{}, \"{}\", {}>", 
+                             pipe.name, 
+                             pipe.pipe_name,
+                             pipe.is_standalone
+                         ),
+                         deferrable_imports: None,
+                     }];
+                     (results, pipe.name.clone(), pipe.source_file.clone())
+                 },
+                 DecoratorMetadata::Injectable(inj) => {
+                     // Compile injectable to ɵfac and ɵprov definitions
+                     let provided_in = inj.provided_in.as_deref().unwrap_or("null");
+                     let provided_in_value = if provided_in == "null" {
+                         "null".to_string()
+                     } else {
+                         format!("'{}'", provided_in)
+                     };
+                     
+                     let fac_initializer = format!(
+                         "function {}_Factory(__ngFactoryType__) {{ return new (__ngFactoryType__ || {})(); }}",
+                         inj.name, inj.name
+                     );
+                     let prov_initializer = format!(
+                         "/*@__PURE__*/ i0.ɵɵdefineInjectable({{ token: {}, factory: {}.ɵfac, providedIn: {} }})",
+                         inj.name, inj.name, provided_in_value
+                     );
+                     let results = vec![
+                         crate::ngtsc::transform::src::api::CompileResult {
+                             name: "ɵfac".to_string(),
+                             initializer: Some(fac_initializer),
+                             statements: vec![],
+                             type_desc: format!("i0.ɵɵFactoryDeclaration<{}, never>", inj.name),
+                             deferrable_imports: None,
+                         },
+                         crate::ngtsc::transform::src::api::CompileResult {
+                             name: "ɵprov".to_string(),
+                             initializer: Some(prov_initializer),
+                             statements: vec![],
+                             type_desc: format!("i0.ɵɵInjectableDeclaration<{}>", inj.name),
+                             deferrable_imports: None,
+                         }
+                     ];
+                     (results, inj.name.clone(), inj.source_file.clone())
+                 },
+                 DecoratorMetadata::NgModule(ngm) => {
+                     // TODO: Implement NgModule compilation
+                     (vec![], ngm.name.clone(), ngm.source_file.clone())
+                 },
              };
-             println!("DEBUG: Compiled results for {}: {}", directive.name, compiled_results.len());
+             println!("DEBUG: Compiled results for {}: {}", directive_name, compiled_results.len());
             
              for result in compiled_results {
                       let initializer = result.initializer.clone().unwrap_or_default();
                       let hoisted_statements = result.statements.join("\n");
                       
                       // Find source file for this directive (using metadata source_file if available)
-                      let source_file = directive.source_file.as_ref();
-                      if let Some(s) = source_file {
-                          println!("DEBUG: Emitter found source file for {}: {:?}", directive.name, s);
+                      if let Some(ref s) = source_file {
+                          println!("DEBUG: Emitter found source file for {}: {:?}", directive_name, s);
                       } else {
-                          println!("DEBUG: Emitter NO source file for {}", directive.name);
+                          println!("DEBUG: Emitter NO source file for {}", directive_name);
                       }
                       
                       // Skip if source file is in node_modules or is a spec file
-                       if let Some(src_file) = source_file {
+                       if let Some(ref src_file) = source_file {
                            let src_path = src_file.to_string_lossy();
                            if src_path.contains("node_modules") || src_path.ends_with(".spec.ts") || src_path.ends_with(".d.ts") {
                                continue;
                            }
                        }
                       
-                      let out_path = if let Some(src_file) = source_file {
+                      let out_path = if let Some(ref src_file) = source_file {
                           if let Some(out_dir) = &self.options.out_dir {
                               // Calculate relative path from project root
                               let project_path = std::path::Path::new(&self.options.project);
@@ -216,13 +266,13 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                           } else {
                               // Only for safety, shouldn't reach here if out_dir checked above
                               let mut p = PathBuf::from(self.options.out_dir.as_deref().unwrap_or("."));
-                              p.push(format!("{}.js", directive.name));
+                              p.push(format!("{}.js", directive_name));
                               AbsoluteFsPath::from(p)
                           }
                       } else {
                           // Fallback if no source file found
                           let mut p = PathBuf::from(self.options.out_dir.as_deref().unwrap_or("."));
-                          p.push(format!("{}.js", directive.name));
+                          p.push(format!("{}.js", directive_name));
                           AbsoluteFsPath::from(p)
                       };
                       // ============= AST-BASED TRANSFORMATION =============
@@ -231,7 +281,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                       // 3. Transform AST: remove decorators, add Ivy statements
                       // 4. Codegen → JavaScript output
                       
-                      let final_content = if let Some(src_file) = source_file {
+                      let final_content = if let Some(ref src_file) = source_file {
                           let source_path = AbsoluteFsPath::from(src_file.as_path());
                           match fs.read_file(&source_path) {
                               Ok(source_content) => {
@@ -242,7 +292,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                   let mut parse_result = parser.parse();
                                   
                                   if !parse_result.errors.is_empty() {
-                                      println!("DEBUG: Parser errors for {}: {:?}", directive.name, parse_result.errors);
+                                      println!("DEBUG: Parser errors for {}: {:?}", directive_name, parse_result.errors);
                                   }
                                   
                                   if parse_result.errors.is_empty() {
@@ -269,7 +319,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                       // - Append Ivy statements (hoisted functions + factory + component def)
                                       
                                       // Generate expressions for ɵfac and ɵcmp separately
-                                      let fac_expr_str = format!("function {}_Factory(t) {{ return new (t || {})(); }}", directive.name, directive.name);
+                                      let fac_expr_str = format!("function {}_Factory(t) {{ return new (t || {})(); }}", directive_name, directive_name);
                                       let cmp_expr_str = format!("/*@__PURE__*/ {}", initializer);
                                       
                                       // Allocate expressions in the arena for lifetime compatibility
@@ -280,7 +330,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                       super::ast_transformer::transform_component_ast(
                                           &allocator,
                                           &mut parse_result.program,
-                                          &directive.name,
+                                          &directive_name,
                                           hoisted_statements_arena,
                                           fac_expr_arena,
                                           cmp_expr_arena,
@@ -293,16 +343,16 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                   } else {
                                       // Fallback to empty class if parse fails
                                       format!("import * as i0 from '@angular/core';\nexport class {} {{}}\n{}.ɵfac = function {}_Factory(t) {{ return new (t || {})(); }};\n{}.ɵcmp = /*@__PURE__*/ {};",
-                                          directive.name, directive.name, directive.name, directive.name, directive.name, initializer)
+                                          directive_name, directive_name, directive_name, directive_name, directive_name, initializer)
                                   }
                               }
                               Err(_) => format!("import * as i0 from '@angular/core';\nexport class {} {{}}\n{}.ɵfac = function {}_Factory(t) {{ return new (t || {})(); }};\n{}.ɵcmp = /*@__PURE__*/ {};",
-                                  directive.name, directive.name, directive.name, directive.name, directive.name, initializer)
+                                  directive_name, directive_name, directive_name, directive_name, directive_name, initializer)
                           }
                        } else {
                            // This else matches "if let Some(src_file) = source_file"
                            format!("import * as i0 from '@angular/core';\nexport class {} {{}}\n{}.ɵfac = function {}_Factory(t) {{ return new (t || {})(); }};\n{}.ɵcmp = /*@__PURE__*/ {};",
-                               directive.name, directive.name, directive.name, directive.name, directive.name, initializer)
+                               directive_name, directive_name, directive_name, directive_name, directive_name, initializer)
                        };
 
                        match fs.write_file(&out_path, final_content.as_bytes(), None) {
@@ -315,7 +365,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                            let mut is_match = false;
                            
                            // Check by exact path match
-                           if let Some(src_file) = source_file {
+                           if let Some(ref src_file) = source_file {
                                if file == src_file.as_path() {
                                    is_match = true;
                                }
@@ -327,7 +377,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                    let stem_str = stem.to_string_lossy();
                                    // Simple check: removing hyphens should match directive name (case-insensitive)
                                    let clean_stem = stem_str.replace("-", "");
-                                   if clean_stem.eq_ignore_ascii_case(&directive.name) {
+                                   if clean_stem.eq_ignore_ascii_case(&directive_name) {
                                        is_match = true;
                                    } else if stem_str.eq_ignore_ascii_case("app") {
                                        // Special case for app

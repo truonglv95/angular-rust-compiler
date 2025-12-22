@@ -1,6 +1,6 @@
 use crate::ngtsc::transform::src::api::{DecoratorHandler, HandlerPrecedence, DetectResult, AnalysisOutput, CompileResult, ConstantPool};
 use crate::ngtsc::reflection::{ClassDeclaration, Decorator, ReflectionHost, TypeScriptReflectionHost};
-use crate::ngtsc::metadata::{DirectiveMetadata, extract_directive_metadata};
+use crate::ngtsc::metadata::{DirectiveMetadata, DecoratorMetadata, extract_directive_metadata};
 use angular_compiler::render3::view::api::{
     R3ComponentMetadata, R3DirectiveMetadata, R3ComponentTemplate, R3ComponentDeferMetadata, DeclarationListEmitMode,
     R3LifecycleMetadata
@@ -194,10 +194,15 @@ impl DecoratorHandler<DirectiveMetadata, DirectiveMetadata, (), ()> for Componen
 
 impl ComponentDecoratorHandler {
     pub fn compile_ivy(&self, analysis: &DirectiveMetadata) -> Vec<CompileResult> {
+        // Extract DirectiveMeta from DecoratorMetadata enum (must be a component)
+        let dir = match analysis {
+            DecoratorMetadata::Directive(d) if d.is_component => d,
+            _ => return vec![], // Not a component, cannot compile
+        };
+        
         // Manually construct R3Reference since From isn't implemented
-        // Use ReadVarExpr to avoid cloning issues with WrappedNodeExpr
         let type_expr = angular_compiler::output::output_ast::Expression::ReadVar(angular_compiler::output::output_ast::ReadVarExpr {
-            name: analysis.name.clone(),
+            name: dir.name.clone(),
             type_: None,
             source_span: None,
         });
@@ -208,13 +213,8 @@ impl ComponentDecoratorHandler {
         };
 
         // Parse Template
-        let template_str = analysis.template.clone().unwrap_or_else(|| {
-            // Placeholder: Should read from template_url if template is missing
-            // For now, default to empty string if neither present (or handle error)
-            "".to_string()
-        });
-        
-        let template_url = analysis.template_url.clone().unwrap_or_else(|| "inline-template.html".to_string());
+        let template_str = dir.template.clone().unwrap_or_else(|| "".to_string());
+        let template_url = dir.template_url.clone().unwrap_or_else(|| "inline-template.html".to_string());
 
         let expression_parser = angular_compiler::expression_parser::parser::Parser::new();
         let schema_registry = angular_compiler::schema::dom_element_schema_registry::DomElementSchemaRegistry::new();
@@ -224,7 +224,7 @@ impl ComponentDecoratorHandler {
              vec![], 
         );
 
-        let (nodes, ng_content_selectors, preserve_whitespaces, styles) = if let Some(ast) = &analysis.template_ast {
+        let (nodes, ng_content_selectors, preserve_whitespaces, styles) = if let Some(ast) = &dir.template_ast {
             let options = Render3ParseOptions {
                 collect_comment_nodes: false,
                 ..Default::default()
@@ -254,31 +254,31 @@ impl ComponentDecoratorHandler {
 
         let r3_metadata = R3ComponentMetadata {
             directive: R3DirectiveMetadata {
-                name: analysis.name.clone(),
+                name: dir.name.clone(),
                 type_: type_ref,
                 type_argument_count: 0,
                 type_source_span: angular_compiler::parse_util::ParseSourceSpan::new(
                     angular_compiler::parse_util::ParseLocation::new(angular_compiler::parse_util::ParseSourceFile::new("".to_string(), "".to_string()), 0, 0, 0),
                     angular_compiler::parse_util::ParseLocation::new(angular_compiler::parse_util::ParseSourceFile::new("".to_string(), "".to_string()), 0, 0, 0)
                 ), 
-                selector: analysis.selector.clone(),
+                selector: dir.selector.clone(),
                 queries: vec![],
                 view_queries: vec![],
                 host: angular_compiler::render3::view::api::R3HostMetadata::default(),
-                inputs: analysis.inputs.iter().map(|(k, v)| (k.clone(), angular_compiler::render3::view::api::R3InputMetadata {
+                inputs: dir.inputs.iter().map(|(k, v)| (k.clone(), angular_compiler::render3::view::api::R3InputMetadata {
                     class_property_name: v.class_property_name.clone(),
                     binding_property_name: v.binding_property_name.clone(),
                     is_signal: v.is_signal,
                     required: false,
                     transform_function: None,
                 })).collect(),
-                outputs: analysis.outputs.iter().map(|(k, v)| (k.clone(), v.binding_property_name.clone())).collect(),
+                outputs: dir.outputs.iter().map(|(k, v)| (k.clone(), v.binding_property_name.clone())).collect(),
                 lifecycle: R3LifecycleMetadata::default(),
                 providers: None,
                 uses_inheritance: false, 
-                export_as: analysis.export_as.clone(),
-                is_standalone: analysis.is_standalone,
-                is_signal: analysis.is_signal,
+                export_as: dir.export_as.clone(),
+                is_standalone: dir.is_standalone,
+                is_signal: dir.is_signal,
                 host_directives: None,
                 deps: None,
             },
@@ -287,7 +287,7 @@ impl ComponentDecoratorHandler {
                 nodes: nodes.clone(), // Clone for pipeline ingestion
                 preserve_whitespaces: preserve_whitespaces,
             },
-            declarations: analysis.imports.iter().flatten().map(|import_name| {
+            declarations: dir.imports.iter().flatten().map(|import_name| {
                 // Try to get known directive metadata first, fall back to empty values
                 if let Some(known_metadata) = get_known_directive_metadata(import_name) {
                     angular_compiler::render3::view::api::R3TemplateDependencyMetadata::Directive(known_metadata)
@@ -309,12 +309,12 @@ impl ComponentDecoratorHandler {
             }).collect(),
             declaration_list_emit_mode: DeclarationListEmitMode::Direct,
             styles: {
-                let mut combined = analysis.styles.clone().unwrap_or_default();
+                let mut combined = dir.styles.clone().unwrap_or_default();
                 combined.extend(styles);
                 combined
             },
             encapsulation: ViewEncapsulation::Emulated,
-            change_detection: analysis.change_detection.map(|s| angular_compiler::render3::view::api::ChangeDetectionOrExpression::Strategy(s)),
+            change_detection: dir.change_detection.map(|s| angular_compiler::render3::view::api::ChangeDetectionOrExpression::Strategy(s)),
             animations: None,
             view_providers: None,
             relative_context_file_path: "".to_string(),
@@ -331,7 +331,7 @@ impl ComponentDecoratorHandler {
         // Use template pipeline instead of placeholder compile_component_from_metadata
         // 1. Ingest template into compilation job
         let mut job = ingest_component(
-            analysis.name.clone(),
+            dir.name.clone(),
             nodes,  // Template AST nodes
             real_constant_pool,
             TemplateCompilationMode::Full,
@@ -382,7 +382,7 @@ impl ComponentDecoratorHandler {
 mod tests {
     use super::*;
     use crate::ngtsc::transform::src::api::HandlerPrecedence;
-    use crate::ngtsc::metadata::ClassPropertyMapping;
+    use crate::ngtsc::metadata::{ClassPropertyMapping, DirectiveMeta};
 
     #[test]
     fn test_handler_basic_properties() {
@@ -393,14 +393,11 @@ mod tests {
     
     #[test]
     fn test_compile_full_basic() {
-        // Mock a DirectiveMetadata
-        let metadata = DirectiveMetadata {
+        // Mock a DirectiveMetadata using the new structure
+        let metadata = DecoratorMetadata::Directive(DirectiveMeta {
             name: "TestComponent".to_string(),
             selector: Some("test-comp".to_string()),
             is_component: true,
-            is_pipe: false,
-            pipe_name: None,
-            pure: true,
             inputs: ClassPropertyMapping::new(),
             outputs: ClassPropertyMapping::new(),
             export_as: None,
@@ -414,7 +411,8 @@ mod tests {
             template_ast: None,
             source_file: None,
             change_detection: None,
-        };
+            ..Default::default()
+        });
         
         let handler = ComponentDecoratorHandler::new();
         

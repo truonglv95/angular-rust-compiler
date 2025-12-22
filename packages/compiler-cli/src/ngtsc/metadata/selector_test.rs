@@ -3,7 +3,7 @@ mod tests {
     
 use std::path::PathBuf;
 
-use crate::ngtsc::metadata::{OxcMetadataReader, MetadataReader};
+use crate::ngtsc::metadata::{OxcMetadataReader, MetadataReader, DecoratorMetadata};
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
@@ -35,29 +35,33 @@ fn test_extract_selector() {
     let directives = reader.get_directive_metadata(&ret.program, &PathBuf::from("test.ts"));
 
     assert_eq!(directives.len(), 1);
-    let meta = &directives[0];
-    assert_eq!(meta.name, "AppComponent");
-    assert_eq!(meta.selector, Some("app-root".to_string()));
-    assert!(meta.is_component);
-    assert!(meta.is_standalone);
-    assert_eq!(meta.export_as, Some(vec!["myApp".to_string()]));
     
-    // Check inputs
-    let foo_input = meta.inputs.get_by_class_property_name("foo");
-    assert!(foo_input.is_some());
-    assert_eq!(foo_input.unwrap().binding_property_name, "foo");
+    if let DecoratorMetadata::Directive(meta) = &directives[0] {
+        assert_eq!(meta.name, "AppComponent");
+        assert_eq!(meta.selector, Some("app-root".to_string()));
+        assert!(meta.is_component);
+        assert!(meta.is_standalone);
+        assert_eq!(meta.export_as, Some(vec!["myApp".to_string()]));
+        
+        // Check inputs
+        let foo_input = meta.inputs.get_by_class_property_name("foo");
+        assert!(foo_input.is_some());
+        assert_eq!(foo_input.unwrap().binding_property_name, "foo");
 
-    let bar_input = meta.inputs.get_by_class_property_name("bar");
-    assert!(bar_input.is_some());
-    assert_eq!(bar_input.unwrap().binding_property_name, "baz");
+        let bar_input = meta.inputs.get_by_class_property_name("bar");
+        assert!(bar_input.is_some());
+        assert_eq!(bar_input.unwrap().binding_property_name, "baz");
 
-    // Check outputs
-    let click_output = meta.outputs.get_by_class_property_name("click");
-    assert!(click_output.is_some());
-    assert_eq!(click_output.unwrap().binding_property_name, "click");
-    
-    // Check template
-    assert_eq!(meta.template, Some("<div></div>".to_string()));
+        // Check outputs
+        let click_output = meta.outputs.get_by_class_property_name("click");
+        assert!(click_output.is_some());
+        assert_eq!(click_output.unwrap().binding_property_name, "click");
+        
+        // Check template
+        assert_eq!(meta.template, Some("<div></div>".to_string()));
+    } else {
+        panic!("Expected Directive metadata");
+    }
 }
 
 #[test]
@@ -85,12 +89,15 @@ fn test_extract_component_assets() {
     let directives = reader.get_directive_metadata(&ret.program, &PathBuf::from("test.ts"));
 
     assert_eq!(directives.len(), 1);
-    let meta = &directives[0];
     
-    assert_eq!(meta.name, "AssetsComponent");
-    assert_eq!(meta.template_url, Some("./assets.component.html".to_string()));
-    assert_eq!(meta.styles, Some(vec!["div { color: red; }".to_string()]));
-    assert_eq!(meta.style_urls, Some(vec!["./assets.component.css".to_string(), "./other.css".to_string()]));
+    if let DecoratorMetadata::Directive(meta) = &directives[0] {
+        assert_eq!(meta.name, "AssetsComponent");
+        assert_eq!(meta.template_url, Some("./assets.component.html".to_string()));
+        assert_eq!(meta.styles, Some(vec!["div { color: red; }".to_string()]));
+        assert_eq!(meta.style_urls, Some(vec!["./assets.component.css".to_string(), "./other.css".to_string()]));
+    } else {
+        panic!("Expected Directive metadata");
+    }
 }
 
 #[test]
@@ -118,20 +125,25 @@ fn test_extract_directive_selector() {
     let directives = reader.get_directive_metadata(&ret.program, &PathBuf::from("test.ts"));
 
     assert_eq!(directives.len(), 1);
-    let meta = &directives[0];
-    assert_eq!(meta.name, "TestDirective");
-    assert_eq!(meta.selector, Some("app-test".to_string()));
-    assert!(!meta.is_component);
-    assert!(!meta.is_standalone);
+    
+    if let DecoratorMetadata::Directive(meta) = &directives[0] {
+        assert_eq!(meta.name, "TestDirective");
+        assert_eq!(meta.selector, Some("app-test".to_string()));
+        assert!(!meta.is_component);
+        assert!(!meta.is_standalone);
 
-    // Check inputs object syntax
-    let val_input = meta.inputs.get_by_class_property_name("val");
-    assert!(val_input.is_some());
-    assert_eq!(val_input.unwrap().binding_property_name, "value");
+        // Check inputs object syntax
+        let val_input = meta.inputs.get_by_class_property_name("val");
+        assert!(val_input.is_some());
+        assert_eq!(val_input.unwrap().binding_property_name, "value");
 
-    // Check outputs object syntax
-    let change_output = meta.outputs.get_by_class_property_name("change");
-    assert!(change_output.is_some());
-    assert_eq!(change_output.unwrap().binding_property_name, "onChange");
+        // Check outputs object syntax
+        let change_output = meta.outputs.get_by_class_property_name("change");
+        assert!(change_output.is_some());
+        assert_eq!(change_output.unwrap().binding_property_name, "onChange");
+    } else {
+        panic!("Expected Directive metadata");
+    }
 }
 }
+
