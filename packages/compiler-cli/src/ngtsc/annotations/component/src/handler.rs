@@ -208,9 +208,27 @@ impl ComponentDecoratorHandler {
 
         let mut real_constant_pool = angular_compiler::constant_pool::ConstantPool::new(false);
         
- 
+        // Use template pipeline instead of placeholder compile_component_from_metadata
+        // 1. Ingest template into compilation job
+        let mut job = ingest_component(
+            analysis.name.clone(),
+            nodes,  // Template AST nodes
+            real_constant_pool,
+            TemplateCompilationMode::Full,
+            r3_metadata.relative_context_file_path.clone(),
+            r3_metadata.i18n_use_external_ids,
+            r3_metadata.defer.clone(),
+            None,  // all_deferrable_deps_fn
+            r3_metadata.relative_template_path.clone(),
+            false, // enable_debug_locations
+        );
         
-        let compiled = compile_component_from_metadata(&r3_metadata, &mut real_constant_pool, &binding_parser);
+        // 2. Run all pipeline phases
+        phases::run(&mut job);
+        
+        // 3. Emit component definition
+        let compiled = emit_component(&job, &r3_metadata);
+
         
         // Emit AST to String
         let mut emitter = AbstractJsEmitterVisitor::new();
