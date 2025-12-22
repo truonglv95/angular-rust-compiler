@@ -27,7 +27,7 @@ const { spawnSync } = require('child_process');
 
 module.exports = {
   mode: 'development',
-  entry: './src/main.ts',
+  entry: './rust-output/demo-app/src/main.js',
   // entry: './out-tsc/main.js',
   output: {
     path: path.resolve(__dirname, 'dist/rspack'),
@@ -47,17 +47,6 @@ module.exports = {
       //   ],
       //   type: 'javascript/auto',
       // },
-      {
-        test: /\.ts$/,
-        use: [
-          {
-            loader: path.resolve(__dirname, 'rust-ngc-loader.js'),
-          },
-        ],
-        // Exclude node_modules to avoid trying to compile libs with our custom loader
-        // (unless we want to processing libs too, but usually libs are already JS/d.ts)
-        exclude: /node_modules/,
-      },
     ],
   },
   plugins: [
