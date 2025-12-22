@@ -15,9 +15,10 @@ pub fn transform_component_ast<'a>(
     allocator: &'a Allocator,
     program: &mut Program<'a>,
     component_name: &str,
-    hoisted_statements: &'a str,  // Hoisted statements (function declarations, etc.)
-    fac_expr_str: &'a str,        // Expression string for ɵfac
-    cmp_expr_str: &'a str,        // Expression string for ɵcmp
+    hoisted_statements: &'a str,
+    fac_expr_str: &'a str,
+    def_expr_str: &'a str,
+    def_name: &str,
 ) {
     // 1. Remove Angular decorators from the class
     remove_angular_decorators(program);
@@ -28,8 +29,8 @@ pub fn transform_component_ast<'a>(
     // 3. Add hoisted statements to program body (after all imports)
     add_hoisted_statements(allocator, program, hoisted_statements);
     
-    // 4. Add ɵfac and ɵcmp as static properties to the class
-    add_static_properties_to_class(allocator, program, component_name, fac_expr_str, cmp_expr_str);
+    // 4. Add ɵfac and ɵcmp/ɵdir as static properties to the class
+    add_static_properties_to_class(allocator, program, component_name, fac_expr_str, def_expr_str, def_name);
 }
 
 /// Remove Angular decorators (@Component, @Directive, etc.) from class declarations
@@ -56,14 +57,45 @@ fn remove_angular_decorators(program: &mut Program) {
 
 /// Remove Angular decorators from a class
 fn remove_decorators_from_class(class: &mut Class) {
-    // Angular decorators to remove
-    let angular_decorators = ["Component", "Directive", "Injectable", "Pipe", "NgModule"];
+    // Angular decorators to remove from class declaration
+    let class_decorators = ["Component", "Directive", "Injectable", "Pipe", "NgModule"];
     
-    // Filter out Angular decorators
+    // Filter out Angular decorators form class
     class.decorators.retain(|decorator| {
         let decorator_name = get_decorator_name(decorator);
-        !angular_decorators.contains(&decorator_name.as_str())
+        !class_decorators.contains(&decorator_name.as_str())
     });
+
+    // Angular decorators to remove from class members
+    let member_decorators = [
+        "Input", "Output", "HostBinding", "HostListener", 
+        "ViewChild", "ViewChildren", "ContentChild", "ContentChildren"
+    ];
+
+    // Remove decorators from class body elements
+    for element in class.body.body.iter_mut() {
+        match element {
+            ClassElement::PropertyDefinition(prop) => {
+                prop.decorators.retain(|decorator| {
+                    let decorator_name = get_decorator_name(decorator);
+                    !member_decorators.contains(&decorator_name.as_str())
+                });
+            }
+            ClassElement::MethodDefinition(method) => {
+                method.decorators.retain(|decorator| {
+                    let decorator_name = get_decorator_name(decorator);
+                    !member_decorators.contains(&decorator_name.as_str())
+                });
+            }
+            ClassElement::AccessorProperty(accessor) => {
+                accessor.decorators.retain(|decorator| {
+                    let decorator_name = get_decorator_name(decorator);
+                    !member_decorators.contains(&decorator_name.as_str())
+                });
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Get the name of a decorator
@@ -112,31 +144,39 @@ fn add_hoisted_statements<'a>(
     }
 }
 
-/// Add ɵfac and ɵcmp as static properties to a class from expression strings
 fn add_static_properties_to_class<'a>(
     allocator: &'a Allocator,
     program: &mut Program<'a>,
     component_name: &str,
     fac_expr_str: &'a str,
-    cmp_expr_str: &'a str,
+    def_expr_str: &'a str,
+    def_name: &str,
 ) {
+    println!("DEBUG: add_static_properties_to_class for {}", component_name);
     // Find the class declaration and add static properties
     for stmt in program.body.iter_mut() {
         match stmt {
             Statement::ExportNamedDeclaration(export_decl) => {
+                // Decorators are not on ExportNamedDeclaration in this version of OXC.
+                // They are on the Declaration.
+
                 if let Some(Declaration::ClassDeclaration(class)) = &mut export_decl.declaration {
                     if let Some(class_id) = &class.id {
                         if class_id.name.as_str() == component_name {
-                            add_properties_to_class_body(allocator, class, Some(fac_expr_str), Some(cmp_expr_str));
+                            add_properties_to_class_body(allocator, class, Some(fac_expr_str), Some(def_expr_str), def_name);
                             break;
                         }
                     }
                 }
             }
+
+
             Statement::ClassDeclaration(class) => {
                 if let Some(class_id) = &class.id {
+                    println!("DEBUG: Found class {}", class_id.name);
                     if class_id.name.as_str() == component_name {
-                        add_properties_to_class_body(allocator, class, Some(fac_expr_str), Some(cmp_expr_str));
+                        println!("DEBUG: Match found for {}", component_name);
+                        add_properties_to_class_body(allocator, class, Some(fac_expr_str), Some(def_expr_str), def_name);
                         break;
                     }
                 }
@@ -146,13 +186,12 @@ fn add_static_properties_to_class<'a>(
     }
 }
 
-/// Add ɵfac and ɵcmp as static properties to a class
-/// Uses AstBuilder to create PropertyDefinition directly
 fn add_properties_to_class_body<'a>(
     allocator: &'a Allocator,
     class: &mut Class<'a>,
     fac_expr_str: Option<&'a str>,
-    cmp_expr_str: Option<&'a str>,
+    def_expr_str: Option<&'a str>,
+    def_name: &str,
 ) {
     let ast = AstBuilder::new(allocator);
     
@@ -163,13 +202,14 @@ fn add_properties_to_class_body<'a>(
         }
     }
     
-    // Create ɵcmp property if exists
-    if let Some(expr_str) = cmp_expr_str {
-        if let Some(prop_def) = create_static_property(allocator, &ast, "ɵcmp", expr_str) {
+    // Create definition property (ɵcmp/ɵdir) if exists
+    if let Some(expr_str) = def_expr_str {
+        if let Some(prop_def) = create_static_property(allocator, &ast, def_name, expr_str) {
             class.body.body.push(ClassElement::PropertyDefinition(prop_def));
         }
     }
 }
+
 
 /// Create a PropertyDefinition by parsing a template class and extracting it
 /// We parse a template class and extract the PropertyDefinition directly.

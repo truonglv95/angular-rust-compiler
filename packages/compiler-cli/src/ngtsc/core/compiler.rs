@@ -71,7 +71,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                 }
                 return Err(format!("Failed to parse {:?}", path));
             } else {
-                let mut directives = metadata_reader.get_directive_metadata(&ret.program);
+                let mut directives = metadata_reader.get_directive_metadata(&ret.program, &path);
                 println!("Analyzed {:?} with OXC. Found {} directives.", path, directives.len());
                 
                 // Parse templates for directives that have inline templates
@@ -130,25 +130,33 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
     pub fn emit(&self, compilation_result: &CompilationResult) -> Result<(), String> {
         let fs = self.fs;
         
-        let handler = crate::ngtsc::annotations::component::src::handler::ComponentDecoratorHandler::new();
+        let component_handler = crate::ngtsc::annotations::component::src::handler::ComponentDecoratorHandler::new();
+        let directive_handler = crate::ngtsc::annotations::directive::src::handler::DirectiveDecoratorHandler::new(false);
         
         // Track which files have components (they get special handling)
         let mut component_files: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
 
         // First pass: emit Angular component files with decorators
+        println!("DEBUG: Emit loop starting with {} directives", compilation_result.directives.len());
         for directive in &compilation_result.directives {
-             let compiled_results = handler.compile_ivy(directive);
+             let compiled_results = if directive.is_component {
+                 component_handler.compile_ivy(directive)
+             } else {
+                 directive_handler.compile_ivy(directive)
+             };
+             println!("DEBUG: Compiled results for {}: {}", directive.name, compiled_results.len());
             
              for result in compiled_results {
                       let initializer = result.initializer.clone().unwrap_or_default();
                       let hoisted_statements = result.statements.join("\n");
                       
-                      // Find source file for this directive
-                      let source_file = compilation_result.files.iter()
-                          .find(|f| f.file_stem().map_or(false, |s| {
-                              s.to_string_lossy().eq_ignore_ascii_case(&directive.name) || 
-                              s.to_string_lossy().eq_ignore_ascii_case("app")
-                          }));
+                      // Find source file for this directive (using metadata source_file if available)
+                      let source_file = directive.source_file.as_ref();
+                      if let Some(s) = source_file {
+                          println!("DEBUG: Emitter found source file for {}: {:?}", directive.name, s);
+                      } else {
+                          println!("DEBUG: Emitter NO source file for {}", directive.name);
+                      }
                       
                       // Skip if source file is in node_modules or is a spec file
                        if let Some(src_file) = source_file {
@@ -212,6 +220,10 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                   let parser = Parser::new(&allocator, &source_content, source_type);
                                   let mut parse_result = parser.parse();
                                   
+                                  if !parse_result.errors.is_empty() {
+                                      println!("DEBUG: Parser errors for {}: {:?}", directive.name, parse_result.errors);
+                                  }
+                                  
                                   if parse_result.errors.is_empty() {
                                       // Step 1: Run semantic analysis for scoping
                                       let semantic = oxc_semantic::SemanticBuilder::new()
@@ -251,6 +263,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                           hoisted_statements_arena,
                                           fac_expr_arena,
                                           cmp_expr_arena,
+                                          &result.name,
                                       );
                                       
                                       // Step 4: Codegen final JavaScript
@@ -278,8 +291,31 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
 
                        // Mark this source file as having a component
                        for file in &compilation_result.files {
-                           if file.file_stem().map_or(false, |s| s.eq_ignore_ascii_case(&directive.name) || 
-                               s.to_string_lossy().eq_ignore_ascii_case("app")) {
+                           let mut is_match = false;
+                           
+                           // Check by exact path match
+                           if let Some(src_file) = source_file {
+                               if file == src_file.as_path() {
+                                   is_match = true;
+                               }
+                           }
+                           
+                           // Check by name match (handling kebab-case vs PascalCase)
+                           if !is_match {
+                               if let Some(stem) = file.file_stem() {
+                                   let stem_str = stem.to_string_lossy();
+                                   // Simple check: removing hyphens should match directive name (case-insensitive)
+                                   let clean_stem = stem_str.replace("-", "");
+                                   if clean_stem.eq_ignore_ascii_case(&directive.name) {
+                                       is_match = true;
+                                   } else if stem_str.eq_ignore_ascii_case("app") {
+                                       // Special case for app
+                                       is_match = true;
+                                   }
+                               }
+                           }
+
+                           if is_match {
                                component_files.insert(file.clone());
                            }
                        }
