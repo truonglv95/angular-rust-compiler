@@ -3,7 +3,7 @@
 //! Corresponds to packages/compiler/src/render3/view/util.ts
 //! Contains utility functions for view compilation
 
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -20,7 +20,7 @@ use crate::render3::r3_ast as t;
 
 lazy_static! {
     /// Checks whether an object key contains potentially unsafe chars
-    pub static ref UNSAFE_OBJECT_KEY_NAME_REGEXP: Regex = Regex::new(r"[-.]").unwrap();
+    pub static ref UNSAFE_OBJECT_KEY_NAME_REGEXP: Regex = Regex::new(r"[-.']").unwrap();
 }
 
 /// Name of the temporary to use during data binding
@@ -126,7 +126,7 @@ pub struct InputBindingMetadata {
 
 /// Serializes inputs and outputs for `defineDirective` and `defineComponent`.
 pub fn conditionally_create_directive_binding_literal(
-    map: &HashMap<String, InputBindingValue>,
+    map: &IndexMap<String, InputBindingValue>,
     for_inputs: bool,
 ) -> Option<LiteralMapExpr> {
     if map.is_empty() {

@@ -14,7 +14,7 @@ use crate::parse_util::{ParseError, ParseSourceSpan};
 use crate::template_parser::binding_parser::BindingParser;
 
 use super::r3_ast::{
-    ForLoopBlock, ForLoopBlockEmpty, IfBlock, IfBlockBranch, SwitchBlock,
+    ForLoopBlock, ForLoopBlockEmpty, IfBlock, SwitchBlock,
     SwitchBlockCase, UnknownBlock, Variable, BlockNode,
 };
 
@@ -61,15 +61,10 @@ fn get_node_source_span(node: &html::Node) -> ParseSourceSpan {
 }
 
 /// Names of variables that are allowed to be used in the `let` expression of a `for` loop
-fn allowed_for_loop_let_variables() -> HashSet<&'static str> {
-    let mut set = HashSet::new();
-    set.insert("$index");
-    set.insert("$first");
-    set.insert("$last");
-    set.insert("$even");
-    set.insert("$odd");
-    set.insert("$count");
-    set
+/// Returns Vec to preserve deterministic ordering (important for code generation)
+fn allowed_for_loop_let_variables() -> Vec<&'static str> {
+    // Order matters: $index must come before $count for deterministic output
+    vec!["$index", "$first", "$last", "$even", "$odd", "$count"]
 }
 
 /// Predicate function that determines if a block with
@@ -428,7 +423,7 @@ fn parse_for_loop_parameters(
     }
 
     let allowed_vars = allowed_for_loop_let_variables();
-    if allowed_vars.contains(item_name_str) {
+    if allowed_vars.contains(&item_name_str) {
         errors.push(ParseError::new(
             expression_param.source_span.clone(),
             format!(
@@ -583,7 +578,7 @@ fn parse_let_parameter(
                 source_span.clone(),
                 "Invalid @for loop \"let\" parameter. Parameter should match the pattern \"<name> = <variable name>\"".to_string(),
             ));
-        } else if !allowed_vars.contains(variable_name) {
+        } else if !allowed_vars.contains(&variable_name) {
             errors.push(ParseError::new(
                 source_span.clone(),
                 format!(

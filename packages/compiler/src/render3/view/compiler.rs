@@ -4,6 +4,7 @@
 //! Contains directive and component compilation logic
 
 use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use crate::constant_pool::ConstantPool;
 use crate::core::{ViewEncapsulation, ChangeDetectionStrategy};
@@ -291,7 +292,7 @@ fn base_directive_fields(
     // TODO: Implement createHostBindingsFunction
 
     // inputs
-    let inputs_map: HashMap<String, InputBindingValue> = meta.inputs
+    let inputs_map: IndexMap<String, InputBindingValue> = meta.inputs
         .iter()
         .map(|(k, v)| {
             (k.clone(), InputBindingValue::Complex(super::util::InputBindingMetadata {
@@ -307,7 +308,7 @@ fn base_directive_fields(
     }
 
     // outputs  
-    let outputs_map: HashMap<String, InputBindingValue> = meta.outputs
+    let outputs_map: IndexMap<String, InputBindingValue> = meta.outputs
         .iter()
         .map(|(k, v)| (k.clone(), InputBindingValue::Simple(v.clone())))
         .collect();
@@ -604,7 +605,7 @@ fn compile_declaration_list(list: Expression, mode: DeclarationListEmitMode) -> 
     }
 }
 
-fn compile_styles(styles: &[String], selector: &str, host_selector: &str) -> Vec<String> {
+pub fn compile_styles(styles: &[String], selector: &str, host_selector: &str) -> Vec<String> {
     let shadow_css = ShadowCss::new();
     styles
         .iter()

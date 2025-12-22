@@ -3,7 +3,7 @@
 //! Corresponds to packages/compiler/src/render3/partial/directive.ts
 //! Contains directive declaration compilation for partial/linking mode
 
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use crate::output::output_ast::{
     Expression, LiteralExpr, LiteralValue, LiteralArrayExpr, LiteralMapExpr, LiteralMapEntry,
@@ -394,7 +394,7 @@ fn create_host_directives(
 
 /// Generates partial output metadata for inputs.
 fn create_inputs_partial_metadata(
-    inputs: &HashMap<String, crate::render3::view::api::R3InputMetadata>,
+    inputs: &IndexMap<String, crate::render3::view::api::R3InputMetadata>,
 ) -> Option<Expression> {
     if inputs.is_empty() {
         return None;
@@ -452,7 +452,7 @@ fn create_inputs_partial_metadata(
 
 /// Legacy partial output for inputs.
 fn legacy_inputs_partial_metadata(
-    inputs: &HashMap<String, crate::render3::view::api::R3InputMetadata>,
+    inputs: &IndexMap<String, crate::render3::view::api::R3InputMetadata>,
 ) -> Option<Expression> {
     if inputs.is_empty() {
         return None;

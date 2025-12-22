@@ -108,7 +108,6 @@ pub fn parse_template(
     
     // Process i18n metadata (simplified for now)
     let mut html_nodes = parse_result.root_nodes;
-    eprintln!("DEBUG: parse_template initial nodes: {:#?}", html_nodes);
     
     // Handle whitespace preservation
     if options.preserve_whitespaces != Some(true) {

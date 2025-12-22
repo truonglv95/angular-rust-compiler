@@ -110,10 +110,10 @@ impl Default for Render3ParseOptions {
 }
 
 /// Transforms HTML AST to Render3/Ivy AST
-pub fn html_ast_to_render3_ast<'a>(
+pub fn html_ast_to_render3_ast<'a, 'b>(
     html_nodes: &[html::Node],
-    binding_parser: &'a mut BindingParser<'a>,
-    options: &'a Render3ParseOptions,
+    binding_parser: &'b mut BindingParser<'a>,
+    options: &Render3ParseOptions,
 ) -> Render3ParseResult {
     let mut transformer = HtmlAstToIvyAst::new(binding_parser, options);
     let ivy_nodes = transformer.visit_all(html_nodes);
@@ -142,9 +142,9 @@ pub fn html_ast_to_render3_ast<'a>(
 }
 
 /// HTML to Ivy AST transformer
-struct HtmlAstToIvyAst<'a> {
-    binding_parser: &'a mut BindingParser<'a>,
-    options: &'a Render3ParseOptions,
+struct HtmlAstToIvyAst<'a, 'b> {
+    binding_parser: &'b mut BindingParser<'a>,
+    options: &'b Render3ParseOptions,
     errors: Vec<ParseError>,
     styles: Vec<String>,
     style_urls: Vec<String>,
@@ -154,8 +154,8 @@ struct HtmlAstToIvyAst<'a> {
     processed_nodes: HashSet<usize>,
 }
 
-impl<'a> HtmlAstToIvyAst<'a> {
-    fn new(binding_parser: &'a mut BindingParser<'a>, options: &'a Render3ParseOptions) -> Self {
+impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
+    fn new(binding_parser: &'b mut BindingParser<'a>, options: &'b Render3ParseOptions) -> Self {
         HtmlAstToIvyAst {
             binding_parser,
             options,
@@ -261,6 +261,7 @@ impl<'a> HtmlAstToIvyAst<'a> {
             if is_structural {
                 // Structural Directive (*ngIf, *ngFor, etc.) -> Convert to inline template binding
                 // The directive.attrs contains the parsed attribute like 'let item of items'
+                println!("DEBUG: Found structural directive: {}", directive.name);
                 let template_key = &directive.name;
                 
                 // Get the value from the directive's first attr (if any) - the full binding expression
@@ -1382,12 +1383,56 @@ impl<'a> HtmlAstToIvyAst<'a> {
         );
 
         let mut template_attrs: Vec<t::TemplateAttr> = vec![];
+        /* 
         for attr in attrs.literal {
             template_attrs.push(t::TemplateAttr::Text(attr));
         }
         for attr in attrs.bound {
             template_attrs.push(t::TemplateAttr::Bound(attr));
         }
+        */
+
+        // Populate standard attributes and inputs
+        // Note: We also populate template_attrs for completeness if needed, but inputs is critical for ngForOf detection
+        for attr in &attrs.literal {
+             template_attrs.push(t::TemplateAttr::Text(attr.clone()));
+        }
+        for attr in &attrs.bound {
+             template_attrs.push(t::TemplateAttr::Bound(attr.clone()));
+        }
+
+        // Hoist attributes/inputs/outputs from child element to template for content projection
+        // This matches TSC behavior at r3_template_transform.ts lines 1002-1012:
+        // hoistedAttrs.attributes.push(...node.attributes)
+        // hoistedAttrs.inputs.push(...node.inputs)  
+        // hoistedAttrs.outputs.push(...node.outputs)
+        let (hoisted_attributes, hoisted_inputs, hoisted_outputs) = match &node {
+            t::R3Node::Element(e) => {
+                // Filter out animation attributes  
+                let attrs = e.attributes.iter()
+                    .filter(|a| !a.name.starts_with("animate."))
+                    .cloned()
+                    .collect();
+                // Filter out animation inputs
+                let inputs = e.inputs.iter()
+                    .filter(|a| !matches!(a.type_, crate::expression_parser::ast::BindingType::Animation))
+                    .cloned()
+                    .collect();
+                (attrs, inputs, e.outputs.clone())
+            }
+            t::R3Node::Component(c) => {
+                let attrs = c.attributes.iter()
+                    .filter(|a| !a.name.starts_with("animate."))
+                    .cloned()
+                    .collect();
+                let inputs = c.inputs.iter()
+                    .filter(|a| !matches!(a.type_, crate::expression_parser::ast::BindingType::Animation))
+                    .cloned()
+                    .collect();
+                (attrs, inputs, c.outputs.clone())
+            }
+            _ => (vec![], vec![], vec![]),
+        };
 
         let i18n = if is_template_element && is_i18n_root {
             None
@@ -1401,19 +1446,19 @@ impl<'a> HtmlAstToIvyAst<'a> {
             }
         };
 
-        let (source_span, start_source_span, end_source_span) = match &node {
-            t::R3Node::Element(e) => (e.source_span.clone(), e.start_source_span.clone(), e.end_source_span.clone()),
-            t::R3Node::Component(c) => (c.source_span.clone(), c.start_source_span.clone(), c.end_source_span.clone()),
-            t::R3Node::Template(t) => (t.source_span.clone(), t.start_source_span.clone(), t.end_source_span.clone()),
-            t::R3Node::Content(c) => (c.source_span.clone(), c.start_source_span.clone(), c.end_source_span.clone()),
+        let (tag_name, source_span, start_source_span, end_source_span) = match &node {
+            t::R3Node::Element(e) => (if is_template_element { None } else { Some(e.name.clone()) }, e.source_span.clone(), e.start_source_span.clone(), e.end_source_span.clone()),
+            t::R3Node::Component(c) => (if is_template_element { None } else { c.tag_name.clone() }, c.source_span.clone(), c.start_source_span.clone(), c.end_source_span.clone()),
+            t::R3Node::Template(t) => (t.tag_name.clone(), t.source_span.clone(), t.start_source_span.clone(), t.end_source_span.clone()),
+            t::R3Node::Content(c) => (None, c.source_span.clone(), c.start_source_span.clone(), c.end_source_span.clone()),
             _ => return node,
         };
 
         t::R3Node::Template(t::Template {
-            tag_name: None,
-            attributes: vec![],
-            inputs: vec![],
-            outputs: vec![],
+            tag_name,
+            attributes: hoisted_attributes,
+            inputs: hoisted_inputs,
+            outputs: hoisted_outputs,
             directives: vec![],
             template_attrs,
             children: vec![node],

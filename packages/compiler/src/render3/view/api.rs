@@ -4,6 +4,7 @@
 //! Contains API definitions for view compilation
 
 use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use crate::core::{ChangeDetectionStrategy, ViewEncapsulation};
 use crate::output::output_ast::Expression;
@@ -36,9 +37,9 @@ pub struct R3DirectiveMetadata {
     /// Information about usage of specific lifecycle events.
     pub lifecycle: R3LifecycleMetadata,
     /// A mapping of inputs from class property names to binding property names.
-    pub inputs: HashMap<String, R3InputMetadata>,
+    pub inputs: IndexMap<String, R3InputMetadata>,
     /// A mapping of outputs from class property names to binding property names.
-    pub outputs: HashMap<String, String>,
+    pub outputs: IndexMap<String, String>,
     /// Whether or not the component or directive inherits from another class.
     pub uses_inheritance: bool,
     /// Reference name under which to export the directive's type in a template.

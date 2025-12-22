@@ -2,8 +2,7 @@
 //!
 //! Mirrors angular/packages/compiler/test/render3/view/parse_template_options_spec.ts
 
-use angular_compiler::render3::r3_ast::Comment;
-use angular_compiler::parse_util::ParseSourceSpan;
+
 
 // Include test utilities
 #[path = "../view/util.rs"]
