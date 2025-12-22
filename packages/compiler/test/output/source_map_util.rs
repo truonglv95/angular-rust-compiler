@@ -1,8 +1,8 @@
 
 use serde::Deserialize;
-use std::collections::HashMap;
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct SourceMap {
     pub version: u32,
     pub file: Option<String>,

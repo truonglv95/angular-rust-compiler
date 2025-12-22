@@ -80,16 +80,19 @@ pub fn tokenize(
 }
 
 // Constants
+#[allow(dead_code)]
 static CR_OR_CRLF_REGEXP: Lazy<Regex> = Lazy::new(|| Regex::new(r"\r\n?").unwrap());
 
 /// Character reference types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 enum CharacterReferenceType {
     Hex,
     Dec,
 }
 
 /// Supported block names
+#[allow(dead_code)]
 const SUPPORTED_BLOCKS: &[&str] = &[
     "@if",
     "@else",
@@ -106,6 +109,7 @@ const SUPPORTED_BLOCKS: &[&str] = &[
 
 /// Default interpolation markers
 const INTERPOLATION_START: &str = "{{";
+#[allow(dead_code)]
 const INTERPOLATION_END: &str = "}}";
 
 /// Character cursor trait
@@ -2456,6 +2460,7 @@ impl Tokenizer {
         false
     }
 
+    #[allow(dead_code)]
     fn is_tag_start(&self) -> bool {
         let ch = self.cursor.peek();
         ch == '<'
@@ -2553,10 +2558,12 @@ fn unparsable_entity_error_msg(ref_type: CharacterReferenceType, entity_str: &st
     format!("Unable to parse entity \"{}\" - {} character reference entities must end with \";\"", entity_str, type_str)
 }
 
+#[allow(dead_code)]
 fn is_not_whitespace(code: char) -> bool {
     !chars::is_whitespace(code)
 }
 
+#[allow(dead_code)]
 fn is_name_end(code: char) -> bool {
     chars::is_whitespace(code)
         || code == '>'
@@ -2567,46 +2574,57 @@ fn is_name_end(code: char) -> bool {
         || code == chars::EOF
 }
 
+#[allow(dead_code)]
 fn is_prefix_end(code: char) -> bool {
     (code < 'a' || code > 'z') && (code < 'A' || code > 'Z') && code != ':' && code != chars::EOF
 }
 
+#[allow(dead_code)]
 fn is_digit_entity_end(code: char) -> bool {
     code == ';' || code == chars::EOF || !chars::is_ascii_hex_digit(code)
 }
 
+#[allow(dead_code)]
 fn is_named_entity_end(code: char) -> bool {
     code == ';' || code == chars::EOF || !chars::is_ascii_letter(code)
 }
 
+#[allow(dead_code)]
 fn is_expansion_case_start(peek: char) -> bool {
     peek != '}'
 }
 
+#[allow(dead_code)]
 fn compare_char_code_case_insensitive(code1: char, code2: char) -> bool {
     code1.to_ascii_lowercase() == code2.to_ascii_lowercase()
 }
 
+#[allow(dead_code)]
 fn to_upper_case_char_code(code: char) -> char {
     code.to_ascii_uppercase()
 }
 
+#[allow(dead_code)]
 fn is_block_name_char(code: char) -> bool {
     chars::is_ascii_letter(code) || chars::is_digit(code) || code == '_'
 }
 
+#[allow(dead_code)]
 fn is_block_parameter_char(code: char) -> bool {
     code != ';' && is_not_whitespace(code)
 }
 
+#[allow(dead_code)]
 fn is_selectorless_name_start(code: char) -> bool {
     code == '@' || chars::is_ascii_letter(code) || code == '_'
 }
 
+#[allow(dead_code)]
 fn is_selectorless_name_char(code: char) -> bool {
     chars::is_ascii_letter(code) || chars::is_digit(code) || code == '-' || code == '_'
 }
 
+#[allow(dead_code)]
 fn is_attribute_terminator(code: char) -> bool {
     code == '>' || code == '/' || chars::is_whitespace(code) || code == chars::EOF
 }

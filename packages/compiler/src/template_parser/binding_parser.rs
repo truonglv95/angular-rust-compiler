@@ -10,9 +10,9 @@ use crate::expression_parser::ast::{
 };
 use crate::expression_parser::parser::Parser;
 use crate::ml_parser::tags::merge_ns_and_name;
-use crate::ml_parser::tokens::{Token, TokenType, InterpolatedAttributeToken};
+use crate::ml_parser::tokens::{Token, InterpolatedAttributeToken};
 use crate::ml_parser::entities::NAMED_ENTITIES;
-use crate::parse_util::{ParseError, ParseErrorLevel, ParseSourceSpan, ParseLocation};
+use crate::parse_util::{ParseError, ParseErrorLevel, ParseSourceSpan};
 use std::u32;
 use crate::schema::element_schema_registry::ElementSchemaRegistry;
 use crate::util::{split_at_colon, split_at_period};

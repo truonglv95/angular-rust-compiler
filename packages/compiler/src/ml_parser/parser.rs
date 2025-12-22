@@ -755,7 +755,7 @@ impl TreeBuilder {
                         match_index = Some(i);
                         break;
                     } else {
-                        eprintln!("DEBUG: Stack[{}] Element '{}' != target '{}'", i, el.name, target_name);
+
                     }
                 }
             }
@@ -824,9 +824,9 @@ impl TreeBuilder {
 
     fn consume_attributes_and_directives(&mut self, attrs: &mut Vec<Attribute>, directives: &mut Vec<Directive>) {
         // Collect all attributes and directives
-        eprintln!("DEBUG: consume_attributes_and_directives start");
+
         while let Some(token) = &self.peek {
-            eprintln!("DEBUG: parser peek token: {:?}", token);
+
             match token {
                 Token::AttrName(_) => {
                     if let Some(Token::AttrName(attr_token)) = self.advance() {
@@ -835,10 +835,10 @@ impl TreeBuilder {
                     }
                 }
                 Token::DirectiveName(_) => {
-                    eprintln!("DEBUG: Parser found DirectiveName token");
+
                     if let Some(Token::DirectiveName(dir_token)) = self.advance() {
                         let directive = self.consume_directive(dir_token);
-                        eprintln!("DEBUG: Parser consumed directive: {}", directive.name);
+
                         directives.push(directive);
                     }
                 }

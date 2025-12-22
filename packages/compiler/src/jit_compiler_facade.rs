@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use crate::compiler_facade_interface::{
     self as facade, CompilerFacade, CoreEnvironment, R3ComponentMetadataFacade,
@@ -89,7 +90,7 @@ impl CompilerFacadeImpl {
         );
 
         // Extract $def from res
-        if let Some(val) = res.get("$def") {
+        if let Some(_val) = res.get("$def") {
             // Since Box<dyn Any> serves as the value container, we need to decide how to return it.
             // The signature returns serde_json::Value, but the evaluated result is Box<dyn Any>.
             // In the real JIT, this returns the actual runtime class/factory.
@@ -538,8 +539,8 @@ fn convert_declare_ng_module_facade_to_metadata(
 
 fn convert_directive_facade_to_metadata(facade: R3DirectiveMetadataFacade) -> R3DirectiveMetadata {
     let prop_metadata = facade.prop_metadata;
-    let mut inputs_from_type: HashMap<String, R3InputMetadata> = HashMap::new();
-    let mut outputs_from_type: HashMap<String, String> = HashMap::new();
+    let mut inputs_from_type: IndexMap<String, R3InputMetadata> = IndexMap::new();
+    let mut outputs_from_type: IndexMap<String, String> = IndexMap::new();
 
     for (field, annotations) in &prop_metadata {
         for ann in annotations {
@@ -567,7 +568,7 @@ fn convert_directive_facade_to_metadata(facade: R3DirectiveMetadataFacade) -> R3
     inputs.extend(inputs_from_type);
     
     // Convert outputs from string array to map
-    let mut outputs = HashMap::new();
+    let mut outputs = IndexMap::new();
     for output in &facade.outputs {
         let (alias, name) = parse_mapping_string(output);
         outputs.insert(name, alias);
@@ -662,8 +663,8 @@ fn extract_directive_metadata_from_component(facade: &R3ComponentMetadataFacade)
         view_queries: facade.view_queries.clone().into_iter().map(convert_to_r3_query_metadata).collect(),
         host: host_metadata,
         lifecycle: R3LifecycleMetadata::default(),
-        inputs: HashMap::new(), // TODO: extract inputs from props
-        outputs: HashMap::new(), // TODO: extract outputs from props
+        inputs: IndexMap::new(), // TODO: extract inputs from props
+        outputs: IndexMap::new(), // TODO: extract outputs from props
         uses_inheritance: facade.uses_inheritance,
         export_as: facade.export_as.clone(),
         providers: facade.providers.clone().map(|p| new_wrapped_node_expr(serde_json::Value::Array(p))),
@@ -734,7 +735,7 @@ fn convert_component_facade_to_metadata(
         view_providers: facade.view_providers.map(|vp| new_wrapped_node_expr(serde_json::Value::Array(vp))),
         relative_context_file_path: source_map_url,
         i18n_use_external_ids: false,
-        change_detection: facade.change_detection.map(|cd| {
+        change_detection: facade.change_detection.map(|_cd| {
             ChangeDetectionOrExpression::Strategy(ChangeDetectionStrategy::Default) 
         }),
         relative_template_path: None,
@@ -779,7 +780,7 @@ fn convert_declare_component_facade_to_metadata(
         view_providers: declaration.view_providers.map(|vp| new_wrapped_node_expr(serde_json::Value::Array(vp))),
         relative_context_file_path: source_map_url,
         i18n_use_external_ids: false,
-        change_detection: declaration.change_detection.map(|cd| {
+        change_detection: declaration.change_detection.map(|_cd| {
              ChangeDetectionOrExpression::Strategy(ChangeDetectionStrategy::Default)
         }),
         relative_template_path: None,
@@ -843,6 +844,7 @@ fn create_injectable_expr_json(val: String) -> crate::injectable_compiler_2::Exp
     }
 }
 
+#[allow(dead_code)]
 fn create_injectable_expr_from_value(val: serde_json::Value) -> crate::injectable_compiler_2::Expression {
     crate::injectable_compiler_2::Expression {
         value: val,
@@ -883,9 +885,9 @@ fn convert_query_declaration_to_metadata(
 }
 
 fn inputs_partial_metadata_to_input_metadata(
-    inputs: HashMap<String, serde_json::Value>,
-) -> HashMap<String, R3InputMetadata> {
-    let mut result = HashMap::new();
+    inputs: IndexMap<String, serde_json::Value>,
+) -> IndexMap<String, R3InputMetadata> {
+    let mut result = IndexMap::new();
     for (minified_class_name, value) in inputs {
         if let Some(s) = value.as_str() {
              result.insert(minified_class_name.clone(), parse_legacy_input_partial_output(s));
@@ -1039,8 +1041,8 @@ fn convert_query_predicate(predicate: serde_json::Value) -> crate::render3::util
      }
 }
 
-fn convert_input_metadata_array(inputs: &[crate::compiler_facade_interface::InputMetadata]) -> HashMap<String, R3InputMetadata> {
-    let mut result = HashMap::new();
+fn convert_input_metadata_array(inputs: &[crate::compiler_facade_interface::InputMetadata]) -> IndexMap<String, R3InputMetadata> {
+    let mut result = IndexMap::new();
     for input in inputs {
         match input {
             crate::compiler_facade_interface::InputMetadata::Simple(name) => {
@@ -1067,21 +1069,21 @@ fn convert_input_metadata_array(inputs: &[crate::compiler_facade_interface::Inpu
     result
 }
 
-fn convert_inputs_declaration(inputs: Option<serde_json::Value>) -> HashMap<String, R3InputMetadata> {
+fn convert_inputs_declaration(inputs: Option<serde_json::Value>) -> IndexMap<String, R3InputMetadata> {
     if let Some(serde_json::Value::Object(map)) = inputs {
-        let mut hash_map = HashMap::new();
+        let mut index_map = IndexMap::new();
         for (k, v) in map {
-             hash_map.insert(k, v);
+             index_map.insert(k, v);
         }
-        inputs_partial_metadata_to_input_metadata(hash_map)
+        inputs_partial_metadata_to_input_metadata(index_map)
     } else {
-        HashMap::new()
+        IndexMap::new()
     }
 }
 
-fn convert_outputs_declaration(outputs: Option<serde_json::Value>) -> HashMap<String, String> {
+fn convert_outputs_declaration(outputs: Option<serde_json::Value>) -> IndexMap<String, String> {
     if let Some(serde_json::Value::Object(map)) = outputs {
-        let mut result = HashMap::new();
+        let mut result = IndexMap::new();
          for (k, v) in map {
              if let Some(s) = v.as_str() {
                  result.insert(k, s.to_string());
@@ -1089,7 +1091,7 @@ fn convert_outputs_declaration(outputs: Option<serde_json::Value>) -> HashMap<St
          }
          result
     } else {
-        HashMap::new()
+        IndexMap::new()
     }
 }
 

@@ -36,6 +36,7 @@ pub fn assert_equal_css(actual: &str, expected: &str) {
     assert_eq!(actual_css, expected_css, "Expected '{}' to equal '{}'", actual_css, expected_css);
 }
 
+#[allow(dead_code)]
 pub fn assert_contains(actual: &str, expected: &str) {
     assert!(
         actual.contains(expected),

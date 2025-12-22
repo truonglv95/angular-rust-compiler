@@ -10,8 +10,9 @@ use crate::parse_util::ParseSourceSpan;
 use std::collections::HashMap;
 use std::any::Any;
 
+#[allow(dead_code)]
 const SINGLE_QUOTE_ESCAPE_STRING_RE: &str = r"'|\\|\n|\r|\$";
-const LEGAL_IDENTIFIER_RE: &str = r"^[a-zA-Z_$][0-9a-zA-Z_$]*$";
+const LEGAL_IDENTIFIER_RE: &str = r"^[a-zA-Z_$ɵ][0-9a-zA-Z_$ɵ]*$";
 const INDENT_WITH: &str = "  ";
 
 #[derive(Debug, Clone)]
@@ -34,7 +35,7 @@ impl EmittedLine {
 }
 
 lazy_static::lazy_static! {
-    static ref BINARY_OPERATORS: HashMap<o::BinaryOperator, &'static str> = {
+    pub static ref BINARY_OPERATORS: HashMap<o::BinaryOperator, &'static str> = {
         let mut m = HashMap::new();
         m.insert(o::BinaryOperator::And, "&&");
         m.insert(o::BinaryOperator::Bigger, ">");
@@ -285,6 +286,11 @@ impl AbstractEmitterVisitor {
 }
 
 impl o::ExpressionVisitor for AbstractEmitterVisitor {
+    fn visit_raw_code_expr(&mut self, expr: &o::RawCodeExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+        ctx.print(Some(expr), &expr.code, false);
+        Box::new(())
+    }
     fn visit_read_var_expr(&mut self, expr: &o::ReadVarExpr, context: &mut dyn Any) -> Box<dyn Any> {
         let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
         let name = escape_identifier(&expr.name, false, false);
@@ -332,11 +338,26 @@ impl o::ExpressionVisitor for AbstractEmitterVisitor {
     }
 
     fn visit_invoke_function_expr(&mut self, expr: &o::InvokeFunctionExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
-        expr.fn_.as_ref().visit_expression(self, context);
-        {
-            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
-            ctx.print(Some(expr), "(", false);
+        match &*expr.fn_ {
+        o::Expression::ArrowFn(_) | o::Expression::Fn(_) => {
+            {
+                let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+                ctx.print(Some(expr), "(", false);
+            }
+            expr.fn_.as_ref().visit_expression(self, context);
+            {
+                let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+                ctx.print(Some(expr), ")", false);
+            }
         }
+        _ => {
+            expr.fn_.as_ref().visit_expression(self, context);
+        }
+    }
+    {
+        let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+        ctx.print(Some(expr), "(", false);
+    }
         for (i, arg) in expr.args.iter().enumerate() {
             {
                 let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
@@ -363,7 +384,21 @@ impl o::ExpressionVisitor for AbstractEmitterVisitor {
             let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
             ctx.print(Some(expr), "new ", false);
         }
+        // Wrap class expression in parentheses if it's a binary expression or conditional
+        // to ensure correct operator precedence: `new (a || b)()` not `new a || b()`
+        let needs_parens = matches!(
+            expr.class_expr.as_ref(),
+            o::Expression::BinaryOp(_) | o::Expression::Conditional(_)
+        );
+        if needs_parens {
+            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+            ctx.print(Some(expr), "(", false);
+        }
         expr.class_expr.as_ref().visit_expression(self, context);
+        if needs_parens {
+            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+            ctx.print(Some(expr), ")", false);
+        }
         {
             let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
             ctx.print(Some(expr), "(", false);
@@ -727,6 +762,17 @@ impl o::ExpressionVisitor for AbstractEmitterVisitor {
         Box::new(())
     }
 
+    fn visit_regular_expression_literal(&mut self, expr: &o::RegularExpressionLiteralExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+        ctx.print(Some(expr), "/", false);
+        ctx.print(Some(expr), &expr.pattern, false);
+        ctx.print(Some(expr), "/", false);
+        if !expr.flags.is_empty() {
+             ctx.print(Some(expr), &expr.flags, false);
+        }
+        Box::new(())
+    }
+
     fn visit_wrapped_node_expr(&mut self, _expr: &o::WrappedNodeExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
         // WrappedNodeExpr should not be emitted directly
         // This is typically used for TypeScript AST nodes that need special handling
@@ -902,7 +948,12 @@ impl o::StatementVisitor for AbstractEmitterVisitor {
     fn visit_declare_var_stmt(&mut self, stmt: &o::DeclareVarStmt, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
         {
             let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
-            ctx.print(Some(stmt), "var ", false);
+            // Use "const" for Final modifier, otherwise "var"
+            let keyword = match stmt.modifiers {
+                o::StmtModifier::Final => "const ",
+                _ => "var ",
+            };
+            ctx.print(Some(stmt), keyword, false);
             let name = escape_identifier(&stmt.name, false, false);
             ctx.print(Some(stmt), &name, false);
             if let Some(_value) = &stmt.value {

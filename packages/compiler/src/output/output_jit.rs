@@ -201,6 +201,9 @@ impl<'a> o::StatementVisitor for JitEmitterVisitor<'a> {
 }
 
 impl<'a> o::ExpressionVisitor for JitEmitterVisitor<'a> {
+    fn visit_raw_code_expr(&mut self, expr: &o::RawCodeExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        self.base.visit_raw_code_expr(expr, context)
+    }
     fn visit_read_var_expr(&mut self, expr: &o::ReadVarExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
         self.base.visit_read_var_expr(expr, context)
     }
@@ -318,6 +321,10 @@ impl<'a> o::ExpressionVisitor for JitEmitterVisitor<'a> {
 
     fn visit_template_literal_expr(&mut self, expr: &o::TemplateLiteralExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
         self.base.visit_template_literal_expr(expr, context)
+    }
+
+    fn visit_regular_expression_literal(&mut self, expr: &o::RegularExpressionLiteralExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {
+        self.base.visit_regular_expression_literal(expr, context)
     }
 
     fn visit_wrapped_node_expr(&mut self, _expr: &o::WrappedNodeExpr, _context: &mut dyn std::any::Any) -> Box<dyn std::any::Any> {

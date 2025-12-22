@@ -240,6 +240,8 @@ pub enum Expression {
     Void(VoidExpr),
     Unary(UnaryOperatorExpr),
     Parens(ParenthesizedExpr),
+    RegularExpressionLiteral(RegularExpressionLiteralExpr),
+    RawCode(RawCodeExpr),
     
     // IR Expression variants
     LexicalRead(crate::template::pipeline::ir::expression::LexicalReadExpr),
@@ -335,12 +337,24 @@ pub struct LiteralExpr {
     pub source_span: Option<ParseSourceSpan>,
 }
 
-#[derive(Debug, Clone)]
+impl LiteralExpr {
+    pub fn is_equivalent(&self, other: &Self) -> bool {
+        self.value.is_equivalent(&other.value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum LiteralValue {
     Null,
     String(String),
     Number(f64),
     Bool(bool),
+}
+
+impl LiteralValue {
+    pub fn is_equivalent(&self, other: &Self) -> bool {
+        self == other
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -388,6 +402,12 @@ pub struct ExternalExpr {
     pub value: ExternalReference,
     pub type_: Option<Type>,
     pub source_span: Option<ParseSourceSpan>,
+}
+
+impl ExternalExpr {
+    pub fn is_equivalent(&self, other: &Self) -> bool {
+        self.value.module_name == other.value.module_name && self.value.name == other.value.name
+    }
 }
 
 #[derive(Debug)]
@@ -509,11 +529,37 @@ pub struct LiteralArrayExpr {
     pub source_span: Option<ParseSourceSpan>,
 }
 
+impl LiteralArrayExpr {
+    pub fn is_equivalent(&self, other: &Self) -> bool {
+        if self.entries.len() != other.entries.len() {
+            return false;
+        }
+        for (i, entry) in self.entries.iter().enumerate() {
+            if !entry.is_equivalent(&other.entries[i]) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LiteralMapEntry {
     pub key: String,
     pub value: Box<Expression>,
     pub quoted: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct RawCodeExpr {
+    pub code: String,
+    pub source_span: Option<ParseSourceSpan>,
+}
+
+impl HasSourceSpan for RawCodeExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -575,7 +621,16 @@ pub struct ParenthesizedExpr {
     pub source_span: Option<ParseSourceSpan>,
 }
 
+#[derive(Debug, Clone)]
+pub struct RegularExpressionLiteralExpr {
+    pub pattern: String,
+    pub flags: String,
+    pub type_: Option<Type>,
+    pub source_span: Option<ParseSourceSpan>,
+}
+
 pub trait ExpressionVisitor {
+    fn visit_raw_code_expr(&mut self, expr: &RawCodeExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_read_var_expr(&mut self, expr: &ReadVarExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_write_var_expr(&mut self, expr: &WriteVarExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_write_key_expr(&mut self, expr: &WriteKeyExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
@@ -605,6 +660,7 @@ pub trait ExpressionVisitor {
     fn visit_cast_expr(&mut self, expr: &CastExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_dynamic_import_expr(&mut self, expr: &DynamicImportExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_template_literal_expr(&mut self, expr: &TemplateLiteralExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
+    fn visit_regular_expression_literal(&mut self, expr: &RegularExpressionLiteralExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     fn visit_wrapped_node_expr(&mut self, expr: &WrappedNodeExpr, context: &mut dyn std::any::Any) -> Box<dyn std::any::Any>;
     
     // IR Expression visitor methods
@@ -771,8 +827,18 @@ impl From<bool> for LiteralValue {
     }
 }
 
-// Helper methods for Expression enum
 impl Expression {
+    pub fn is_equivalent(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Expression::Literal(a), Expression::Literal(b)) => a.is_equivalent(b),
+            (Expression::LiteralArray(a), Expression::LiteralArray(b)) => a.is_equivalent(b),
+            (Expression::External(a), Expression::External(b)) => a.is_equivalent(b),
+            (Expression::ReadVar(a), Expression::ReadVar(b)) => a.name == b.name,
+            // Add more cases as needed, or fall back to false
+            _ => false,
+        }
+    }
+
     pub fn prop(&self, name: impl Into<String>, source_span: Option<ParseSourceSpan>) -> Box<Expression> {
         Box::new(Expression::ReadProp(ReadPropExpr {
             receiver: Box::new(self.clone()),
@@ -934,6 +1000,7 @@ impl Expression {
             Expression::Localized(e) => Expression::Localized(e.clone()),
             Expression::External(e) => Expression::External(e.clone()),
             Expression::ExternalRef(e) => Expression::ExternalRef(e.clone()),
+            Expression::RawCode(e) => Expression::RawCode(e.clone()),
             Expression::Conditional(e) => Expression::Conditional(e.clone()),
             Expression::DynamicImport(e) => Expression::DynamicImport(e.clone()),
             Expression::NotExpr(e) => Expression::NotExpr(e.clone()),
@@ -954,6 +1021,7 @@ impl Expression {
             Expression::Void(e) => Expression::Void(e.clone()),
             Expression::Unary(e) => Expression::Unary(e.clone()),
             Expression::Parens(e) => Expression::Parens(e.clone()),
+            Expression::RegularExpressionLiteral(e) => Expression::RegularExpressionLiteral(e.clone()),
             // IR Expression variants
             Expression::LexicalRead(e) => Expression::LexicalRead(e.clone()),
             Expression::Reference(e) => Expression::Reference(e.clone()),
@@ -1185,6 +1253,12 @@ impl HasSourceSpan for TemplateLiteralExpr {
     }
 }
 
+impl HasSourceSpan for RegularExpressionLiteralExpr {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
 // Implement ExpressionTrait for Expression enum
 impl ExpressionTrait for Expression {
     fn type_(&self) -> Option<&Type> {
@@ -1221,6 +1295,8 @@ impl ExpressionTrait for Expression {
             Expression::Void(e) => e.type_.as_ref(),
             Expression::Unary(e) => e.type_.as_ref(),
             Expression::Parens(e) => e.type_.as_ref(),
+            Expression::RegularExpressionLiteral(e) => e.type_.as_ref(),
+            Expression::RawCode(_) => None,
             // IR Expression variants - typically don't have types
             Expression::LexicalRead(_)
             | Expression::Reference(_)
@@ -1285,6 +1361,8 @@ impl ExpressionTrait for Expression {
             Expression::Void(e) => e.source_span.as_ref(),
             Expression::Unary(e) => e.source_span.as_ref(),
             Expression::Parens(e) => e.source_span.as_ref(),
+            Expression::RegularExpressionLiteral(e) => e.source_span.as_ref(),
+            Expression::RawCode(e) => e.source_span.as_ref(),
             // IR Expression variants - delegate to their source_span
             Expression::LexicalRead(e) => e.source_span.as_ref(),
             Expression::Reference(e) => e.source_span.as_ref(),
@@ -1349,6 +1427,8 @@ impl ExpressionTrait for Expression {
             Expression::Void(e) => visitor.visit_void_expr(e, context),
             Expression::Unary(e) => visitor.visit_unary_operator_expr(e, context),
             Expression::Parens(e) => visitor.visit_parenthesized_expr(e, context),
+            Expression::RegularExpressionLiteral(e) => visitor.visit_regular_expression_literal(e, context),
+            Expression::RawCode(e) => visitor.visit_raw_code_expr(e, context),
             // IR Expression variants
             Expression::LexicalRead(e) => visitor.visit_lexical_read_expr(e, context),
             Expression::Reference(e) => visitor.visit_reference_expr(e, context),
@@ -1384,7 +1464,12 @@ impl ExpressionTrait for Expression {
     }
 
     fn is_constant(&self) -> bool {
-        matches!(self, Expression::Literal(_))
+        match self {
+            Expression::Literal(_) => true,
+            Expression::LiteralArray(arr) => arr.entries.iter().all(|e| e.is_constant()),
+            Expression::LiteralMap(map) => map.entries.iter().all(|e| e.value.is_constant()),
+            _ => false,
+        }
     }
 
     fn clone_expr(&self) -> Expression {

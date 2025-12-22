@@ -11,6 +11,9 @@ use napi::bindgen_prelude::*;
 #[cfg(feature = "napi-bindings")]
 use napi_derive::napi;
 
+#[cfg(feature = "napi-bindings")]
+use crate::expression_parser::{Lexer, Parser as ExprParser, serialize};
+
 // Core modules (root level - mirrors packages/compiler/src/*.ts)
 mod assertions;
 pub mod chars;
@@ -19,7 +22,7 @@ pub mod compiler;
 pub mod compiler_facade_interface;
 mod config;
 pub mod constant_pool;
-mod core;
+pub mod core;
 pub mod directive_matching;
 mod error;
 mod injectable_compiler_2;
@@ -46,6 +49,7 @@ pub mod schema;
 // Re-exports
 pub use config::CompilerConfig as RustCompilerConfig;
 pub use util::Version;
+pub use version::VERSION;
 
 use error::Result as CompilerResult;
 
@@ -358,7 +362,7 @@ pub fn tokenize_expression(expression: String) -> Result<String> {
 pub fn parse_expression_to_ast(expression: String) -> Result<String> {
     let start = std::time::Instant::now();
 
-    let parser = Parser::new();
+    let parser = ExprParser::new();
     let ast = parser.parse_binding(&expression, 0)?;
 
     let elapsed = start.elapsed().as_micros() as f64 / 1000.0;
