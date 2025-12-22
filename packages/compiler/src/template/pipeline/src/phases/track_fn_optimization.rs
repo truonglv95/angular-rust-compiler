@@ -25,19 +25,25 @@ pub fn optimize_track_fns(job: &mut dyn CompilationJob) {
     };
     
     let root_xref = component_job.root.xref();
+    let mut track_fn_counter: usize = 0;
     
     // Process root unit
-    process_unit(&mut component_job.root, root_xref);
+    process_unit(&mut component_job.root, root_xref, &mut component_job.pool, &mut track_fn_counter);
     
-    // Process all view units
-    for (_, unit) in component_job.views.iter_mut() {
-        process_unit(unit, root_xref);
+    // Process all view units - need to split borrows
+    let view_keys: Vec<_> = component_job.views.keys().cloned().collect();
+    for key in view_keys {
+        if let Some(unit) = component_job.views.get_mut(&key) {
+            process_unit(unit, root_xref, &mut component_job.pool, &mut track_fn_counter);
+        }
     }
 }
 
 fn process_unit(
     unit: &mut crate::template::pipeline::src::compilation::ViewCompilationUnit,
     root_xref: ir::XrefId,
+    pool: &mut crate::constant_pool::ConstantPool,
+    track_fn_counter: &mut usize,
 ) {
     // Get unit xref before borrowing create_mut
     let unit_xref = unit.xref();
@@ -121,6 +127,10 @@ fn process_unit(
             // function are emitted specially.
             let mut track_expr = (*repeater.track).clone();
             let mut has_context_expr = false;
+            
+            // Get variable names from repeater for renaming
+            let item_name = repeater.var_names.dollar_implicit.clone();
+            
             track_expr = transform_expressions_in_expression(
                 track_expr,
                 &mut |expr: Expression, _flags| {
@@ -130,12 +140,36 @@ fn process_unit(
                     }
                     
                     // Replace ContextExpr with TrackContextExpr
-                    if let Expression::Context(context_expr) = expr {
+                    if let Expression::Context(context_expr) = &expr {
                         has_context_expr = true;
-                        Expression::TrackContext(TrackContextExpr::new(context_expr.view))
-                    } else {
-                        expr
+                        return Expression::TrackContext(TrackContextExpr::new(context_expr.view));
                     }
+                    
+                    // Replace template variable names with arrow function parameter names
+                    // e.g., "item" -> "$item"
+                    // Check both ReadVar (output_ast) and LexicalRead (IR expression)
+                    if let Expression::ReadVar(read_var) = &expr {
+                        if read_var.name == item_name {
+                            return Expression::ReadVar(crate::output::output_ast::ReadVarExpr {
+                                name: "$item".to_string(),
+                                type_: read_var.type_.clone(),
+                                source_span: read_var.source_span.clone(),
+                            });
+                        }
+                    }
+                    
+                    // Also check for IR LexicalReadExpr
+                    if let Expression::LexicalRead(lexical_read) = &expr {
+                        if lexical_read.name == item_name {
+                            return Expression::ReadVar(crate::output::output_ast::ReadVarExpr {
+                                name: "$item".to_string(),
+                                type_: None,
+                                source_span: None,
+                            });
+                        }
+                    }
+                    
+                    expr
                 },
                 VisitorContextFlag::NONE,
             );
@@ -146,6 +180,45 @@ fn process_unit(
             }
             
             repeater.track = Box::new(track_expr);
+            
+            // Generate an arrow function for the track expression: ($index, $item) => trackExpr
+            // Hoist it to pool as: const _forTrack{N} = ($index, $item) => expr;
+            let track_fn_name = format!("_forTrack{}", *track_fn_counter);
+            *track_fn_counter += 1;
+            
+            let arrow_fn = Expression::ArrowFn(crate::output::output_ast::ArrowFunctionExpr {
+                params: vec![
+                    crate::output::output_ast::FnParam {
+                        name: "$index".to_string(),
+                        type_: None,
+                    },
+                    crate::output::output_ast::FnParam {
+                        name: "$item".to_string(),
+                        type_: None,
+                    },
+                ],
+                body: crate::output::output_ast::ArrowFunctionBody::Expression(repeater.track.clone()),
+                type_: None,
+                source_span: None,
+            });
+            
+            // Add to pool as const declaration: const _forTrack0 = ($index, $item) => expr;
+            let const_stmt = Statement::DeclareVar(crate::output::output_ast::DeclareVarStmt {
+                name: track_fn_name.clone(),
+                value: Some(Box::new(arrow_fn)),
+                type_: None,
+                modifiers: crate::output::output_ast::StmtModifier::Final,
+                source_span: None,
+            });
+            pool.statements.push(const_stmt);
+            
+            // Set track_by_fn to variable reference instead of inline arrow fn
+            let var_ref = Expression::ReadVar(crate::output::output_ast::ReadVarExpr {
+                name: track_fn_name,
+                type_: None,
+                source_span: None,
+            });
+            repeater.track_by_fn = Some(Box::new(var_ref));
             
             // Also create an OpList for the tracking expression since it may need
             // additional ops when generating the final code (e.g. temporary variables).

@@ -8,6 +8,8 @@ use crate::render3::r3_ast::Variable;
 use crate::template::pipeline::ir::enums::ExpressionKind;
 use crate::template::pipeline::ir::handle::{SlotHandle, XrefId};
 use crate::template::pipeline::ir::traits::{ConsumesVarsTrait, DependsOnSlotContextOpTrait, UsesVarOffsetTrait};
+use crate::template::pipeline::ir::operations::{CreateOp, UpdateOp};
+use crate::template::pipeline::ir::ops::shared::VariableOp;
 use bitflags::bitflags;
 
 /// An `Expression` subtype representing a logical expression in the intermediate representation.
@@ -1215,53 +1217,134 @@ pub fn transform_expressions_in_expression(
         OutputExpr::StoreLet(ir_expr) => {
             ir_expr.value = Box::new(transform_expressions_in_expression(*ir_expr.value.clone(), transform, flags));
         }
-        OutputExpr::PureFunction(_ir_expr) => {
-            // PureFunctionExpr has nested expressions that need transformation
-            // TODO: Implement if PureFunctionExpr has transformable nested expressions
+        OutputExpr::PureFunction(pf) => {
+            if let Some(ref mut fn_) = pf.fn_ {
+                *fn_ = Box::new(transform_expressions_in_expression(*fn_.clone(), transform, flags));
+            }
+            for arg in &mut pf.args {
+                *arg = transform_expressions_in_expression(arg.clone(), transform, flags);
+            }
+            if let Some(ref mut body) = pf.body {
+                *body = Box::new(transform_expressions_in_expression(*body.clone(), transform, flags));
+            }
         }
         OutputExpr::ConditionalCase(ir_expr) => {
             if let Some(ref mut expr) = ir_expr.expr {
                 *expr = Box::new(transform_expressions_in_expression(*expr.clone(), transform, flags));
             }
         }
-        // IR Expression variants with no nested expressions (or handled via trait)
-        OutputExpr::LexicalRead(_)
-        | OutputExpr::Reference(_)
-        | OutputExpr::Context(_)
-        | OutputExpr::NextContext(_)
-        | OutputExpr::GetCurrentView(_)
-        | OutputExpr::RestoreView(_)
-        | OutputExpr::ResetView(_)
-        | OutputExpr::ReadVariable(_)
-        | OutputExpr::PureFunctionParameter(_)
-        | OutputExpr::Empty(_)
-        | OutputExpr::ReadTemporary(_)
-        | OutputExpr::SlotLiteral(_)
-        | OutputExpr::ConstCollected(_)
-        | OutputExpr::TwoWayBindingSet(_)
-        | OutputExpr::ContextLetReference(_)
-        | OutputExpr::TrackContext(_) => {
-            // No nested expressions to transform
+        // Output AST variants that need traversal
+        OutputExpr::WriteVar(var) => {
+            var.value = Box::new(transform_expressions_in_expression(*var.value.clone(), transform, flags));
         }
-        // Other regular expressions
-        OutputExpr::ReadVar(_)
-        | OutputExpr::WriteVar(_)
-        | OutputExpr::WriteKey(_)
-        | OutputExpr::WriteProp(_)
+        OutputExpr::WriteKey(key) => {
+             key.receiver = Box::new(transform_expressions_in_expression(*key.receiver.clone(), transform, flags));
+             key.index = Box::new(transform_expressions_in_expression(*key.index.clone(), transform, flags));
+             key.value = Box::new(transform_expressions_in_expression(*key.value.clone(), transform, flags));
+        }
+        OutputExpr::WriteProp(prop) => {
+             prop.receiver = Box::new(transform_expressions_in_expression(*prop.receiver.clone(), transform, flags));
+             prop.value = Box::new(transform_expressions_in_expression(*prop.value.clone(), transform, flags));
+        }
+        OutputExpr::Instantiate(inst) => {
+             inst.class_expr = Box::new(transform_expressions_in_expression(*inst.class_expr.clone(), transform, flags));
+             for arg in &mut inst.args {
+                 *arg = transform_expressions_in_expression(arg.clone(), transform, flags);
+             }
+        }
+        OutputExpr::CommaExpr(comma) => {
+             for part in &mut comma.parts {
+                 *part = transform_expressions_in_expression(part.clone(), transform, flags);
+             }
+        }
+        // Leaf nodes or handled above
+        OutputExpr::InvokeFn(expr) => {
+            expr.fn_ = Box::new(transform_expressions_in_expression(*expr.fn_.clone(), transform, flags));
+            for arg in &mut expr.args {
+                *arg = transform_expressions_in_expression(arg.clone(), transform, flags);
+            }
+        }
+        OutputExpr::BinaryOp(expr) => {
+             expr.lhs = Box::new(transform_expressions_in_expression(*expr.lhs.clone(), transform, flags));
+             expr.rhs = Box::new(transform_expressions_in_expression(*expr.rhs.clone(), transform, flags));
+        }
+        OutputExpr::ReadProp(expr) => {
+             expr.receiver = Box::new(transform_expressions_in_expression(*expr.receiver.clone(), transform, flags));
+        }
+        OutputExpr::ReadKey(expr) => {
+             expr.receiver = Box::new(transform_expressions_in_expression(*expr.receiver.clone(), transform, flags));
+             expr.index = Box::new(transform_expressions_in_expression(*expr.index.clone(), transform, flags));
+        }
+        OutputExpr::Parens(expr) => {
+             expr.expr = Box::new(transform_expressions_in_expression(*expr.expr.clone(), transform, flags));
+        }
+        OutputExpr::NotExpr(expr) => {
+             expr.condition = Box::new(transform_expressions_in_expression(*expr.condition.clone(), transform, flags));
+        }
+        OutputExpr::Conditional(expr) => {
+             expr.condition = Box::new(transform_expressions_in_expression(*expr.condition.clone(), transform, flags));
+             expr.true_case = Box::new(transform_expressions_in_expression(*expr.true_case.clone(), transform, flags));
+             if let Some(ref mut false_case) = expr.false_case {
+                 *false_case = Box::new(transform_expressions_in_expression(*false_case.clone(), transform, flags));
+             }
+        }
+        OutputExpr::IfNull(expr) => {
+             expr.condition = Box::new(transform_expressions_in_expression(*expr.condition.clone(), transform, flags));
+             expr.null_case = Box::new(transform_expressions_in_expression(*expr.null_case.clone(), transform, flags));
+        }
+        OutputExpr::AssertNotNull(expr) => {
+             expr.condition = Box::new(transform_expressions_in_expression(*expr.condition.clone(), transform, flags));
+        }
+        OutputExpr::Cast(expr) => {
+             expr.value = Box::new(transform_expressions_in_expression(*expr.value.clone(), transform, flags));
+        }
+        OutputExpr::TypeOf(expr) => {
+             expr.expr = Box::new(transform_expressions_in_expression(*expr.expr.clone(), transform, flags));
+        }
+        OutputExpr::Void(expr) => {
+             expr.expr = Box::new(transform_expressions_in_expression(*expr.expr.clone(), transform, flags));
+        }
+        OutputExpr::Unary(expr) => {
+             expr.expr = Box::new(transform_expressions_in_expression(*expr.expr.clone(), transform, flags));
+        }
+        OutputExpr::ConstCollected(expr) => {
+             expr.expr = Box::new(transform_expressions_in_expression(*expr.expr.clone(), transform, flags));
+        }
+        OutputExpr::TwoWayBindingSet(expr) => {
+             expr.target = Box::new(transform_expressions_in_expression(*expr.target.clone(), transform, flags));
+             expr.value = Box::new(transform_expressions_in_expression(*expr.value.clone(), transform, flags));
+        }
+
+
+        OutputExpr::ArrowFn(expr) => {
+             // Handle arrow function body if it is an expression
+             if let crate::output::output_ast::ArrowFunctionBody::Expression(ref mut body_expr) = expr.body {
+                 *body_expr = Box::new(transform_expressions_in_expression(*body_expr.clone(), transform, flags));
+             }
+        }
+
+        OutputExpr::LiteralArray(expr) => {
+             for entry in &mut expr.entries {
+                 *entry = transform_expressions_in_expression(entry.clone(), transform, flags);
+             }
+        }
+        OutputExpr::LiteralMap(expr) => {
+             for entry in &mut expr.entries {
+                 entry.value = Box::new(transform_expressions_in_expression(*entry.value.clone(), transform, flags));
+             }
+        }
+
+        // Leaf nodes or unhandled
+        OutputExpr::WrappedNode(_)
         | OutputExpr::Literal(_)
         | OutputExpr::External(_)
         | OutputExpr::ExternalRef(_)
         | OutputExpr::FnParam(_)
-        | OutputExpr::CommaExpr(_)
-        | OutputExpr::WrappedNode(_)
         | OutputExpr::DynamicImport(_)
-        | OutputExpr::Instantiate(_)
-        | OutputExpr::Fn(_)
-        | OutputExpr::Cast(_)
-        | OutputExpr::IfNull(_)
-        | OutputExpr::AssertNotNull(_) => {
-            // No nested expressions or already handled above
-        }
+        | OutputExpr::Fn(_) 
+        | OutputExpr::RegularExpressionLiteral(_)
+        | OutputExpr::RawCode(_)
+        | _ => {}
     }
     
     // Apply the transform function to the expression itself
@@ -1332,8 +1415,8 @@ pub fn visit_expressions_in_op(
 /// to call this through concrete op types rather than through the Op trait.
 pub fn transform_expressions_in_op(
     op: &mut dyn crate::template::pipeline::ir::operations::Op,
-    _transform: &mut dyn FnMut(Expression, VisitorContextFlag) -> Expression,
-    _flags: VisitorContextFlag,
+    transform: &mut dyn FnMut(Expression, VisitorContextFlag) -> Expression,
+    flags: VisitorContextFlag,
 ) {
     use crate::template::pipeline::ir::enums::OpKind;
     
@@ -1349,60 +1432,179 @@ pub fn transform_expressions_in_op(
         | OpKind::ClassMap 
         | OpKind::AnimationString 
         | OpKind::AnimationBinding => {
-            // These ops have expressions that need transformation
-            // TODO: Downcast to concrete type and transform expressions
-            // This would require type casting or a different approach
+            if let Some(op) = op.as_any_mut().downcast_mut::<crate::template::pipeline::ir::ops::update::BindingOp>() {
+                 match &mut op.expression {
+                     crate::template::pipeline::ir::ops::update::BindingExpression::Expression(expr) => {
+                         *expr = transform_expressions_in_expression(expr.clone(), transform, flags);
+                     }
+                     crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(interp) => {
+                         for expr in &mut interp.expressions {
+                             *expr = transform_expressions_in_expression(expr.clone(), transform, flags);
+                         }
+                     }
+                 }
+            }
         }
         OpKind::Property 
         | OpKind::DomProperty 
         | OpKind::Attribute 
         | OpKind::Control => {
-            // These ops have expressions and sanitizers that need transformation
-            // TODO: Downcast and transform
+            if let Some(op) = op.as_any_mut().downcast_mut::<crate::template::pipeline::ir::ops::update::PropertyOp>() {
+                match &mut op.expression {
+                     crate::template::pipeline::ir::ops::update::BindingExpression::Expression(expr) => {
+                         *expr = transform_expressions_in_expression(expr.clone(), transform, flags);
+                     }
+                     crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(interp) => {
+                         for expr in &mut interp.expressions {
+                             *expr = transform_expressions_in_expression(expr.clone(), transform, flags);
+                         }
+                     }
+                 }
+                if let Some(ref mut sanitizer) = op.sanitizer {
+                    *sanitizer = transform_expressions_in_expression(sanitizer.clone(), transform, flags);
+                }
+            } else if let Some(op) = op.as_any_mut().downcast_mut::<crate::template::pipeline::ir::ops::update::AttributeOp>() {
+                 match &mut op.expression {
+                     crate::template::pipeline::ir::ops::update::BindingExpression::Expression(expr) => {
+                         *expr = transform_expressions_in_expression(expr.clone(), transform, flags);
+                     }
+                     crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(interp) => {
+                         for expr in &mut interp.expressions {
+                             *expr = transform_expressions_in_expression(expr.clone(), transform, flags);
+                         }
+                     }
+                 }
+                if let Some(ref mut sanitizer) = op.sanitizer {
+                    *sanitizer = transform_expressions_in_expression(sanitizer.clone(), transform, flags);
+                }
+            }
         }
         OpKind::TwoWayProperty => {
-            // This op has expression and sanitizer
-            // TODO: Downcast and transform
+             if let Some(op) = op.as_any_mut().downcast_mut::<crate::template::pipeline::ir::ops::update::TwoWayPropertyOp>() {
+                 op.expression = transform_expressions_in_expression(op.expression.clone(), transform, flags);
+                 if let Some(ref mut sanitizer) = op.sanitizer {
+                    *sanitizer = transform_expressions_in_expression(sanitizer.clone(), transform, flags);
+                }
+             }
         }
         OpKind::I18nExpression => {
-            // This op has expression
-            // TODO: Downcast and transform
+             if let Some(op) = op.as_any_mut().downcast_mut::<crate::template::pipeline::ir::ops::update::I18nExpressionOp>() {
+                 op.expression = transform_expressions_in_expression(op.expression.clone(), transform, flags);
+             }
         }
         OpKind::InterpolateText => {
-            // This op has interpolation
-            // TODO: Downcast and transform interpolation
+            if let Some(op) = op.as_any_mut().downcast_mut::<crate::template::pipeline::ir::ops::update::InterpolateTextOp>() {
+                for expr in &mut op.interpolation.expressions {
+                    *expr = transform_expressions_in_expression(expr.clone(), transform, flags);
+                }
+            }
         }
         OpKind::Statement => {
-            // This op wraps a statement
-            // TODO: Downcast and transform statement
+             // StatementOp - wraps a statement
+             use crate::template::pipeline::ir::ops::StatementOp;
+             use crate::template::pipeline::ir::CreateOp;
+             use crate::template::pipeline::ir::UpdateOp;
+
+             // Try CreateOp version
+             if let Some(op) = op.as_any_mut().downcast_mut::<StatementOp<Box<dyn CreateOp + Send + Sync>>>() {
+                 transform_expressions_in_statement(&mut op.statement, transform, flags);
+             }
+             // Try UpdateOp version
+             else if let Some(op) = op.as_any_mut().downcast_mut::<StatementOp<Box<dyn UpdateOp + Send + Sync>>>() {
+                 transform_expressions_in_statement(&mut op.statement, transform, flags);
+             }
         }
-        OpKind::Variable => {
-            // This op has initializer expression
-            // TODO: Downcast and transform initializer
-        }
+
         OpKind::Conditional => {
-            // This op has conditions and processed expression
-            // TODO: Downcast and transform
+            if let Some(op) = op.as_any_mut().downcast_mut::<crate::template::pipeline::ir::ops::update::ConditionalOp>() {
+                if let Some(ref mut test) = op.test {
+                    *test = transform_expressions_in_expression(test.clone(), transform, flags);
+                }
+                for condition in &mut op.conditions {
+                    if let Some(ref mut expr) = condition.expr {
+                        *expr = Box::new(transform_expressions_in_expression(*expr.clone(), transform, flags));
+                    }
+                }
+                 if let Some(ref mut processed) = op.processed {
+                    *processed = transform_expressions_in_expression(processed.clone(), transform, flags);
+                }
+                 if let Some(ref mut context_value) = op.context_value {
+                    *context_value = transform_expressions_in_expression(context_value.clone(), transform, flags);
+                }
+            }
         }
         OpKind::RepeaterCreate => {
-            // This op has track expression or trackByOps
-            // TODO: Downcast and transform
+            if let Some(op) = op.as_any_mut().downcast_mut::<crate::template::pipeline::ir::ops::create::RepeaterCreateOp>() {
+                *op.track = transform_expressions_in_expression(*op.track.clone(), transform, flags);
+                 if let Some(ref mut track_by_fn) = op.track_by_fn {
+                    *track_by_fn = Box::new(transform_expressions_in_expression(*track_by_fn.clone(), transform, flags));
+                }
+            }
         }
+        OpKind::Listener => {
+             if let Some(op) = op.as_any_mut().downcast_mut::<crate::template::pipeline::ir::ops::create::ListenerOp>() {
+                 for handler_op in &mut op.handler_ops {
+                     transform_expressions_in_op(&mut **handler_op, transform, flags);
+                 }
+             }
+        }
+        OpKind::AnimationListener => {
+             use crate::template::pipeline::ir::ops::create::AnimationListenerOp;
+             if let Some(op) = op.as_any_mut().downcast_mut::<AnimationListenerOp>() {
+                 for handler_op in &mut op.handler_ops {
+                     transform_expressions_in_op(&mut **handler_op, transform, flags);
+                 }
+             }
+        }
+        OpKind::TwoWayListener => {
+             use crate::template::pipeline::ir::ops::create::TwoWayListenerOp;
+             if let Some(op) = op.as_any_mut().downcast_mut::<TwoWayListenerOp>() {
+                 for handler_op in &mut op.handler_ops {
+                     transform_expressions_in_op(&mut **handler_op, transform, flags);
+                 }
+             }
+        }
+        OpKind::Variable => {
+             // Try CreateOp version
+             if let Some(op) = op.as_any_mut().downcast_mut::<VariableOp<Box<dyn CreateOp + Send + Sync>>>() {
+                 op.initializer = Box::new(transform_expressions_in_expression(*op.initializer.clone(), transform, flags));
+             } 
+             // Try UpdateOp version
+             else if let Some(op) = op.as_any_mut().downcast_mut::<VariableOp<Box<dyn UpdateOp + Send + Sync>>>() {
+                 op.initializer = Box::new(transform_expressions_in_expression(*op.initializer.clone(), transform, flags));
+             }
+        }
+
         OpKind::Repeater => {
-            // This op has collection expression
-            // TODO: Downcast and transform
+            if let Some(op) = op.as_any_mut().downcast_mut::<crate::template::pipeline::ir::ops::update::RepeaterOp>() {
+                op.collection = transform_expressions_in_expression(op.collection.clone(), transform, flags);
+            }
         }
         OpKind::Defer => {
-            // This op has loadingConfig, placeholderConfig, resolverFn
-            // TODO: Downcast and transform
+            if let Some(op) = op.as_any_mut().downcast_mut::<crate::template::pipeline::ir::ops::create::DeferOp>() {
+                if let Some(ref mut loading_config) = op.loading_config {
+                    *loading_config = transform_expressions_in_expression(loading_config.clone(), transform, flags);
+                }
+                if let Some(ref mut placeholder_config) = op.placeholder_config {
+                     *placeholder_config = transform_expressions_in_expression(placeholder_config.clone(), transform, flags);
+                }
+                if let Some(ref mut resolver_fn) = op.resolver_fn {
+                    *resolver_fn = transform_expressions_in_expression(resolver_fn.clone(), transform, flags);
+                }
+                 if let Some(ref mut own_resolver_fn) = op.own_resolver_fn {
+                    *own_resolver_fn = transform_expressions_in_expression(own_resolver_fn.clone(), transform, flags);
+                }
+            }
         }
         OpKind::DeferWhen => {
-            // This op has expr
-            // TODO: Downcast and transform
+             if let Some(op) = op.as_any_mut().downcast_mut::<crate::template::pipeline::ir::ops::update::DeferWhenOp>() {
+                 op.expr = transform_expressions_in_expression(op.expr.clone(), transform, flags);
+             }
         }
         OpKind::StoreLet => {
-            // This op has value expression
-            // TODO: Downcast and transform
+             if let Some(op) = op.as_any_mut().downcast_mut::<crate::template::pipeline::ir::ops::update::StoreLetOp>() {
+                 op.value = transform_expressions_in_expression(op.value.clone(), transform, flags);
+             }
         }
         OpKind::I18nMessage => {
             // This op has params map
@@ -1440,18 +1642,10 @@ pub fn transform_expressions_in_op(
         | OpKind::ConditionalBranchCreate
         | OpKind::ControlCreate
         | OpKind::Animation
-        | OpKind::Listener
-        | OpKind::TwoWayListener
         | OpKind::ListEnd
         | OpKind::ExtractedAttribute
-        | OpKind::AnimationListener
-        | OpKind::AnimationString
-        | OpKind::AnimationBinding
-        | OpKind::Binding
-        | OpKind::ClassProp
-        | OpKind::StyleProp
-        | OpKind::ClassMap
-        | OpKind::StyleMap => {
+
+ => {
              // These operations contain no expressions or are handled separately
              // Note: Some of these (Binding, StyleProp, etc.) actually have expressions
              // but are handled in the first match arm above

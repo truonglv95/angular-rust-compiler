@@ -70,3 +70,31 @@ pub mod extract_i18n_messages;
 pub mod resolve_i18n_element_placeholders;
 pub mod i18n_const_collection;
 
+
+use crate::template::pipeline::src::compilation::ComponentCompilationJob;
+
+pub fn run(job: &mut ComponentCompilationJob) {
+    // Simplified phase order for vars debugging
+    pure_literal_structures::phase(job);
+    generate_variables::phase(job);
+    resolve_names::phase(job);
+    resolve_contexts::phase(job);
+    
+    // Added phases for correctness
+    binding_specialization::specialize_bindings(job); // Converts BindingOp -> AttributeOp, PropertyOp, etc.
+    attribute_extraction::extract_attributes(job);
+    namespace::emit_namespace_changes(job);
+    const_collection::collect_element_consts(job);
+    
+    // Resolve sanitizers for security-sensitive properties/attributes (e.g. href, src)
+    resolve_sanitizers::resolve_sanitizers(job);
+    
+    slot_allocation::phase(job);
+    pure_function_extraction::phase(job); // Extract pure functions to constants like _c0, _c1
+    track_fn_optimization::optimize_track_fns(job); // Generate track functions for @for loops
+    var_counting::phase(job);
+    variable_optimization::optimize_variables(job); // Remove unused variables
+    naming::name_functions_and_variables(job);
+    generate_advance::phase(job);
+    reify::reify(job);
+}

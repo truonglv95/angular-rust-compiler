@@ -156,3 +156,74 @@ pub fn two_way_binding_set(target: Box<o::Expression>, value: Box<o::Expression>
     )
 }
 
+pub fn pure_function(slot: i32, func: o::Expression, args: Vec<o::Expression>) -> o::Expression {
+    let num_args = args.len();
+    let id = match num_args {
+        0 => Identifiers::pure_function0(),
+        1 => Identifiers::pure_function1(),
+        2 => Identifiers::pure_function2(),
+        3 => Identifiers::pure_function3(),
+        4 => Identifiers::pure_function4(),
+        5 => Identifiers::pure_function5(),
+        6 => Identifiers::pure_function6(),
+        7 => Identifiers::pure_function7(),
+        8 => Identifiers::pure_function8(),
+        _ => Identifiers::pure_function_v(),
+    };
+    
+    let mut call_args = vec![*o::literal(slot as f64), func];
+    if num_args > 8 {
+         // Box args into array for pureFunctionV
+         call_args.push(o::Expression::LiteralArray(o::LiteralArrayExpr {
+             entries: args,
+             type_: None,
+             source_span: None,
+         }));
+    } else {
+         call_args.extend(args);
+    }
+    
+    *o::import_ref(id).call_fn(call_args, None, None)
+}
+
+pub fn template(
+    slot: i32,
+    template_fn: o::Expression,
+    decls: usize,
+    vars: usize,
+    tag: Option<String>,
+    const_index: Option<i32>,
+    source_span: ParseSourceSpan,
+) -> o::Statement {
+    let mut args = vec![
+        *o::literal(slot as f64),
+        template_fn,
+        *o::literal(decls as f64),
+        *o::literal(vars as f64),
+    ];
+    if let Some(t) = tag {
+        args.push(*o::literal(t));
+    } else if const_index.is_some() {
+        args.push(*o::literal(o::LiteralValue::Null));
+    }
+
+    if let Some(c) = const_index {
+        args.push(*o::literal(c as f64));
+    }
+
+    call(Identifiers::template_create(), args, Some(source_span))
+}
+
+pub fn conditional(
+    slot: i32,
+    condition: o::Expression,
+    template_fn: Option<o::Expression>,
+    source_span: ParseSourceSpan,
+) -> o::Statement {
+    let mut args = vec![*o::literal(slot as f64), condition];
+    if let Some(tmpl) = template_fn {
+        args.push(tmpl);
+    }
+    call(Identifiers::conditional(), args, Some(source_span))
+}
+

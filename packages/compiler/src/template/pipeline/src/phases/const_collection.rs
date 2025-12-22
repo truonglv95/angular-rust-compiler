@@ -225,32 +225,113 @@ pub fn collect_element_consts(job: &mut dyn CompilationJob) {
     }
 }
 
+/// Helper function to extract xref from different create op types
+unsafe fn get_xref_from_create_op(op_ptr: *const dyn ir::CreateOp, kind: OpKind) -> Option<ir::XrefId> {
+    match kind {
+        OpKind::ElementStart => {
+            let el_op = &*(op_ptr as *const ir::ops::create::ElementStartOp);
+            Some(el_op.base.base.xref)
+        }
+        OpKind::Element => {
+            let el_op = &*(op_ptr as *const ir::ops::create::ElementOp);
+            Some(el_op.base.base.xref)
+        }
+        OpKind::Template => {
+            let tmpl_op = &*(op_ptr as *const ir::ops::create::TemplateOp);
+            Some(tmpl_op.base.base.xref)
+        }
+        OpKind::ContainerStart => {
+            let c_op = &*(op_ptr as *const ir::ops::create::ContainerStartOp);
+            Some(c_op.base.xref)
+        }
+        OpKind::Container => {
+            let c_op = &*(op_ptr as *const ir::ops::create::ContainerOp);
+            Some(c_op.base.xref)
+        }
+        OpKind::RepeaterCreate => {
+            let r_op = &*(op_ptr as *const ir::ops::create::RepeaterCreateOp);
+            Some(r_op.base.base.xref)
+        }
+        OpKind::ConditionalCreate => {
+            let c_op = &*(op_ptr as *const ir::ops::create::ConditionalCreateOp);
+            Some(c_op.base.base.xref)
+        }
+        OpKind::ConditionalBranchCreate => {
+            let c_op = &*(op_ptr as *const ir::ops::create::ConditionalBranchCreateOp);
+            Some(c_op.base.base.xref)
+        }
+        OpKind::Projection => {
+            let p_op = &*(op_ptr as *const ir::ops::create::ProjectionOp);
+            Some(p_op.xref)
+        }
+        _ => None,
+    }
+}
+
 fn process_component_job(
     job: &mut ComponentCompilationJob,
     all_element_attributes: &HashMap<ir::XrefId, ElementAttributes>,
 ) {
-    // Collect all const indices first (for ElementOrContainerOps)
-    let mut const_indices: HashMap<ir::XrefId, Option<ir::ConstIndex>> = HashMap::new();
-    // Store serialized attributes for ProjectionOps (they need Expression, not ConstIndex)
-    let mut projection_attributes: HashMap<ir::XrefId, LiteralArrayExpr> = HashMap::new();
-    
-    for (xref, attributes) in all_element_attributes.iter() {
-        let attr_array = serialize_attributes(attributes.clone());
-        if !attr_array.entries.is_empty() {
-            // Store for ProjectionOps
-            projection_attributes.insert(*xref, attr_array.clone());
-            // Store const index for ElementOrContainerOps
-            let const_idx = job.add_const(Expression::LiteralArray(attr_array), None);
-            const_indices.insert(*xref, Some(const_idx));
-        } else {
-            const_indices.insert(*xref, None);
+    // Pass 2: Collect all elements that need const indices in sequential order
+    let mut ordered_elements = Vec::new();
+
+    // Helper to collect elements from a view
+    let mut collect_elements = |create_list: &ir::OpList<Box<dyn ir::CreateOp + Send + Sync>>| {
+        for op in create_list.iter() {
+            let kind = op.kind();
+            if kind == ir::OpKind::ElementStart || kind == ir::OpKind::Element || 
+               kind == ir::OpKind::Template || kind == ir::OpKind::RepeaterCreate ||
+               kind == ir::OpKind::ConditionalCreate || kind == ir::OpKind::Projection {
+                
+                let xref_opt = unsafe {
+                    let op_ptr = op.as_ref() as *const dyn ir::CreateOp;
+                    get_xref_from_create_op(op_ptr, kind)
+                };
+                if let Some(xref) = xref_opt {
+                    ordered_elements.push((xref, kind));
+                }
+            }
+        }
+    };
+
+    // Process Root View
+    collect_elements(&job.root.create);
+
+    // Process embedded views in Xref order
+    let mut view_ids: Vec<_> = job.views.keys().cloned().collect();
+    view_ids.sort();
+    for view_id in view_ids {
+        if let Some(view) = job.views.get(&view_id) {
+            collect_elements(&view.create);
+        }
+    }
+
+    // Pass 3: Assign const indices in the collected order
+    let mut const_indices = HashMap::new();
+    let mut projection_attributes = HashMap::new();
+
+    for (xref, kind) in ordered_elements {
+        if !const_indices.contains_key(&xref) {
+            if let Some(attributes) = all_element_attributes.get(&xref) {
+                let attr_array = serialize_attributes(attributes.clone());
+                if kind == ir::OpKind::Projection {
+                    projection_attributes.insert(xref, attr_array);
+                } else {
+                    if !attr_array.entries.is_empty() {
+                        let const_idx = job.add_const(Expression::LiteralArray(attr_array), None);
+                        const_indices.insert(xref, Some(const_idx));
+                    } else {
+                        const_indices.insert(xref, None);
+                    }
+                }
+            } else {
+                const_indices.insert(xref, None);
+            }
         }
     }
     
-    // Process root unit
+    // Final pass: assign const indices to elements
     process_unit_for_component(&mut job.root, &const_indices, &projection_attributes);
-    
-    // Process all view units - collect keys first to avoid borrow checker issues
     let view_keys: Vec<_> = job.views.keys().cloned().collect();
     for key in view_keys {
         if let Some(unit) = job.views.get_mut(&key) {
@@ -258,6 +339,10 @@ fn process_component_job(
         }
     }
 }
+
+
+
+
 
 fn process_unit_for_component(
     unit: &mut crate::template::pipeline::src::compilation::ViewCompilationUnit,
@@ -277,22 +362,68 @@ fn process_unit_for_component(
                 }
             }
         } else if is_element_or_container_op(op.kind()) {
-            // Handle ElementOrContainerOps
-            unsafe {
-                let op_ptr = op.as_mut() as *mut dyn ir::CreateOp;
-                let base_ptr = op_ptr as *mut ElementOrContainerOpBase;
-                let base = &mut *base_ptr;
-                
-                base.attributes = const_indices.get(&base.xref).copied().flatten();
-                
-                // Handle RepeaterCreate with emptyView
-                if op.kind() == OpKind::RepeaterCreate {
-                    let repeater_ptr = op_ptr as *mut RepeaterCreateOp;
-                    let repeater = &mut *repeater_ptr;
-                    if let Some(empty_view) = repeater.empty_view {
-                        repeater.empty_attributes = const_indices.get(&empty_view).copied().flatten();
+            // Handle ElementOrContainerOps - must cast to specific types because of nested struct hierarchy
+            match op.kind() {
+                OpKind::ElementStart => {
+                    if let Some(el_op) = op.as_any_mut().downcast_mut::<ir::ops::create::ElementStartOp>() {
+                        if let Some(idx) = const_indices.get(&el_op.base.base.xref).copied().flatten() {
+                            el_op.base.base.attributes = Some(idx);
+                        }
                     }
                 }
+                OpKind::Element => {
+                    if let Some(el_op) = op.as_any_mut().downcast_mut::<ir::ops::create::ElementOp>() {
+                        if let Some(idx) = const_indices.get(&el_op.base.base.xref).copied().flatten() {
+                            el_op.base.base.attributes = Some(idx);
+                        }
+                    }
+                }
+                OpKind::Template => {
+                    if let Some(tmpl_op) = op.as_any_mut().downcast_mut::<ir::ops::create::TemplateOp>() {
+                        if let Some(idx) = const_indices.get(&tmpl_op.base.base.xref).copied().flatten() {
+                            tmpl_op.base.base.attributes = Some(idx);
+                        }
+                    }
+                }
+                OpKind::ContainerStart => {
+                    if let Some(c_op) = op.as_any_mut().downcast_mut::<ir::ops::create::ContainerStartOp>() {
+                        if let Some(idx) = const_indices.get(&c_op.base.xref).copied().flatten() {
+                            c_op.base.attributes = Some(idx);
+                        }
+                    }
+                }
+                OpKind::Container => {
+                    if let Some(c_op) = op.as_any_mut().downcast_mut::<ir::ops::create::ContainerOp>() {
+                        if let Some(idx) = const_indices.get(&c_op.base.xref).copied().flatten() {
+                            c_op.base.attributes = Some(idx);
+                        }
+                    }
+                }
+                OpKind::RepeaterCreate => {
+                    if let Some(r_op) = op.as_any_mut().downcast_mut::<ir::ops::create::RepeaterCreateOp>() {
+                        if let Some(idx) = const_indices.get(&r_op.base.base.xref).copied().flatten() {
+                            r_op.base.base.attributes = Some(idx);
+                        }
+                        if let Some(empty_view) = r_op.empty_view {
+                            r_op.empty_attributes = const_indices.get(&empty_view).copied().flatten();
+                        }
+                    }
+                }
+                OpKind::ConditionalCreate => {
+                    if let Some(c_op) = op.as_any_mut().downcast_mut::<ir::ops::create::ConditionalCreateOp>() {
+                        if let Some(idx) = const_indices.get(&c_op.base.base.xref).copied().flatten() {
+                            c_op.base.base.attributes = Some(idx);
+                        }
+                    }
+                }
+                OpKind::ConditionalBranchCreate => {
+                    if let Some(c_op) = op.as_any_mut().downcast_mut::<ir::ops::create::ConditionalBranchCreateOp>() {
+                        if let Some(idx) = const_indices.get(&c_op.base.base.xref).copied().flatten() {
+                            c_op.base.base.attributes = Some(idx);
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }

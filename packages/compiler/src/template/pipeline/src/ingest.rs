@@ -376,10 +376,12 @@ fn ingest_template(
     let tmpl_inputs = tmpl.inputs.clone();
     let tmpl_template_attrs = tmpl.template_attrs.clone();
     
+    let tmpl_attributes = tmpl.attributes.clone();
+    
     // Ingest template bindings, events, and references
     // Process bindings first (borrows job)
     {
-        ingest_template_bindings(unit, child_view_xref, &tmpl_inputs, &tmpl_template_attrs, template_kind, job);
+        ingest_template_bindings(unit, child_view_xref, &tmpl_inputs, &tmpl_template_attrs, &tmpl_attributes, template_kind, job);
     }
     // Process events (borrows job)
     {
@@ -1612,10 +1614,10 @@ fn ingest_for_block(
     // Get repeater view
     let repeater_view = job.views.get_mut(&repeater_view_xref).unwrap();
     
-    // Set context variable for the item
+    // Set context variable for the item - read from ctx.$implicit
     repeater_view.context_variables.insert(
         for_loop.item.name.clone(),
-        ir::variable::CTX_REF.to_string(),
+        "$implicit".to_string(),  // Item is accessed via ctx.$implicit
     );
     
     // We copy TemplateDefinitionBuilder's scheme of creating names for `$count` and `$index`
@@ -1631,22 +1633,24 @@ fn ingest_for_block(
             index_var_names.insert(variable.name.clone());
         }
         if variable.name == "$index" {
+            // $index should be read as ctx.$index property, not ctx directly
             repeater_view.context_variables.insert(
                 "$index".to_string(),
-                ir::variable::CTX_REF.to_string(),
+                "$index".to_string(),  // Property name to read from context
             );
             repeater_view.context_variables.insert(
                 index_name.clone(),
-                ir::variable::CTX_REF.to_string(),
+                "$index".to_string(),
             );
         } else if variable.name == "$count" {
+            // $count should be read as ctx.$count property, not ctx directly
             repeater_view.context_variables.insert(
                 "$count".to_string(),
-                ir::variable::CTX_REF.to_string(),
+                "$count".to_string(),  // Property name to read from context
             );
             repeater_view.context_variables.insert(
                 count_name.clone(),
-                ir::variable::CTX_REF.to_string(),
+                "$count".to_string(),
             );
         } else {
             // For other variables, we need to create an alias
@@ -2261,12 +2265,14 @@ fn ingest_references_template(
     panic!("Could not find TemplateOp with xref {:?} to add references", template_xref);
 }
 
+
 /// Process all of the bindings on a template in the template AST
 fn ingest_template_bindings(
     unit: &mut ViewCompilationUnit,
     template_xref: ir::XrefId,
     inputs: &[t::BoundAttribute],
     template_attrs: &[t::TemplateAttr],
+    attributes: &[t::TextAttribute], // Regular attributes like class
     template_kind: ir::TemplateKind,
     job: &mut ComponentCompilationJob,
 ) {
@@ -2315,7 +2321,7 @@ fn ingest_template_bindings(
         unit.update.push(binding_op);
     }
     
-    // Process template attributes (text attributes on templates)
+    // Process template attributes (text attributes on templates - directive-specific like ngFor)
     // TemplateAttr is an enum with Bound and Text variants
     for attr in template_attrs {
         match attr {
@@ -2353,11 +2359,112 @@ fn ingest_template_bindings(
                 
                 unit.update.push(binding_op);
             }
-            t::TemplateAttr::Bound(_bound_attr) => {
-                // Bound attributes on templates are handled as inputs above
-                // Skip this case
+            t::TemplateAttr::Bound(bound_attr) => {
+                // Process bound attributes on templates (like ngForOf for *ngFor)
+                // These are critical for structural directives to receive their input data
+                let binding_kind = match bound_attr.type_ {
+                    crate::expression_parser::ast::BindingType::Property => ir::BindingKind::Property,
+                    crate::expression_parser::ast::BindingType::Attribute => ir::BindingKind::Attribute,
+                    crate::expression_parser::ast::BindingType::Class => ir::BindingKind::ClassName,
+                    crate::expression_parser::ast::BindingType::Style => ir::BindingKind::StyleProperty,
+                    crate::expression_parser::ast::BindingType::Animation => ir::BindingKind::Animation,
+                    crate::expression_parser::ast::BindingType::TwoWay => ir::BindingKind::TwoWayProperty,
+                    _ => ir::BindingKind::Property,
+                };
+                
+                // Convert input value
+                let expression = crate::template::pipeline::src::conversion::convert_ast(
+                    &bound_attr.value,
+                    job,
+                    bound_attr.value_span.as_ref(),
+                );
+                
+                // Extract i18n message if present
+                let i18n_message = match &bound_attr.i18n {
+                    Some(I18nMeta::Message(msg)) => Some(msg.clone()),
+                    _ => None,
+                };
+                
+                let binding_op = create_binding_op(
+                    template_xref,
+                    binding_kind,
+                    bound_attr.name.clone(),
+                    BindingExpression::Expression(expression),
+                    bound_attr.unit.clone(),
+                    vec![bound_attr.security_context],
+                    false, // is_text_attr
+                    template_kind == ir::TemplateKind::Structural, // is_structural_template_attribute
+                    Some(template_kind), // template_kind
+                    i18n_message,
+                    bound_attr.source_span.clone(),
+                );
+                
+                unit.update.push(binding_op);
+
+                // For structural directives, bound attributes (inputs) like `ngForOf` must also
+                // appear in the `consts` array as attributes for directive matching to work.
+                // We emit an ExtractedAttributeOp with an empty value to ensure it's collected.
+                if template_kind == ir::TemplateKind::Structural {
+                    use crate::template::pipeline::ir::ops::create::create_extracted_attribute_op;
+                    let extracted_op = create_extracted_attribute_op(
+                        template_xref,
+                        ir::BindingKind::Template,
+                        None, // namespace
+                        bound_attr.name.clone(),
+                        Some(crate::output::output_ast::Expression::Literal(
+                            crate::output::output_ast::LiteralExpr {
+                                value: crate::output::output_ast::LiteralValue::String("".to_string()),
+                                type_: None,
+                                source_span: None,
+                            }
+                        )),
+                        None, // i18n_context
+                        None, // i18n_message
+                        vec![crate::core::SecurityContext::NONE],
+                    );
+                    unit.create.push(extracted_op);
+                }
             }
         }
+    }
+    
+    // Process regular attributes (like class="ngfor-test") on structural templates
+    // These should NOT be marked as structural template attributes, so they appear
+    // BEFORE the AttributeMarker::Template (4) in the consts array.
+    // This matches TSC behavior at ingest.ts lines 1471-1488.
+    for attr in attributes {
+        // Convert attribute value
+        let expression = BindingExpression::Expression(
+            crate::output::output_ast::Expression::Literal(
+                crate::output::output_ast::LiteralExpr {
+                    value: crate::output::output_ast::LiteralValue::String(attr.value.clone()),
+                    type_: None,
+                    source_span: Some(attr.source_span.clone()),
+                }
+            )
+        );
+        
+        // Extract i18n message if present
+        let i18n_message = match &attr.i18n {
+            Some(I18nMeta::Message(msg)) => Some(msg.clone()),
+            _ => None,
+        };
+        
+        let binding_op = create_binding_op(
+            template_xref,
+            ir::BindingKind::Attribute,
+            attr.name.clone(),
+            expression,
+            None, // unit
+            vec![crate::core::SecurityContext::NONE], // Default security context
+            true,  // is_text_attr
+            false, // is_structural_template_attribute - FALSE for regular attrs!
+            Some(template_kind), // template_kind
+            i18n_message,
+            attr.source_span.clone(),
+        );
+        
+        unit.update.push(binding_op);
     }
 }
 

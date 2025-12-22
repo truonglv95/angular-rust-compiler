@@ -32,7 +32,7 @@ struct SavedView {
 ///
 /// Also matches `ir.RestoreViewExpr` expressions with the variables of their corresponding saved
 /// views.
-pub fn resolve_names(job: &mut dyn CompilationJob) {
+pub fn phase(job: &mut dyn CompilationJob) {
     let job_kind = job.kind();
     
     if matches!(job_kind, CompilationJobKind::Tmpl | CompilationJobKind::Both) {

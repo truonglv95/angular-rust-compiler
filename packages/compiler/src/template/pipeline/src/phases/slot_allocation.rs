@@ -18,7 +18,7 @@ use crate::template::pipeline::ir::traits::ConsumesSlotOpTrait;
 ///
 /// This phase is also responsible for counting the number of slots used for each view (its `decls`)
 /// and propagating that number into the `Template` operations which declare embedded views.
-pub fn allocate_slots(job: &mut ComponentCompilationJob) {
+pub fn phase(job: &mut ComponentCompilationJob) {
     // Map of all declarations in all views within the component which require an assigned slot index.
     // This map needs to be global (across all views within the component) since it's possible to
     // reference a slot from one view from an expression within another (e.g. local references work

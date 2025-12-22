@@ -13,7 +13,7 @@ use crate::output::output_ast::Expression;
 
 /// Counts the number of variable slots used within each view, and stores that on the view itself, as
 /// well as propagates it to the `ir.TemplateOp` for embedded views.
-pub fn count_variables(job: &mut dyn CompilationJob) {
+pub fn phase(job: &mut dyn CompilationJob) {
     let job_kind = job.kind();
     
     // First, count the vars used in each view, and update the view-level counter.

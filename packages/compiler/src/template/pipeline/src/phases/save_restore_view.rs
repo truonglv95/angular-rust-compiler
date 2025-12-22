@@ -374,7 +374,7 @@ fn check_expressions_recursive(expr: &Expression) -> bool {
         // Simple expressions with no nested expressions
         Expression::ReadVar(_) | Expression::Literal(_) | Expression::External(_) |
         Expression::ExternalRef(_) | Expression::WrappedNode(_) | Expression::DynamicImport(_) |
-        Expression::FnParam(_) => {
+        Expression::FnParam(_) | Expression::RegularExpressionLiteral(_) | Expression::RawCode(_) => {
             false
         }
     }

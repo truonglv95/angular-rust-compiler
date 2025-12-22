@@ -46,9 +46,14 @@ pub trait CompilationJob {
     /// Get the root compilation unit
     fn root(&self) -> &dyn CompilationUnit;
     /// Get all compilation units
-    fn units(&self) -> Box<dyn Iterator<Item = Box<dyn CompilationUnit>> + '_>;
+    fn units(&self) -> Box<dyn Iterator<Item = &dyn CompilationUnit> + '_>;
+    /// Allocate a new XrefId
     /// Allocate a new XrefId
     fn allocate_xref_id(&mut self) -> ir::XrefId;
+    /// Get as Any
+    fn as_any(&self) -> &dyn std::any::Any;
+    /// Get as Any mut
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
 /// Compilation-in-progress of a whole component's template, including the main template and any
@@ -66,7 +71,7 @@ pub struct ComponentCompilationJob {
     pub enable_debug_locations: bool,
     
     pub root: ViewCompilationUnit,
-    pub views: std::collections::HashMap<ir::XrefId, ViewCompilationUnit>,
+    pub views: indexmap::IndexMap<ir::XrefId, ViewCompilationUnit>,
     pub content_selectors: Option<Expression>,
     pub consts: Vec<Expression>,
     pub consts_initializers: Vec<Expression>,
@@ -90,7 +95,7 @@ impl ComponentCompilationJob {
         let root_xref = ir::XrefId::new(0);
         let root = ViewCompilationUnit::new(root_xref, None);
         
-        let views = std::collections::HashMap::new();
+        let views = indexmap::IndexMap::new();
         // Note: In TypeScript, root is stored in views as well
         // In Rust, we store it separately in the root field
         // If needed, we could use Rc<RefCell<ViewCompilationUnit>> to share ownership
@@ -141,10 +146,8 @@ impl ComponentCompilationJob {
     }
 
     /// Check if two expressions are equivalent
-    fn expressions_equivalent(&self, _a: &Expression, _b: &Expression) -> bool {
-        // TODO: Implement proper expression equivalence checking
-        // For now, return false to always add new constants
-        false
+    fn expressions_equivalent(&self, a: &Expression, b: &Expression) -> bool {
+        a.is_equivalent(b)
     }
 }
 
@@ -177,17 +180,24 @@ impl CompilationJob for ComponentCompilationJob {
         &self.root
     }
 
-    fn units(&self) -> Box<dyn Iterator<Item = Box<dyn CompilationUnit>> + '_> {
-        // Note: Cannot return references from HashMap as Box<dyn CompilationUnit>
-        // This method is rarely used and can be redesigned if needed
-        // For now return empty iterator as placeholder
-        Box::new(std::iter::empty())
+    fn units(&self) -> Box<dyn Iterator<Item = &dyn CompilationUnit> + '_> {
+        let root = &self.root as &dyn CompilationUnit;
+        let views = self.views.values().map(|v| v as &dyn CompilationUnit);
+        Box::new(std::iter::once(root).chain(views))
     }
 
     fn allocate_xref_id(&mut self) -> ir::XrefId {
         let id = self.next_xref_id;
         self.next_xref_id = ir::XrefId::new(id.as_usize() + 1);
         id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 
@@ -231,7 +241,7 @@ pub trait CompilationUnit {
 pub struct ViewCompilationUnit {
     pub xref: ir::XrefId,
     pub parent: Option<ir::XrefId>,
-    pub context_variables: std::collections::HashMap<String, String>,
+    pub context_variables: indexmap::IndexMap<String, String>,
     pub aliases: Vec<ir::AliasVariable>,
     pub decls: Option<usize>,
     
@@ -246,7 +256,7 @@ impl ViewCompilationUnit {
         ViewCompilationUnit {
             xref,
             parent,
-            context_variables: std::collections::HashMap::new(),
+            context_variables: indexmap::IndexMap::new(),
             aliases: Vec::new(),
             decls: None,
             fn_name: None,
@@ -369,15 +379,23 @@ impl CompilationJob for HostBindingCompilationJob {
         &self.root
     }
 
-    fn units(&self) -> Box<dyn Iterator<Item = Box<dyn CompilationUnit>> + '_> {
-        // Cannot clone HostBindingCompilationUnit due to OpList containing trait objects
-        // This method is rarely used - return empty iterator as placeholder
-        Box::new(std::iter::empty())
+    fn units(&self) -> Box<dyn Iterator<Item = &dyn CompilationUnit> + '_> {
+        // HostBinding (job.root) is a single unit
+        let root = &self.root as &dyn CompilationUnit;
+        Box::new(std::iter::once(root))
     }
 
     fn allocate_xref_id(&mut self) -> ir::XrefId {
         // Host bindings don't need XrefIds in the same way
         ir::XrefId::new(0)
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 

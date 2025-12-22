@@ -14,7 +14,7 @@ use crate::output::output_ast::Expression;
 
 /// Generate `ir.AdvanceOp`s in between `ir.UpdateOp`s that ensure the runtime's implicit slot
 /// context will be advanced correctly.
-pub fn generate_advance(job: &mut dyn CompilationJob) {
+pub fn phase(job: &mut dyn CompilationJob) {
     let job_kind = job.kind();
     
     if matches!(job_kind, CompilationJobKind::Tmpl | CompilationJobKind::Both) {

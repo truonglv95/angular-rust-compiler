@@ -126,7 +126,7 @@ fn process_view_safe(
                                 if let Some(name) = var_names.get(&read_var.xref) {
                                     read_var.name = Some(name.clone());
                                 } else {
-                                    panic!("Variable {:?} not yet named", read_var.xref);
+                                    panic!("PANIC: Variable {:?} not yet named in view {:?}. Available: {:?}", read_var.xref, unit_xref, var_names.keys());
                                 }
                             }
                         }
@@ -144,7 +144,7 @@ fn process_view_safe(
                                 if let Some(name) = var_names.get(&read_var.xref) {
                                     read_var.name = Some(name.clone());
                                 } else {
-                                    panic!("Variable {:?} not yet named", read_var.xref);
+                                    panic!("PANIC: Variable {:?} not yet named in view {:?}. Available: {:?}", read_var.xref, unit_xref, var_names.keys());
                                 }
                             }
                         }
@@ -242,6 +242,14 @@ fn process_op_with_var_names(
                         ));
                     }
                 }
+
+                
+                // Recurse into handler_ops
+                let listener_ptr = op_ptr as *mut ListenerOp;
+                let listener = &mut *listener_ptr;
+                for handler_op in &mut listener.handler_ops {
+                    process_op_with_var_names(&mut **handler_op, base_name, state, compatibility, tasks, var_names, false);
+                }
             }
             ir::OpKind::TwoWayListener => {
                 use crate::template::pipeline::ir::ops::create::TwoWayListenerOp;
@@ -257,17 +265,13 @@ fn process_op_with_var_names(
             }
             ir::OpKind::Variable => {
                 // VariableOp - need to handle both CreateOp and UpdateOp versions
-                if is_create_op {
-                    // Handle CreateOp version
-                    let var_create_ptr = op_ptr as *mut VariableOp<Box<dyn ir::CreateOp + Send + Sync>>;
-                    let var_op = &mut *var_create_ptr;
+                // Use safe downcasting to handle potential mismatches (e.g. inside ListenerOp handlers)
+                
+                if let Some(var_op) = op.as_any_mut().downcast_mut::<VariableOp<Box<dyn ir::CreateOp + Send + Sync>>>() {
                     let name = get_variable_name(&var_op.variable, state, compatibility);
                     var_names.insert(var_op.xref, name.clone());
                     var_op.variable.set_name(Some(name));
-                } else {
-                    // Handle UpdateOp version
-                    let var_update_ptr = op_ptr as *mut VariableOp<Box<dyn UpdateOp + Send + Sync>>;
-                    let var_op = &mut *var_update_ptr;
+                } else if let Some(var_op) = op.as_any_mut().downcast_mut::<VariableOp<Box<dyn UpdateOp + Send + Sync>>>() {
                     let name = get_variable_name(&var_op.variable, state, compatibility);
                     var_names.insert(var_op.xref, name.clone());
                     var_op.variable.set_name(Some(name));

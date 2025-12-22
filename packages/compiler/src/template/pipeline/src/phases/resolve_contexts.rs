@@ -18,7 +18,7 @@ use crate::template::pipeline::ir::ops::shared::VariableOp;
 /// Resolves `ir.ContextExpr` expressions (which represent embedded view or component contexts) to
 /// either the `ctx` parameter to component functions (for the current view context) or to variables
 /// that store those contexts (for contexts accessed via the `nextContext()` instruction).
-pub fn resolve_contexts(job: &mut dyn CompilationJob) {
+pub fn phase(job: &mut dyn CompilationJob) {
     let job_kind = job.kind();
     
     if matches!(job_kind, CompilationJobKind::Tmpl | CompilationJobKind::Both) {

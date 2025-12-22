@@ -7,12 +7,17 @@ use crate::template::pipeline::ir;
 use crate::template::pipeline::src::compilation::{CompilationJob, ComponentCompilationJob, CompilationUnit};
 use crate::output::output_ast::ExpressionTrait;
 
-pub fn generate_pure_literal_structures(job: &mut dyn CompilationJob) {
+pub fn phase(job: &mut dyn CompilationJob) {
+    println!("DEBUG: pure_literal_structures phase START. Job kind: {:?}", job.kind());
     fn process_expr(expr: o::Expression) -> o::Expression {
         match expr {
             o::Expression::LiteralArray(ref arr) => {
+                println!("DEBUG: pure_literal_structures visiting LiteralArray with {} entries", arr.entries.len());
                 if let Some(transformed) = transform_literal_array(arr) {
+                    println!("DEBUG: LiteralArray transformed to PureFunction");
                     return transformed;
+                } else {
+                    println!("DEBUG: LiteralArray NOT transformed");
                 }
             },
             o::Expression::LiteralMap(ref map) => {
@@ -33,7 +38,8 @@ pub fn generate_pure_literal_structures(job: &mut dyn CompilationJob) {
             None
         }
     } {
-        for unit in component_job.views.values_mut() {
+        // Helper to process a unit
+        let mut process_unit = |unit: &mut dyn CompilationUnit| {
             for op in unit.update_mut().iter_mut() {
                  ir::transform_expressions_in_op(op.as_mut(), &mut |expr: o::Expression, flags: ir::VisitorContextFlag| {
                      if flags.contains(ir::VisitorContextFlag::IN_CHILD_OPERATION) {
@@ -42,6 +48,14 @@ pub fn generate_pure_literal_structures(job: &mut dyn CompilationJob) {
                      process_expr(expr)
                  }, ir::VisitorContextFlag::NONE);
             }
+        };
+
+        // Process root view
+        process_unit(&mut component_job.root);
+
+        // Process nested views
+        for unit in component_job.views.values_mut() {
+            process_unit(unit);
         }
     }
 }
@@ -62,9 +76,8 @@ fn transform_literal_array(arr: &o::LiteralArrayExpr) -> Option<o::Expression> {
         }
     }
 
-    if args.is_empty() {
-        return None;
-    }
+    // If args is empty, we still want to create a pure function (pureFunction0)
+    // for constant arrays to ensure proper change detection and slot allocation.
     
     let literal_expr = o::literal_arr(derived_entries);
     
@@ -98,9 +111,7 @@ fn transform_literal_map(map: &o::LiteralMapExpr) -> Option<o::Expression> {
         }
     }
 
-    if args.is_empty() {
-        return None;
-    }
+
     
     let literal_expr = o::literal_map(derived_entries);
     

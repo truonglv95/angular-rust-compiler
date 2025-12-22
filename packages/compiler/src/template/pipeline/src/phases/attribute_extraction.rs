@@ -92,16 +92,62 @@ fn process_unit(
                     }
                     
                     if extractable {
-                        let binding_kind = if is_structural {
+                        // Determine binding kind - for structural templates, only directive-specific
+                        // attrs (like ngFor, ngForOf) should use Template kind. Static attrs like
+                        // class/style should keep their proper kind so they appear before the
+                        // AttributeMarker::Template marker in the consts array.
+                        let binding_kind = if name == "class" {
+                            // Class attribute should use Attribute binding kind to match TSC output
+                            // TSC emits ["class", "value"] instead of [1, "value"] for static classes
+                            BindingKind::Attribute
+                        } else if name == "style" {
+                            BindingKind::StyleProperty
+                        } else if is_structural {
+                            // Only structural directive-specific attrs (not class/style) use Template
                             BindingKind::Template
                         } else {
                             BindingKind::Attribute
                         };
                         
-                        let expression = match expr {
-                            BindingExpression::Expression(expr) => Some(expr),
+                        let expression = match &expr {
+                            BindingExpression::Expression(expr) => Some(expr.clone()),
                             BindingExpression::Interpolation(_) => None,
                         };
+                        
+                        // For class and style attributes, extract value from expression and use as name
+                        if binding_kind == BindingKind::ClassName {
+                            // Extract class value from expression
+                            if let Some(ref expr) = expression {
+                                if let crate::output::output_ast::Expression::Literal(lit) = expr {
+                                    if let crate::output::output_ast::LiteralValue::String(class_value) = &lit.value {
+                                        // Split multiple classes (e.g., "main content" -> ["main", "content"])
+                                        for class_name in class_value.split_whitespace() {
+                                            let extracted_attr_op = create_extracted_attribute_op(
+                                                target,
+                                                BindingKind::ClassName,
+                                                namespace.clone(),
+                                                class_name.to_string(), // Use class value as name!
+                                                None, // No expression needed for class names
+                                                i18n_ctx,
+                                                i18n_msg.clone(),
+                                                sec_ctx.clone(),
+                                            );
+                                            
+                                            if job_kind == CompilationJobKind::Host {
+                                                unit.create_mut().push(extracted_attr_op);
+                                            } else {
+                                                let element_index = elements.get(&target)
+                                                    .expect("All attributes should have an element-like target.");
+                                                unit.create_mut().insert_at(*element_index, extracted_attr_op);
+                                            }
+                                        }
+                                        // Remove the original op
+                                        unit.update_mut().remove_at(*index);
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
                         
                         let extracted_attr_op = create_extracted_attribute_op(
                             target,

@@ -14,11 +14,11 @@ use crate::template::pipeline::src::compilation::{ComponentCompilationJob, Compi
 use crate::template::pipeline::src::compilation::CompilationJob;
 use crate::template::pipeline::ir::enums::VariableFlags;
 use crate::output::output_ast::Expression;
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 /// Generate a preamble sequence for each view creation block and listener function which declares
 /// any variables that be referenced in other operations in the block.
-pub fn generate_variables(job: &mut dyn CompilationJob) {
+pub fn phase(job: &mut dyn CompilationJob) {
     let job_kind = job.kind();
     
     if matches!(job_kind, CompilationJobKind::Tmpl | CompilationJobKind::Both) {
@@ -162,7 +162,7 @@ struct Scope {
     
     view_context_variable: SemanticVariable,
     
-    context_variables: HashMap<String, SemanticVariable>,
+    context_variables: IndexMap<String, SemanticVariable>,
     
     /// Aliases from the view (cloned for recursive calls, but accessed via scope_view in generate_variables_in_scope_for_view)
     #[allow(dead_code)]
@@ -218,7 +218,7 @@ fn get_scope_for_view(
     let mut scope = Scope {
         view: view.xref(),
         view_context_variable: SemanticVariable::Context(ContextVariable::new(view.xref())),
-        context_variables: HashMap::new(),
+        context_variables: IndexMap::new(),
         aliases: view.aliases.clone(),
         references: Vec::new(),
         let_declarations: Vec::new(),
@@ -378,10 +378,17 @@ fn generate_variables_in_scope_for_view(
 
     // Add variables for all context variables available in this scope's view.
     // Get scope_view values first to avoid borrowing issues
+    // Sort to ensure consistent order: $implicit first, then $index, then $count, then alphabetical
     let context_var_data: Vec<(String, String)> = {
-        let scope_view = component_job.views.get(&scope.view).expect("Scope view should exist");
-        scope_view.context_variables.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        if scope.view == component_job.root.xref {
+            component_job.root.context_variables.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        } else {
+            let scope_view = component_job.views.get(&scope.view).expect("Scope view should exist");
+            scope_view.context_variables.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        }
     };
+    // No manual sorting needed - IndexMap preserves insertion order from ingestion
+    // This ensures variables are generated in the exact order they appear in the source template
     
     for (name, value) in context_var_data {
         let context = Expression::Context(ContextExpr::new(scope.view));
@@ -406,6 +413,7 @@ fn generate_variables_in_scope_for_view(
                 Box::new(variable_expr),
                 VariableFlags::NONE,
             );
+            
             new_ops.push(Box::new(variable_op));
         }
     }
@@ -413,8 +421,12 @@ fn generate_variables_in_scope_for_view(
     // Add variables for aliases
     // Get aliases first to avoid borrowing issues
     let aliases_data: Vec<ir::AliasVariable> = {
-        let scope_view = component_job.views.get(&scope.view).expect("Scope view should exist");
-        scope_view.aliases.clone()
+        if scope.view == component_job.root.xref {
+            component_job.root.aliases.clone()
+        } else {
+            let scope_view = component_job.views.get(&scope.view).expect("Scope view should exist");
+            scope_view.aliases.clone()
+        }
     };
     
     for alias in aliases_data {
