@@ -5,10 +5,10 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::marker::PhantomData;
 use super::property_mapping::ClassPropertyMapping;
 use angular_compiler::ml_parser::ast::Node as HtmlNode;
 use oxc_ast::ast as oxc_ast;
+pub use crate::ngtsc::imports::{Reference, OwningModule};
 
 /// Discriminant for different kinds of compiler metadata objects.
 /// Matches TypeScript's MetaKind enum from api.ts (L128-133)
@@ -29,6 +29,20 @@ pub enum MatchSource {
     /// The directive was applied as a host directive.
     HostDirective,
 }
+
+
+
+/// Represents a base class reference that may be dynamic.
+/// Matches TypeScript's `Reference<ClassDeclaration> | 'dynamic' | null`
+#[derive(Debug, Clone)]
+pub enum BaseClass<'a> {
+    /// Static reference to base class.
+    Static(Reference<'a>),
+    /// Dynamic base class (couldn't statically determine).
+    Dynamic,
+}
+
+
 
 /// Metadata for an `@Input()` transform function.
 /// Matches TypeScript's DecoratorInputTransform (L180-193)
@@ -83,16 +97,29 @@ pub enum TemplateGuardType {
 
 /// Host directive metadata.
 /// Matches TypeScript's HostDirectiveMeta (L307-326)
-#[derive(Debug, Clone)]
-pub struct HostDirectiveMeta {
+/// 
+/// The lifetime `'a` is tied to the OXC AST allocator.
+#[derive(Debug)]
+pub struct HostDirectiveMeta<'a> {
     /// Reference to the host directive class.
-    pub directive: String,
+    pub directive: Option<Reference<'a>>,
     /// Whether the reference to the host directive is a forward reference.
     pub is_forward_reference: bool,
     /// Inputs from the host directive that have been exposed.
     pub inputs: Option<HashMap<String, String>>,
     /// Outputs from the host directive that have been exposed.
     pub outputs: Option<HashMap<String, String>>,
+}
+
+impl<'a> Clone for HostDirectiveMeta<'a> {
+    fn clone(&self) -> Self {
+        Self {
+            directive: self.directive.clone(),
+            is_forward_reference: self.is_forward_reference,
+            inputs: self.inputs.clone(),
+            outputs: self.outputs.clone(),
+        }
+    }
 }
 
 /// Metadata collected for a directive within an NgModule's scope.
@@ -139,7 +166,8 @@ pub struct DirectiveMeta<'a> {
     /// Class inputs which come from decorator array (not class members).
     pub input_field_names_from_metadata_array: Option<HashSet<String>>,
     /// A Reference to the base class for the directive, if one was detected.
-    pub base_class: Option<String>,
+    /// Value of `Dynamic` indicates base was detected but couldn't be statically resolved.
+    pub base_class: Option<BaseClass<'a>>,
     /// Whether the directive had some issue with its declaration.
     pub is_poisoned: bool,
     /// Whether the directive is a standalone entity.
@@ -147,18 +175,20 @@ pub struct DirectiveMeta<'a> {
     /// Whether the directive is a signal entity.
     pub is_signal: bool,
     /// For standalone components, the list of imported types.
-    pub imports: Option<Vec<String>>,
+    /// For standalone components, the list of imported types.
+    pub imports: Option<Vec<Reference<'a>>>,
     /// Raw imports expression.
     pub raw_imports: Option<String>,
     /// For standalone components, the list of imported types for `@defer` blocks.
-    pub deferred_imports: Option<Vec<String>>,
+    /// For standalone components, the list of imported types for `@defer` blocks.
+    pub deferred_imports: Option<Vec<Reference<'a>>>,
     /// For standalone components, the list of schemas declared.
     pub schemas: Option<Vec<String>>,
     /// The primary decorator associated with this directive.
     /// This is a direct reference to the OXC AST decorator node.
     pub decorator: Option<&'a oxc_ast::Decorator<'a>>,
     /// Additional directives applied to the directive host.
-    pub host_directives: Option<Vec<HostDirectiveMeta>>,
+    pub host_directives: Option<Vec<HostDirectiveMeta<'a>>>,
     /// Whether the directive should be assumed to export providers if imported as a standalone type.
     pub assumed_to_export_providers: bool,
     /// Whether this class was imported via `@Component.deferredImports` field.

@@ -13,7 +13,7 @@ pub mod alias;
 pub mod emitter;
 
 // Re-exports
-pub use references::{Reference, OwningModule};
+pub use references::{Reference, OwningModule, AmbientImport};
 pub use core::{ImportRewriter, NoopImportRewriter, R3SymbolsImportRewriter, validate_and_rewrite_core_symbol};
 pub use imported_symbols_tracker::ImportedSymbolsTracker;
 pub use reexport::Reexport;

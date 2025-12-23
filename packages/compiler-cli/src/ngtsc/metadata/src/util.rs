@@ -9,7 +9,7 @@ use oxc_ast::ast::Program;
 use crate::ngtsc::reflection::{ReflectionHost, TypeScriptReflectionHost, Decorator, ClassDeclaration};
 use super::api::{
     DecoratorMetadata, DirectiveMeta, PipeMeta, InjectableMeta,
-    MetaKind, MatchSource, DirectiveTypeCheckMeta,
+    MetaKind, MatchSource, DirectiveTypeCheckMeta, Reference,
 };
 use super::property_mapping::{ClassPropertyMapping, InputOrOutput};
 
@@ -302,10 +302,13 @@ pub fn extract_directive_metadata<'a>(
                             "imports" => {
                                 meta.is_standalone = true;
                                 if let Expression::ArrayExpression(arr) = &prop.value {
-                                    let collected: Vec<String> = arr.elements.iter().filter_map(|e| {
+                                    let collected: Vec<Reference> = arr.elements.iter().filter_map(|e| {
                                         if let Some(expr) = e.as_expression() {
                                             if let Expression::Identifier(ident) = expr {
-                                                return Some(ident.name.to_string());
+                                                return Some(Reference::from_name(
+                                                    ident.name.to_string(), 
+                                                    Some(source_file.to_path_buf())
+                                                ));
                                             }
                                         }
                                         None

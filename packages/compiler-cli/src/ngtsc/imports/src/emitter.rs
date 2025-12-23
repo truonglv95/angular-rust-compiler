@@ -163,7 +163,7 @@ impl ReferenceEmitter {
         }
         
         ReferenceEmitResult::Failed(FailedEmitResult::new(
-            &reference.name,
+            reference.debug_name(),
             context_file,
             "No strategy was able to emit a reference",
         ))
@@ -191,9 +191,15 @@ impl ReferenceEmitStrategy for LocalIdentifierStrategy {
             return None;
         }
         
-        if let Some(identity) = reference.get_identity_in(context_file) {
+        // Check if reference is in the same source file
+        let is_same_file = reference.source_file
+            .as_ref()
+            .map(|sf| sf.to_string_lossy() == context_file)
+            .unwrap_or(false);
+        
+        if is_same_file {
             Some(ReferenceEmitResult::Success(EmittedReference::new(
-                identity,
+                reference.debug_name(),
                 ImportedFile::NotAnImport,
             )))
         } else {
@@ -219,17 +225,20 @@ impl ReferenceEmitStrategy for RelativePathStrategy {
         context_file: &str,
         _import_flags: ImportFlags,
     ) -> Option<ReferenceEmitResult> {
-        if reference.source_file == context_file {
+        let source_file = reference.source_file.as_ref()?;
+        let source_file_str = source_file.to_string_lossy();
+        
+        if source_file_str == context_file {
             return None;
         }
         
         // Generate a relative import path
-        let relative_path = calculate_relative_path(context_file, &reference.source_file);
-        let import_expr = format!("import('{}').{}", relative_path, reference.name);
+        let relative_path = calculate_relative_path(context_file, &source_file_str);
+        let import_expr = format!("import('{}').{}", relative_path, reference.debug_name());
         
         Some(ReferenceEmitResult::Success(EmittedReference::new(
             import_expr,
-            ImportedFile::Known(reference.source_file.clone()),
+            ImportedFile::Known(source_file_str.to_string()),
         )))
     }
 }
@@ -252,7 +261,7 @@ impl ReferenceEmitStrategy for AbsoluteModuleStrategy {
         _import_flags: ImportFlags,
     ) -> Option<ReferenceEmitResult> {
         if let Some(owning_module) = reference.owned_by_module_guess() {
-            let import_expr = format!("{}#{}", owning_module, reference.name);
+            let import_expr = format!("{}#{}", owning_module, reference.debug_name());
             Some(ReferenceEmitResult::Success(EmittedReference::new(
                 import_expr,
                 ImportedFile::Unknown,
@@ -284,13 +293,16 @@ impl ReferenceEmitStrategy for LogicalProjectStrategy {
         _context_file: &str,
         _import_flags: ImportFlags,
     ) -> Option<ReferenceEmitResult> {
-        if reference.source_file.starts_with(&self.base_path) {
-            let logical_path = reference.source_file.strip_prefix(&self.base_path)
-                .unwrap_or(&reference.source_file);
-            let import_expr = format!("@project{}#{}", logical_path, reference.name);
+        let source_file = reference.source_file.as_ref()?;
+        let source_file_str = source_file.to_string_lossy();
+        
+        if source_file_str.starts_with(&self.base_path) {
+            let logical_path = source_file_str.strip_prefix(&self.base_path)
+                .unwrap_or(&source_file_str);
+            let import_expr = format!("@project{}#{}", logical_path, reference.debug_name());
             Some(ReferenceEmitResult::Success(EmittedReference::new(
                 import_expr,
-                ImportedFile::Known(reference.source_file.clone()),
+                ImportedFile::Known(source_file_str.to_string()),
             )))
         } else {
             None

@@ -15,6 +15,8 @@ pub use src::api::{
     DirectiveMeta, PipeMeta, InjectableMeta, NgModuleMeta,
     DecoratorMetadata, DirectiveMetadata, OwnedDirectiveMeta,
     HostDirectiveMeta, DirectiveTypeCheckMeta, TemplateGuardMeta,
+    // Reference types
+    Reference, OwningModule, BaseClass,
 };
 pub use src::property_mapping::{ClassPropertyMapping, ClassPropertyName, InputOrOutput};
 pub use src::registry::{MetadataReader, OxcMetadataReader};
@@ -44,12 +46,13 @@ impl<'a> OxcMetadataReader {
 impl MetadataReader for OxcMetadataReader {
     fn get_directive_metadata(&self, program: &Program, path: &Path) -> Vec<DecoratorMetadata<'static>> {
         // Safety: This is for backward compat - caller must ensure program lives long enough
-        // In practice, the decorator field will be None when used this way
+        // We clear all lifetime-bound references to avoid dangling pointers
         let metadata = get_all_metadata(program, path);
         metadata.into_iter().map(|m| {
             match m {
                 DecoratorMetadata::Directive(mut d) => {
-                    d.decorator = None; // Clear the lifetime-bound reference
+                    // Clear all lifetime-bound references
+                    d.decorator = None;
                     DecoratorMetadata::Directive(unsafe { std::mem::transmute(d) })
                 }
                 DecoratorMetadata::Pipe(p) => DecoratorMetadata::Pipe(p),

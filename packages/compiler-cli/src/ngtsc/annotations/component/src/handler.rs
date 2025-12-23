@@ -297,9 +297,10 @@ impl ComponentDecoratorHandler {
                 nodes: nodes.clone(), // Clone for pipeline ingestion
                 preserve_whitespaces: preserve_whitespaces,
             },
-            declarations: dir.imports.iter().flatten().map(|import_name| {
+            declarations: dir.imports.iter().flatten().map(|import_ref| {
+                let import_name = import_ref.debug_name().to_string();
                 // Try to get known directive metadata first, fall back to empty values
-                if let Some(known_metadata) = get_known_directive_metadata(import_name) {
+                if let Some(known_metadata) = get_known_directive_metadata(&import_name) {
                     angular_compiler::render3::view::api::R3TemplateDependencyMetadata::Directive(known_metadata)
                 } else {
                     angular_compiler::render3::view::api::R3TemplateDependencyMetadata::Directive(angular_compiler::render3::view::api::R3DirectiveDependencyMetadata {
