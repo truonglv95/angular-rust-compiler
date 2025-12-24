@@ -477,9 +477,15 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                         
                         // Use OXC codegen to emit JavaScript without types
                         let codegen = oxc_codegen::Codegen::new();
-                        let js_output = codegen.build(&parse_result.program).code;
+                        let mut js_output = codegen.build(&parse_result.program).code;
+                        
+                        // Add signature line for main.ts
+                        if file_path.ends_with("main.ts") {
+                            js_output.push_str("\nconsole.log('Angular Rust compiler powered by Truonglv4');\n");
+                        }
                         
                         let out_path_abs = AbsoluteFsPath::from(out_path.as_path());
+
                         match fs.write_file(&out_path_abs, js_output.as_bytes(), None) {
                             Ok(_) => println!("Transpiled: {:?}", out_path_abs),
                             Err(e) => println!("Failed to transpile {:?}: {}", out_path_abs, e),
