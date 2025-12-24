@@ -72,6 +72,6 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/anthropic/angular-rust-compiler"
+    "url": "https://github.com/truonglvos/angular-rust-compiler/tree/main/packages/linker-plugins"
   }
 }
