@@ -1,0 +1,86 @@
+{
+  "name": "angular-rust-plugins",
+  "version": "0.1.0",
+  "description": "Angular plugins for bundlers (Vite, esbuild, Rolldown, Webpack, Rspack) - powered by Rust compiler",
+  "author": "Truonglv4",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./linker": {
+      "types": "./dist/linker/index.d.ts",
+      "import": "./dist/linker/index.js",
+      "require": "./dist/linker/index.cjs"
+    },
+    "./linker/vite": {
+      "types": "./dist/linker/vite.d.ts",
+      "import": "./dist/linker/vite.js",
+      "require": "./dist/linker/vite.cjs"
+    },
+    "./linker/esbuild": {
+      "types": "./dist/linker/esbuild.d.ts",
+      "import": "./dist/linker/esbuild.js",
+      "require": "./dist/linker/esbuild.cjs"
+    },
+    "./linker/rolldown": {
+      "types": "./dist/linker/rolldown.d.ts",
+      "import": "./dist/linker/rolldown.js",
+      "require": "./dist/linker/rolldown.cjs"
+    },
+    "./compiler": {
+      "types": "./dist/compiler/index.d.ts",
+      "import": "./dist/compiler/index.js",
+      "require": "./dist/compiler/index.cjs"
+    },
+    "./compiler/vite": {
+      "types": "./dist/compiler/vite.d.ts",
+      "import": "./dist/compiler/vite.js",
+      "require": "./dist/compiler/vite.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "copy-binding": "rm -rf src/binding && mkdir -p src/binding && cp ../binding/index.js ../binding/index.d.ts ../binding/*.node src/binding/ 2>/dev/null || true && echo '{\"type\":\"commonjs\"}' > src/binding/package.json",
+    "copy-binding-to-dist": "mkdir -p dist/binding && cp src/binding/* dist/binding/",
+    "copy-package": "cp package.dist.json dist/package.json",
+    "copy-docs": "cp README.md dist/",
+    "build": "npm run copy-binding && tsup && npm run copy-binding-to-dist && npm run copy-package && npm run copy-docs",
+    "build:full": "cd ../binding && npm run build && cd ../linker-plugins && npm run build",
+    "dev": "tsup --watch",
+    "prepublishOnly": "npm run build",
+    "pack:dist": "cd dist && npm pack",
+    "publish": "cd dist && npm publish"
+  },
+  "keywords": [
+    "angular",
+    "linker",
+    "compiler",
+    "vite",
+    "esbuild",
+    "rolldown",
+    "webpack",
+    "rspack",
+    "rust",
+    "aot",
+    "bundler"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropic/angular-rust-compiler"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0"
+  }
+}

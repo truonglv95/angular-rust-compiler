@@ -1,0 +1,77 @@
+{
+  "name": "angular-rust-plugins",
+  "version": "0.1.0",
+  "description": "Angular plugins for bundlers (Vite, esbuild, Rolldown, Webpack, Rspack) - powered by Rust compiler",
+  "author": "Truonglv4",
+  "license": "MIT",
+  "type": "module",
+  "main": "./index.cjs",
+  "module": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "require": "./index.cjs"
+    },
+    "./linker": {
+      "types": "./linker/index.d.ts",
+      "import": "./linker/index.js",
+      "require": "./linker/index.cjs"
+    },
+    "./linker/vite": {
+      "types": "./linker/vite.d.ts",
+      "import": "./linker/vite.js",
+      "require": "./linker/vite.cjs"
+    },
+    "./linker/esbuild": {
+      "types": "./linker/esbuild.d.ts",
+      "import": "./linker/esbuild.js",
+      "require": "./linker/esbuild.cjs"
+    },
+    "./linker/rolldown": {
+      "types": "./linker/rolldown.d.ts",
+      "import": "./linker/rolldown.js",
+      "require": "./linker/rolldown.cjs"
+    },
+    "./compiler": {
+      "types": "./compiler/index.d.ts",
+      "import": "./compiler/index.js",
+      "require": "./compiler/index.cjs"
+    },
+    "./compiler/vite": {
+      "types": "./compiler/vite.d.ts",
+      "import": "./compiler/vite.js",
+      "require": "./compiler/vite.cjs"
+    }
+  },
+  "files": [
+    "binding",
+    "linker",
+    "compiler",
+    "index.js",
+    "index.cjs",
+    "index.d.ts",
+    "index.d.cts",
+    "*.map",
+    "types-*.d.ts",
+    "types-*.d.cts"
+  ],
+  "keywords": [
+    "angular",
+    "linker",
+    "compiler",
+    "vite",
+    "esbuild",
+    "rolldown",
+    "webpack",
+    "rspack",
+    "rust",
+    "aot",
+    "bundler"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropic/angular-rust-compiler"
+  }
+}
