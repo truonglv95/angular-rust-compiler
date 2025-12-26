@@ -337,9 +337,16 @@ fn ensure_angular_core_import<'a>(allocator: &'a Allocator, program: &mut Progra
             ImportOrExportKind::Value,
         );
 
-        // Insert at the beginning of the program
+        // Insert after the last import statement
+        let last_import_index = program
+            .body
+            .iter()
+            .rposition(|stmt| matches!(stmt, Statement::ImportDeclaration(_)))
+            .map(|idx| idx + 1)
+            .unwrap_or(0);
+
         let stmt = Statement::from(import_decl);
-        program.body.insert(0, stmt);
+        program.body.insert(last_import_index, stmt);
     }
 }
 
