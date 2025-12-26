@@ -187,6 +187,7 @@ pub fn template(
     vars: usize,
     tag: Option<String>,
     const_index: Option<i32>,
+    local_ref_index: Option<i32>,
     source_span: ParseSourceSpan,
 ) -> o::Statement {
     let mut args = vec![
@@ -195,14 +196,25 @@ pub fn template(
         *o::literal(decls as f64),
         *o::literal(vars as f64),
     ];
+
+    // Tag argument (or null if we need to emit later args)
     if let Some(t) = tag {
         args.push(*o::literal(t));
-    } else if const_index.is_some() {
+    } else if const_index.is_some() || local_ref_index.is_some() {
         args.push(*o::literal(o::LiteralValue::Null));
     }
 
+    // Const index argument (or null if we need to emit local_ref_index)
     if let Some(c) = const_index {
         args.push(*o::literal(c as f64));
+    } else if local_ref_index.is_some() {
+        args.push(*o::literal(o::LiteralValue::Null));
+    }
+
+    // Local ref index and templateRefExtractor for named ng-templates
+    if let Some(lri) = local_ref_index {
+        args.push(*o::literal(lri as f64));
+        args.push(*o::import_ref(Identifiers::template_ref_extractor()));
     }
 
     call(Identifiers::template_create(), args, Some(source_span))

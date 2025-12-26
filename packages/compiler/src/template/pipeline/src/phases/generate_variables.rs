@@ -411,33 +411,21 @@ fn generate_variables_in_scope_for_view(
 ) -> Vec<Box<dyn ir::UpdateOp + Send + Sync>> {
     let mut new_ops: Vec<Box<dyn ir::UpdateOp + Send + Sync>> = Vec::new();
 
-    if scope.view != view_xref || is_callback {
+    // For callbacks in the SAME view (scope.view == view_xref && is_callback),
+    // do NOT create a Context variable here - save_restore_view already prepended
+    // a restoreView-based Context variable that should be used instead.
+    // Only create NextContext for parent scopes (scope.view != view_xref).
+    if scope.view != view_xref {
         // Before generating variables for a parent view, we need to switch to the context of the parent
         // view with a `nextContext` expression. This context switching operation itself declares a
         // variable, because the context of the view may be referenced directly.
         let next_context_xref = component_job.allocate_xref_id();
 
-        let (next_context_expr, flags) = if scope.view == view_xref && is_callback {
-            (
-                Expression::ReadVar(ReadVarExpr {
-                    name: "ctx".to_string(),
-                    type_: None,
-                    source_span: None,
-                }),
-                VariableFlags::ALWAYS_INLINE,
-            )
-        } else {
-            (
-                Expression::NextContext(NextContextExpr::new()),
-                VariableFlags::NONE,
-            )
-        };
-
         let variable_op = create_variable_op::<Box<dyn ir::UpdateOp + Send + Sync>>(
             next_context_xref,
             scope.view_context_variable.clone(),
-            Box::new(next_context_expr),
-            flags,
+            Box::new(Expression::NextContext(NextContextExpr::new())),
+            VariableFlags::NONE,
         );
         new_ops.push(Box::new(variable_op));
     }

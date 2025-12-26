@@ -475,41 +475,7 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                     }));
                 }
             }
-            ir::OpKind::Template => {
-                if let Some(template_op) = op.as_any().downcast_ref::<ir::ops::create::TemplateOp>()
-                {
-                    let slot = template_op.base.base.handle.slot.expect("Expected a slot") as i32;
-                    let view_xref = template_op.base.base.xref;
-                    let view = if view_xref == job.root.xref {
-                        &job.root
-                    } else {
-                        job.views.get(&view_xref).expect("Template view not found")
-                    };
-                    let fn_name = view
-                        .fn_name()
-                        .expect("Template function name not assigned")
-                        .to_string();
 
-                    let decls = template_op.decls.unwrap_or(0);
-                    let vars = template_op.vars.unwrap_or(0);
-                    let tag = template_op.base.tag.clone();
-                    let const_index = template_op
-                        .base
-                        .base
-                        .attributes
-                        .map(|idx| idx.as_usize() as i32);
-
-                    stmts.push(ng::template(
-                        slot,
-                        *o::variable(fn_name),
-                        decls,
-                        vars,
-                        tag,
-                        const_index,
-                        template_op.base.base.start_source_span.clone(),
-                    ));
-                }
-            }
             ir::OpKind::ConditionalCreate => {
                 if let Some(cond_op) = op
                     .as_any()
@@ -535,6 +501,11 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                         .base
                         .attributes
                         .map(|idx| idx.as_usize() as i32);
+                    let local_ref_index = cond_op
+                        .base
+                        .base
+                        .local_refs_index
+                        .map(|idx| idx.as_usize() as i32);
 
                     stmts.push(ng::template(
                         slot,
@@ -543,6 +514,7 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                         vars,
                         tag,
                         const_index,
+                        local_ref_index,
                         cond_op.base.base.start_source_span.clone(),
                     ));
                 }
@@ -572,6 +544,11 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                         .base
                         .attributes
                         .map(|idx| idx.as_usize() as i32);
+                    let local_ref_index = branch_op
+                        .base
+                        .base
+                        .local_refs_index
+                        .map(|idx| idx.as_usize() as i32);
 
                     stmts.push(ng::template(
                         slot,
@@ -580,6 +557,7 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                         vars,
                         tag,
                         const_index,
+                        local_ref_index,
                         branch_op.base.base.start_source_span.clone(),
                     ));
                 }
@@ -639,22 +617,19 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                             args.push(*o::literal(interpolation.strings[idx].clone()));
                             args.push(expr.clone());
                         }
-                        // Add last string
-                        args.push(*o::literal(
-                            interpolation.strings[interpolation.strings.len() - 1].clone(),
-                        ));
+                        // Add last string always, even if empty, to match NGTSC argument count
+                        // NGTSC always emits: textInterpolate2(s0, e0, s1, e1, s2)
+                        let last_string =
+                            interpolation.strings[interpolation.strings.len() - 1].clone();
+                        args.push(*o::literal(last_string));
                         args
                     };
 
                     // Choose function based on number of args
-                    // TEXT_INTERPOLATE_CONFIG mapping: n = (args.len() - 1) / 2
-                    // For special case (1 arg), mapping gives n = 0 -> textInterpolate (index 0)
-                    let n = if interpolation_args.len() == 1 {
-                        0 // Special case: use textInterpolate
-                    } else {
-                        // Normal case: n = (args.len() - 1) / 2
-                        (interpolation_args.len() - 1) / 2
-                    };
+                    // TEXT_INTERPOLATE_CONFIG mapping
+                    // For special case (1 arg), n = 0 -> textInterpolate
+                    // For others, n is the number of expressions, which is len / 2
+                    let n = interpolation_args.len() / 2;
 
                     let fn_ref = match n {
                         0 => R3::text_interpolate(),

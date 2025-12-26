@@ -20,7 +20,7 @@ pub use ast::*;
 pub use defaults::*;
 pub use html_tags::*;
 pub use html_whitespaces::{
-    remove_whitespaces, replace_ngsp, WhitespaceVisitor, PRESERVE_WS_ATTR_NAME,
+    process_whitespace, remove_whitespaces, replace_ngsp, WhitespaceVisitor, PRESERVE_WS_ATTR_NAME,
 };
 pub use lexer::{tokenize, TokenizeOptions};
 pub use parser::{ParseOptions, ParseTreeResult, Parser, TreeError};

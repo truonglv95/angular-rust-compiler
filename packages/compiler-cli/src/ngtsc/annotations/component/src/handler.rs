@@ -293,7 +293,7 @@ impl ComponentDecoratorHandler {
             };
 
             // Apply whitespace visitor
-            let mut visitor = WhitespaceVisitor::new(false, None, false);
+            let mut visitor = WhitespaceVisitor::new(true, None, false);
             let processed_nodes = visit_all_with_siblings_nodes(&mut visitor, ast);
             println!(
                 "DEBUG: compile_ivy for {} - after whitespace visitor: {} nodes",

@@ -118,7 +118,6 @@ fn process_unit(
                             let template = &mut *template_ptr;
 
                             let local_refs = std::mem::take(&mut template.base.base.local_refs);
-                            let _local_refs_len = local_refs.len();
 
                             if !local_refs.is_empty() {
                                 let local_refs_expr = serialize_local_refs(&local_refs);

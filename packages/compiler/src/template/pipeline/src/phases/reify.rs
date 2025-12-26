@@ -4,25 +4,40 @@
 
 use crate::output::output_ast as o;
 use crate::template::pipeline::ir;
-use crate::template::pipeline::ir::operations::{CreateOp, UpdateOp};
-use crate::template::pipeline::src::compilation::{
-    CompilationJob, CompilationUnit, ComponentCompilationJob,
-};
+use crate::template::pipeline::ir::ops::VariableOp;
+use crate::template::pipeline::ir::{CreateOp, UpdateOp};
+use crate::template::pipeline::src::compilation::{CompilationUnit, ComponentCompilationJob};
 use crate::template::pipeline::src::instruction as ng;
 
+use crate::template::pipeline::ir::handle::XrefId;
+use std::collections::HashMap;
+
 pub fn reify(job: &mut ComponentCompilationJob) {
-    reify_unit(&mut job.root);
+    let mut view_name_map = HashMap::new();
+    if let Some(name) = job.root.fn_name() {
+        view_name_map.insert(job.root.xref, name.to_string());
+    }
+    for (xref, unit) in &job.views {
+        if let Some(name) = unit.fn_name() {
+            view_name_map.insert(*xref, name.to_string());
+        }
+    }
+
+    reify_unit(&mut job.root, &view_name_map);
     for unit in job.views.values_mut() {
-        reify_unit(unit);
+        reify_unit(unit, &view_name_map);
     }
 }
 
-fn reify_unit(unit: &mut dyn CompilationUnit) {
-    reify_create_operations(unit);
+fn reify_unit(unit: &mut dyn CompilationUnit, view_name_map: &HashMap<XrefId, String>) {
+    reify_create_operations(unit, view_name_map);
     reify_update_operations(unit);
 }
 
-fn reify_create_operations(unit: &mut dyn CompilationUnit) {
+fn reify_create_operations(
+    unit: &mut dyn CompilationUnit,
+    view_name_map: &HashMap<XrefId, String>,
+) {
     for op in unit.create_mut().iter_mut() {
         ir::transform_expressions_in_op(
             op.as_mut(),
@@ -31,6 +46,46 @@ fn reify_create_operations(unit: &mut dyn CompilationUnit) {
         );
 
         let new_op: Option<Box<dyn CreateOp + Send + Sync>> = match op.kind() {
+            ir::OpKind::Template => {
+                if let Some(template_op) = op.as_any().downcast_ref::<ir::ops::create::TemplateOp>()
+                {
+                    let slot = template_op.base.base.handle.slot.expect("Expected a slot") as i32;
+                    let view_xref = template_op.base.base.xref;
+                    let fn_name = view_name_map
+                        .get(&view_xref)
+                        .expect("Template function name not assigned");
+
+                    let decls = template_op.decls.unwrap_or(0);
+                    let vars = template_op.vars.unwrap_or(0);
+                    let tag = template_op.base.tag.clone();
+                    let const_index = template_op
+                        .base
+                        .base
+                        .attributes
+                        .map(|idx| idx.as_usize() as i32);
+                    let local_ref_index = template_op
+                        .base
+                        .base
+                        .local_refs_index
+                        .map(|idx| idx.as_usize() as i32);
+
+                    let stmt = ng::template(
+                        slot,
+                        *o::variable(fn_name),
+                        decls,
+                        vars,
+                        tag,
+                        const_index,
+                        local_ref_index,
+                        template_op.base.base.start_source_span.clone(),
+                    );
+                    Some(Box::new(ir::ops::shared::create_statement_op::<
+                        Box<dyn CreateOp + Send + Sync>,
+                    >(Box::new(stmt))))
+                } else {
+                    None
+                }
+            }
             ir::OpKind::Text => {
                 if let Some(text_op) = op.as_any().downcast_ref::<ir::ops::create::TextOp>() {
                     if let Some(slot) = text_op.handle.slot {
@@ -182,60 +237,21 @@ fn reify_create_operations(unit: &mut dyn CompilationUnit) {
 
                         // Handle StatementOp containing RestoreView expression
                         // (VariableOp was optimized away but we need the DeclareVar)
-                        if handler_op.kind() == ir::OpKind::Statement {
-                            if let Some(stmt_op) = handler_op
-                                .as_any_mut()
-                                .downcast_mut::<ir::ops::shared::StatementOp<
-                                Box<dyn ir::UpdateOp + Send + Sync>,
-                            >>() {
-                                // Check if the statement is an expression statement with an InvokeFn (restoreView call)
-                                let should_convert =
-                                    if let o::Statement::Expression(ref expr_stmt) =
-                                        *stmt_op.statement
-                                    {
-                                        if let o::Expression::InvokeFn(ref invoke) = *expr_stmt.expr
-                                        {
-                                            // Check if this is a restoreView call by examining the function reference
-                                            if let o::Expression::External(ref ext_expr) =
-                                                *invoke.fn_
-                                            {
-                                                ext_expr.value.name.as_deref()
-                                                    == Some("ɵɵrestoreView")
-                                            } else {
-                                                false
-                                            }
-                                        } else {
-                                            false
-                                        }
-                                    } else {
-                                        false
-                                    };
+                        // Note: Previous logic to force assignment of restoreView result to 'ctx' has been removed
+                        // to match NGTSC parity where restoreView can be a standalone expression statement.
 
-                                if should_convert {
-                                    // Clone the expression from the statement
-                                    if let o::Statement::Expression(ref expr_stmt) =
-                                        *stmt_op.statement
-                                    {
-                                        let new_stmt =
-                                            o::Statement::DeclareVar(o::DeclareVarStmt {
-                                                name: "ctx".to_string(),
-                                                value: Some(expr_stmt.expr.clone()),
-                                                type_: None,
-                                                modifiers: o::StmtModifier::Final,
-                                                source_span: expr_stmt.source_span.clone(),
-                                            });
-                                        stmt_op.statement = Box::new(new_stmt);
-                                    }
-                                }
-                            }
-                        }
+                        // Handle VariableOp -> DeclareVarStmt conversion
+                        // NOTE: We do NOT special-case restoreView here because in ngFor,
+                        // the return value of restoreView is used (e.g., restoreView().$implicit).
+                        // The variable optimization phase handles whether the variable is needed.
 
                         // Also handle remaining VariableOp -> DeclareVarStmt conversion
                         if handler_op.kind() == ir::OpKind::Variable {
                             use crate::template::pipeline::ir::ops::shared::VariableOp;
                             use crate::template::pipeline::ir::SemanticVariable;
 
-                            // Try both Send+Sync and non-Send+Sync just in case
+                            // 3. Fallback to normal DeclareVar (only for UpdateOp as per original logic)
+                            // 3. Fallback to normal DeclareVar (only for UpdateOp as per original logic)
                             if let Some(var_op) = handler_op
                                 .as_any()
                                 .downcast_ref::<VariableOp<Box<dyn ir::UpdateOp + Send + Sync>>>()
@@ -271,11 +287,6 @@ fn reify_create_operations(unit: &mut dyn CompilationUnit) {
                                         ));
                                     *handler_op = new_op;
                                 }
-                            } else if let Some(var_op) = handler_op
-                                .as_any()
-                                .downcast_ref::<VariableOp<Box<dyn ir::UpdateOp>>>()
-                            {
-                            } else {
                             }
                         }
                     }
@@ -292,13 +303,6 @@ fn reify_create_operations(unit: &mut dyn CompilationUnit) {
 }
 
 fn reify_update_operations(unit: &mut dyn CompilationUnit) {
-    for (i, op) in unit.update().iter().enumerate() {
-        if let Some(var_op) = op
-            .as_any()
-            .downcast_ref::<ir::ops::shared::VariableOp<Box<dyn UpdateOp + Send + Sync>>>()
-        {
-        }
-    }
     for op in unit.update_mut().iter_mut() {
         ir::transform_expressions_in_op(
             op.as_mut(),

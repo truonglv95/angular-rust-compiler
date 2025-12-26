@@ -237,14 +237,26 @@ fn process_ops_with_scope(
 
                 match &variable_op.variable {
                     ir::SemanticVariable::Context(ctx_var) => {
-                        scope.insert(
-                            ctx_var.view,
-                            Expression::ReadVariable(ReadVariableExpr {
-                                xref: variable_op.xref,
-                                name: variable_op.variable.name().map(|s| s.to_string()),
-                                source_span: None,
-                            }),
-                        );
+                        // For RestoreView initializer (embedded view context):
+                        // Store the restoreView() expression directly so ContextExpr
+                        // resolves to restoreView().$implicit (chained pattern)
+                        //
+                        // For NextContext initializer (parent scope context):
+                        // Store ReadVariable so a separate variable is created like NGTSC's
+                        // `const ctx_r9 = nextContext();` followed by `ctx_r9.method()`
+                        if matches!(*variable_op.initializer, Expression::RestoreView(_)) {
+                            scope.insert(ctx_var.view, (*variable_op.initializer).clone());
+                        } else {
+                            // NextContext or other - keep as ReadVariable for named variable
+                            scope.insert(
+                                ctx_var.view,
+                                Expression::ReadVariable(ReadVariableExpr {
+                                    xref: variable_op.xref,
+                                    name: variable_op.variable.name().map(|s| s.to_string()),
+                                    source_span: None,
+                                }),
+                            );
+                        }
                     }
                     ir::SemanticVariable::SavedView(saved_view) => {
                         scope.insert(
@@ -265,6 +277,34 @@ fn process_ops_with_scope(
     // Second pass: transform context expressions using the built scope
     for handler_op in handler_ops.iter_mut() {
         transform_context_exprs_in_op(handler_op.as_mut(), &scope);
+    }
+
+    // Third pass: remove only Context VariableOps with RestoreView initializer since their values
+    // have been inlined. Keep Context VariableOps with NextContext initializer as they need to be
+    // emitted as named variables (like NGTSC's `const ctx_r9 = nextContext();`)
+    let mut indices_to_remove = Vec::new();
+    for (index, handler_op) in handler_ops.iter().enumerate() {
+        if handler_op.kind() == OpKind::Variable {
+            unsafe {
+                let handler_op_ptr = handler_op.as_ref() as *const dyn ir::UpdateOp;
+                let variable_op_ptr =
+                    handler_op_ptr as *const VariableOp<Box<dyn ir::UpdateOp + Send + Sync>>;
+                let variable_op = &*variable_op_ptr;
+
+                if matches!(variable_op.variable, ir::SemanticVariable::Context(_)) {
+                    // Only remove if initializer is RestoreView (embedded view context)
+                    // Keep if initializer is NextContext (parent scope context)
+                    if matches!(*variable_op.initializer, Expression::RestoreView(_)) {
+                        indices_to_remove.push(index);
+                    }
+                }
+            }
+        }
+    }
+    // Remove in reverse order to maintain correct indices
+    indices_to_remove.reverse();
+    for index in indices_to_remove {
+        handler_ops.remove_at(index);
     }
 }
 

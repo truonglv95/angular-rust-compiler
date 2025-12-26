@@ -75,14 +75,15 @@ use crate::template::pipeline::src::compilation::ComponentCompilationJob;
 pub fn run(job: &mut ComponentCompilationJob) {
     // Simplified phase order for vars debugging
     pure_literal_structures::phase(job);
+    save_restore_view::save_and_restore_view(job); // Save/restore view for listeners in embedded views - MUST run before generate_variables
     generate_variables::phase(job); // Generate context variables including $implicit
-    save_restore_view::save_and_restore_view(job); // Save/restore view for listeners in embedded views
     resolve_names::phase(job);
     resolve_contexts::phase(job);
 
     // Added phases for correctness
     binding_specialization::specialize_bindings(job); // Converts BindingOp -> AttributeOp, PropertyOp, etc.
     attribute_extraction::extract_attributes(job);
+    local_refs::lift_local_refs(job); // Lift local refs (#templateName) to consts for templateRefExtractor
     namespace::emit_namespace_changes(job);
     const_collection::collect_element_consts(job);
 
@@ -100,4 +101,5 @@ pub fn run(job: &mut ComponentCompilationJob) {
     naming::name_functions_and_variables(job);
     generate_advance::phase(job);
     reify::reify(job);
+    chaining::chain(job);
 }

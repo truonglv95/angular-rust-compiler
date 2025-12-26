@@ -11,7 +11,7 @@ use regex::Regex;
 use crate::expression_parser::ast::AST;
 use crate::i18n::i18n_ast as i18n;
 use crate::ml_parser::ast as html;
-use crate::ml_parser::html_whitespaces::replace_ngsp;
+use crate::ml_parser::html_whitespaces::process_whitespace;
 use crate::ml_parser::tags::is_ng_template;
 use crate::ml_parser::tokens::Token;
 use crate::parse_util::{ParseError, ParseSourceSpan};
@@ -1461,10 +1461,12 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
         i18n: &Option<i18n::I18nMeta>,
         tokens: Option<Vec<Token>>,
     ) -> Option<t::R3Node> {
-        let value_no_ngsp = replace_ngsp(value);
+        // Apply whitespace collapsing: consecutive WS chars (newlines, tabs, spaces) -> single space
+        // This matches NGTSC's behavior for interpolation text processing
+        let value_processed = process_whitespace(value);
         let expr = self
             .binding_parser
-            .parse_interpolation(&value_no_ngsp, source_span, tokens);
+            .parse_interpolation(&value_processed, source_span, None);
 
         // Check if interpolation is actually static (no expressions)
         let is_static = match &*expr.ast {
@@ -1475,7 +1477,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
 
         if is_static {
             return Some(t::R3Node::Text(t::Text::new(
-                value_no_ngsp, // Use processed value or original? TypeScript uses processed.
+                value_processed, // Use processed value or original? TypeScript uses processed.
                 source_span.clone(),
             )));
         }

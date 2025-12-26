@@ -1370,10 +1370,8 @@ fn count_variable_usages(
 
             // 1. Handle regular ReadVariable usage
             if let Expression::ReadVariable(read_var) = expr {
-                if read_var.xref.0 == 134 {}
                 if let Some(count) = var_usages.get_mut(&read_var.xref) {
                     *count += 1;
-                    if read_var.xref.0 == 134 {}
                 }
 
                 // If we are in a child operation (like a listener) or if is_remote_context is set,

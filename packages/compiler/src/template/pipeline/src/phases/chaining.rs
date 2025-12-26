@@ -133,8 +133,18 @@ fn chain_operations_impl_create(
     // For now, we'll inline the logic since macro with generic types is complex
     let mut chain: Option<Chain> = None;
     let mut indices_to_remove: Vec<usize> = Vec::new();
+    let mut updates: HashMap<usize, Expression> = HashMap::new();
 
     for (index, op) in op_list.iter().enumerate() {
+        println!("Op[{}]: Kind={:?}", index, op.kind());
+        if op.kind() == OpKind::Text {
+            if let Some(text_op) = op.as_any().downcast_ref::<ir::ops::create::TextOp>() {
+                if text_op.handle.slot.is_none() {
+                    continue;
+                }
+            }
+        }
+
         if op.kind() != OpKind::Statement {
             chain = None;
             continue;
@@ -195,6 +205,7 @@ fn chain_operations_impl_create(
                 chain_state.length += 1;
 
                 indices_to_remove.push(index);
+                updates.insert(chain_state.op_index, chain_state.expression.clone());
             } else {
                 chain = Some(Chain {
                     op_index: index,
@@ -213,6 +224,22 @@ fn chain_operations_impl_create(
         }
     }
 
+    // Apply updates
+    // println!("Applying updates: count {}, Removing indices: count {}", updates.len(), indices_to_remove.len());
+    for (index, expr) in updates {
+        if let Some(op) = op_list.get_mut(index) {
+            if let Some(stmt_op) = op
+                .as_any_mut()
+                .downcast_mut::<StatementOp<Box<dyn ir::CreateOp + Send + Sync>>>()
+            {
+                if let Statement::Expression(ref mut expr_stmt) = *stmt_op.statement {
+                    expr_stmt.expr = Box::new(expr);
+                }
+            }
+        }
+    }
+
+    // println!("Indices to remove: {:?}", indices_to_remove);
     for index in indices_to_remove.iter().rev() {
         op_list.remove_at(*index);
     }
@@ -225,6 +252,7 @@ fn chain_operations_impl_update(
     // Same logic as create but for UpdateOp
     let mut chain: Option<Chain> = None;
     let mut indices_to_remove: Vec<usize> = Vec::new();
+    let mut updates: HashMap<usize, Expression> = HashMap::new();
 
     for (index, op) in op_list.iter().enumerate() {
         if op.kind() != OpKind::Statement {
@@ -265,7 +293,10 @@ fn chain_operations_impl_update(
         let instruction = &external_expr.value;
         let instruction_key = ExternalRefKey::from_ref(instruction);
 
+        // println!("Checking instruction: {:?}", instruction_key.1);
+
         if !chain_compat.contains_key(&instruction_key) {
+            // println!("Not compatible: {:?}", instruction_key.1);
             chain = None;
             continue;
         }
@@ -274,6 +305,9 @@ fn chain_operations_impl_update(
             let chain_key = ExternalRefKey::from_ref(&chain_state.instruction);
             let compatible_instruction = chain_compat.get(&chain_key);
             let compatible_key = compatible_instruction.map(|r| ExternalRefKey::from_ref(r));
+
+            // println!("Chain state: {:?}, Compatible: {:?}, Current: {:?}", chain_key.1, compatible_key.as_ref().map(|k| &k.1), instruction_key.1);
+
             if compatible_key.as_ref() == Some(&instruction_key)
                 && chain_state.length < MAX_CHAIN_LENGTH
             {
@@ -287,7 +321,14 @@ fn chain_operations_impl_update(
                 chain_state.length += 1;
 
                 indices_to_remove.push(index);
+                updates.insert(chain_state.op_index, chain_state.expression.clone());
+                println!("Extended chain for {:?}", instruction_key.1);
             } else {
+                println!(
+                    "Broken chain. Expected {:?} but got {:?}",
+                    compatible_key.as_ref().map(|k| &k.1),
+                    instruction_key.1
+                );
                 chain = Some(Chain {
                     op_index: index,
                     expression: Expression::InvokeFn(invoke_expr.clone()),
@@ -296,12 +337,27 @@ fn chain_operations_impl_update(
                 });
             }
         } else {
+            // println!("Started new chain for {:?}", instruction_key.1);
             chain = Some(Chain {
                 op_index: index,
                 expression: Expression::InvokeFn(invoke_expr.clone()),
                 instruction: instruction.clone(),
                 length: 1,
             });
+        }
+    }
+
+    // Apply updates
+    for (index, expr) in updates {
+        if let Some(op) = op_list.get_mut(index) {
+            if let Some(stmt_op) = op
+                .as_any_mut()
+                .downcast_mut::<StatementOp<Box<dyn ir::UpdateOp + Send + Sync>>>()
+            {
+                if let Statement::Expression(ref mut expr_stmt) = *stmt_op.statement {
+                    expr_stmt.expr = Box::new(expr);
+                }
+            }
         }
     }
 

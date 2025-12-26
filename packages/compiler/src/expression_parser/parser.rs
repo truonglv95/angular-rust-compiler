@@ -306,7 +306,7 @@ impl Parser {
         let mut i = 0;
 
         while i < input.len() {
-            if i + 1 < input.len() && &input[i..i + 2] == "{{" {
+            if input[i..].starts_with("{{") {
                 // Found start of interpolation
                 strings.push(InterpolationPiece {
                     text: input[current_pos..i].to_string(),
@@ -417,14 +417,14 @@ impl Parser {
                     }
 
                     if depth > 0 {
-                        if i + 1 < input.len() && &input[i..i + 2] == "}}" {
+                        if input[i..].starts_with("}}") {
                             depth -= 1;
                             if depth == 0 {
                                 break;
                             }
                             i += 2;
                             continue;
-                        } else if i + 1 < input.len() && &input[i..i + 2] == "{{" {
+                        } else if input[i..].starts_with("{{") {
                             if !in_comment {
                                 depth += 1;
                             }
@@ -483,11 +483,12 @@ impl Parser {
             });
         }
 
-        Ok(SplitInterpolation {
+        let res = SplitInterpolation {
             strings,
             expressions,
             offsets,
-        })
+        };
+        Ok(res)
     }
 
     /// Parse template bindings (e.g., "*ngFor=\"let item of items\"")
@@ -1782,179 +1783,231 @@ impl ParseAST {
                     // 1. directive_name [as alias] (if first binding)
                     // 2. key [assignments]
                     // 3. key [as alias]
+                    // 4. SPECIAL: 'else templateRef' or 'then templateRef' for ngIf
 
-                    // We try to parse an identifier as key first?
-                    // Angular logic: check if it is a keyword?
+                    // Check for 'else' or 'then' keywords - these are special in template bindings
+                    // e.g., *ngIf="condition; else elseTemplate; then thenTemplate"
+                    let is_else_or_then = self.current().map_or(false, |t| {
+                        t.is_keyword() && (t.str_value == "else" || t.str_value == "then")
+                    });
 
-                    let _start = self.input_index();
-                    // Peek ahead logic would be best, but we'll try to parse chain and see.
-                    // But parsing chain consumes tokens.
+                    if is_else_or_then {
+                        // Handle 'else templateRef' or 'then templateRef'
+                        let keyword = self.current().unwrap().str_value.clone();
+                        let keyword_span = self.source_span(self.input_index());
+                        self.advance(); // consume 'else' or 'then'
 
-                    // If we have directive_name, and this is the first binding (bindings.is_empty()),
-                    // we treat the expression as value for directive_name.
-                    // UNLESS the expression is a simple identifier AND followed by another expression?
+                        // Parse the template reference name
+                        if let Some(ref_token) = self.current() {
+                            if ref_token.is_identifier() {
+                                let ref_name = ref_token.str_value.clone();
+                                let ref_span = self.source_span(self.input_index());
+                                self.advance(); // consume template ref name
 
-                    // Simplification: Parse chain.
-                    let start_token_index = self.index;
-                    match self.parse_pipe() {
-                        Ok(expr) => {
-                            let mut is_key = false;
+                                // Create PropertyRead for template reference
+                                let template_ref = AST::PropertyRead(PropertyRead {
+                                    span: ParseSpan::new(
+                                        ref_span.start - self.absolute_offset,
+                                        ref_span.end - self.absolute_offset,
+                                    ),
+                                    source_span: ref_span,
+                                    name_span: self.source_span(self.input_index()),
+                                    receiver: Box::new(AST::ImplicitReceiver(ImplicitReceiver {
+                                        span: ParseSpan::new(0, 0),
+                                        source_span: AbsoluteSourceSpan::new(0, 0),
+                                    })),
+                                    name: ref_name,
+                                });
 
-                            // If expr is a simple PropertyRead (identifier), check if we should treat it as a key.
-                            // It is a key if:
-                            // 1. It is followed by 'as' (e.g. exportAs) ? NO, 'as' binds the result.
-                            // 2. It is followed by ':' ? YES.
-                            // 3. It is followed by another expression (no comma/semicolon)? YES. (e.g. of items)
+                                value = Some(Box::new(template_ref));
+                                key_name = Some(keyword.clone());
+                                key_span = Some(keyword_span);
+                                original_key_for_as = Some(keyword.clone());
 
-                            if let AST::PropertyRead(ref prop) = expr {
-                                if prop.receiver.is_implicit_receiver() {
-                                    // Simple identifier
-                                    if self.consume_optional_character(':') {
-                                        is_key = true;
-                                    } else if !bindings.is_empty() {
-                                        // If not empty, assumed to be key (unless followed by 'as' which is handled as Alias?)
-                                        // But even if followed by 'as': `ngIf as y`. `ngIf` is Key.
-                                        is_key = true;
-                                    }
-                                }
-                            }
-
-                            if is_key {
-                                // The expr was actually a key.
-                                if let AST::PropertyRead(prop) = expr {
-                                    // Save original key for 'as' binding before any transformation
-                                    original_key_for_as = Some(prop.name.clone());
-                                    key_name = Some(prop.name);
-                                    key_span = Some(prop.source_span);
-                                }
-
-                                // Parse actual value
-                                if self.current().map_or(false, |t| {
-                                    !t.is_keyword_as() && t.str_value != ";" && t.str_value != ","
-                                }) {
-                                    match self.parse_pipe() {
-                                        Ok(val_expr) => value = Some(Box::new(val_expr)),
-                                        Err(e) => {
-                                            let span = self.source_span(self.input_index());
-                                            errors.push(ParseUtilError::new(
-                                                ParseSourceSpan::new(
-                                                    ParseLocation::new(
-                                                        ParseSourceFile::new(
-                                                            self.input.clone(),
-                                                            "".to_string(),
-                                                        ),
-                                                        span.start,
-                                                        0,
-                                                        0,
-                                                    ),
-                                                    ParseLocation::new(
-                                                        ParseSourceFile::new(
-                                                            self.input.clone(),
-                                                            "".to_string(),
-                                                        ),
-                                                        span.end,
-                                                        0,
-                                                        0,
-                                                    ),
-                                                ),
-                                                e.to_string(),
-                                            ));
-                                        }
-                                    }
-                                }
-
+                                // Transform key with directive prefix (else -> ngIfElse)
                                 if let Some(ref dir) = directive_name {
-                                    // Transform key: prefix + Capitalized
-                                    // (original_key_for_as already saved above)
-                                    if let Some(ref k) = key_name {
-                                        let mut result = dir.to_string();
-                                        let mut chars = k.chars();
-                                        if let Some(first) = chars.next() {
-                                            result.push(first.to_ascii_uppercase());
-                                            result.push_str(chars.as_str());
-                                        }
-                                        key_name = Some(result);
+                                    let mut result = dir.to_string();
+                                    let mut chars = keyword.chars();
+                                    if let Some(first) = chars.next() {
+                                        result.push(first.to_ascii_uppercase());
+                                        result.push_str(chars.as_str());
                                     }
-                                }
-                            } else {
-                                // It was the value.
-                                value = Some(Box::new(expr));
-                                if let Some(dir) = directive_name {
-                                    if bindings.is_empty() {
-                                        key_name = Some(dir.to_string());
-                                        // source span? should be empty or cover value?
-                                        // For "ngIf", source is "ngIf". But we don't have it in input.
-                                        // We'll use a synthetic span or the directive name if available?
-                                        // Actually let's use the directive name as source for now.
-                                        // key_span?
-                                    }
+                                    key_name = Some(result);
                                 }
                             }
+                        }
+                    } else {
+                        // Normal expression binding parsing
+                        let _start = self.input_index();
+                        let start_token_index = self.index;
+                        match self.parse_pipe() {
+                            Ok(expr) => {
+                                let mut is_key = false;
 
-                            // Check for 'as'
-                            if let Some(token) = self.current() {
-                                if token.is_keyword_as() {
-                                    self.advance();
-                                    if let Some(ident) = self.current() {
-                                        if ident.is_identifier() {
-                                            name = Some(ident.str_value.clone());
-                                            self.advance();
-                                        } else {
-                                            // Error
-                                            let span = self.source_span(self.input_index());
-                                            errors.push(ParseUtilError::new(
-                                                ParseSourceSpan::new(
-                                                    ParseLocation::new(
-                                                        ParseSourceFile::new(
-                                                            self.input.clone(),
-                                                            "".to_string(),
+                                // If expr is a simple PropertyRead (identifier), check if we should treat it as a key.
+                                // It is a key if:
+                                // 1. It is followed by 'as' (e.g. exportAs) ? NO, 'as' binds the result.
+                                // 2. It is followed by ':' ? YES.
+                                // 3. It is followed by another expression (no comma/semicolon)? YES. (e.g. of items)
+
+                                if let AST::PropertyRead(ref prop) = expr {
+                                    if prop.receiver.is_implicit_receiver() {
+                                        // Simple identifier
+                                        if self.consume_optional_character(':') {
+                                            is_key = true;
+                                        } else if !bindings.is_empty() {
+                                            // If not empty, assumed to be key (unless followed by 'as' which is handled as Alias?)
+                                            // But even if followed by 'as': `ngIf as y`. `ngIf` is Key.
+                                            is_key = true;
+                                        }
+                                    }
+                                }
+
+                                if is_key {
+                                    // The expr was actually a key.
+                                    if let AST::PropertyRead(prop) = expr {
+                                        // Save original key for 'as' binding before any transformation
+                                        original_key_for_as = Some(prop.name.clone());
+                                        key_name = Some(prop.name.clone());
+                                        key_span = Some(prop.source_span);
+                                    }
+
+                                    // Parse actual value
+                                    if self.current().map_or(false, |t| {
+                                        !t.is_keyword_as()
+                                            && t.str_value != ";"
+                                            && t.str_value != ","
+                                    }) {
+                                        match self.parse_pipe() {
+                                            Ok(val_expr) => value = Some(Box::new(val_expr)),
+                                            Err(e) => {
+                                                let span = self.source_span(self.input_index());
+                                                errors.push(ParseUtilError::new(
+                                                    ParseSourceSpan::new(
+                                                        ParseLocation::new(
+                                                            ParseSourceFile::new(
+                                                                self.input.clone(),
+                                                                "".to_string(),
+                                                            ),
+                                                            span.start,
+                                                            0,
+                                                            0,
                                                         ),
-                                                        span.start,
-                                                        0,
-                                                        0,
-                                                    ),
-                                                    ParseLocation::new(
-                                                        ParseSourceFile::new(
-                                                            self.input.clone(),
-                                                            "".to_string(),
+                                                        ParseLocation::new(
+                                                            ParseSourceFile::new(
+                                                                self.input.clone(),
+                                                                "".to_string(),
+                                                            ),
+                                                            span.end,
+                                                            0,
+                                                            0,
                                                         ),
-                                                        span.end,
-                                                        0,
-                                                        0,
                                                     ),
-                                                ),
-                                                "Expected identifier after 'as'".to_string(),
-                                            ));
+                                                    e.to_string(),
+                                                ));
+                                            }
+                                        }
+                                    }
+
+                                    if let Some(ref dir) = directive_name {
+                                        // Transform key: prefix + Capitalized
+                                        // (original_key_for_as already saved above)
+                                        if let Some(ref k) = key_name {
+                                            let mut result = dir.to_string();
+                                            let mut chars = k.chars();
+                                            if let Some(first) = chars.next() {
+                                                result.push(first.to_ascii_uppercase());
+                                                result.push_str(chars.as_str());
+                                            }
+                                            key_name = Some(result);
+                                        }
+                                    }
+                                } else {
+                                    // It was the value.
+                                    value = Some(Box::new(expr));
+                                    if let Some(dir) = directive_name {
+                                        if bindings.is_empty() {
+                                            key_name = Some(dir.to_string());
+                                            // source span? should be empty or cover value?
+                                            // For "ngIf", source is "ngIf". But we don't have it in input.
+                                            // We'll use a synthetic span or the directive name if available?
+                                            // Actually let's use the directive name as source for now.
+                                            // key_span?
+                                        }
+                                    }
+                                }
+
+                                // Check for 'as'
+                                if let Some(token) = self.current() {
+                                    if token.is_keyword_as() {
+                                        self.advance();
+                                        if let Some(ident) = self.current() {
+                                            if ident.is_identifier() {
+                                                name = Some(ident.str_value.clone());
+                                                self.advance();
+                                            } else {
+                                                // Error
+                                                let span = self.source_span(self.input_index());
+                                                errors.push(ParseUtilError::new(
+                                                    ParseSourceSpan::new(
+                                                        ParseLocation::new(
+                                                            ParseSourceFile::new(
+                                                                self.input.clone(),
+                                                                "".to_string(),
+                                                            ),
+                                                            span.start,
+                                                            0,
+                                                            0,
+                                                        ),
+                                                        ParseLocation::new(
+                                                            ParseSourceFile::new(
+                                                                self.input.clone(),
+                                                                "".to_string(),
+                                                            ),
+                                                            span.end,
+                                                            0,
+                                                            0,
+                                                        ),
+                                                    ),
+                                                    "Expected identifier after 'as'".to_string(),
+                                                ));
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                        Err(e) => {
-                            let span = self.source_span(self.input_index());
-                            errors.push(ParseUtilError::new(
-                                ParseSourceSpan::new(
-                                    ParseLocation::new(
-                                        ParseSourceFile::new(self.input.clone(), "".to_string()),
-                                        span.start,
-                                        0,
-                                        0,
+                            Err(e) => {
+                                let span = self.source_span(self.input_index());
+                                errors.push(ParseUtilError::new(
+                                    ParseSourceSpan::new(
+                                        ParseLocation::new(
+                                            ParseSourceFile::new(
+                                                self.input.clone(),
+                                                "".to_string(),
+                                            ),
+                                            span.start,
+                                            0,
+                                            0,
+                                        ),
+                                        ParseLocation::new(
+                                            ParseSourceFile::new(
+                                                self.input.clone(),
+                                                "".to_string(),
+                                            ),
+                                            span.end,
+                                            0,
+                                            0,
+                                        ),
                                     ),
-                                    ParseLocation::new(
-                                        ParseSourceFile::new(self.input.clone(), "".to_string()),
-                                        span.end,
-                                        0,
-                                        0,
-                                    ),
-                                ),
-                                e.to_string(),
-                            ));
-                            // Fix infinite loop: Advance if parsing failed to consume token
-                            if self.index == start_token_index {
-                                self.advance();
+                                    e.to_string(),
+                                ));
+                                // Fix infinite loop: Advance if parsing failed to consume token
+                                if self.index == start_token_index {
+                                    self.advance();
+                                }
                             }
                         }
-                    }
+                    } // close else block for normal expression binding
                 }
             } else {
                 break;

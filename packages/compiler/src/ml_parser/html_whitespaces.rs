@@ -35,7 +35,7 @@ static NO_WS_REGEXP: Lazy<Regex> =
     Lazy::new(|| Regex::new(&format!("[^{}]", regex::escape(WS_CHARS))).unwrap());
 
 static WS_REPLACE_REGEXP: Lazy<Regex> =
-    Lazy::new(|| Regex::new(&format!("[{}]{{2,}}", regex::escape(WS_CHARS))).unwrap());
+    Lazy::new(|| Regex::new(&format!("[{}]+", regex::escape(WS_CHARS))).unwrap());
 
 fn has_preserve_whitespaces_attr(attrs: &[Attribute]) -> bool {
     attrs.iter().any(|attr| attr.name == PRESERVE_WS_ATTR_NAME)
@@ -362,9 +362,24 @@ fn trim_leading_and_trailing_whitespace(
     maybe_trimmed.to_string()
 }
 
-fn process_whitespace(text: &str) -> String {
+pub fn process_whitespace(text: &str) -> String {
     let replaced = replace_ngsp(text);
-    WS_REPLACE_REGEXP.replace_all(&replaced, " ").to_string()
+    let mut result = String::with_capacity(replaced.len());
+    let mut last_was_ws = false;
+
+    for c in replaced.chars() {
+        if WS_CHARS.contains(c) {
+            if !last_was_ws {
+                result.push(' ');
+                last_was_ws = true;
+            }
+        } else {
+            result.push(c);
+            last_was_ws = false;
+        }
+    }
+    let result = result;
+    result
 }
 
 /// Remove whitespaces from HTML AST

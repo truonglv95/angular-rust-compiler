@@ -264,7 +264,11 @@ impl ConsumesSlotOpTrait for TemplateOp {
     }
 
     fn num_slots_used(&self) -> usize {
-        1
+        if self.base.base.local_refs_index.is_some() {
+            2
+        } else {
+            1
+        }
     }
 
     fn xref(&self) -> XrefId {
