@@ -259,7 +259,7 @@ impl Parser {
                         .to_string(),
                 });
             }
-            let mut parse_ast = ParseAST::new(&piece.text, piece.start, tokens, ParseFlags::Action);
+            let mut parse_ast = ParseAST::new(&piece.text, piece.start, tokens, ParseFlags::None);
             let ast = parse_ast.parse_chain()?;
             expressions.push(Box::new(ast));
 

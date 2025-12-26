@@ -283,7 +283,7 @@ fn process_op_with_var_names(
                     } else {
                         let slot = anim_listener
                             .target_slot
-                            .slot
+                            .get_slot()
                             .expect("Expected a slot to be assigned");
                         let tag = anim_listener
                             .tag
@@ -337,7 +337,7 @@ fn process_op_with_var_names(
                     } else {
                         let slot = listener
                             .target_slot
-                            .slot
+                            .get_slot()
                             .expect("Expected a slot to be assigned");
                         let tag = listener
                             .tag
@@ -375,7 +375,7 @@ fn process_op_with_var_names(
                 if two_way.handler_fn_name.is_none() {
                     let slot = two_way
                         .target_slot
-                        .slot
+                        .get_slot()
                         .expect("Expected a slot to be assigned");
                     let tag = two_way
                         .tag
@@ -524,25 +524,25 @@ fn process_op_with_var_names(
                 let rep_ptr = op_ptr as *mut RepeaterCreateOp;
                 let rep = &mut *rep_ptr;
                 if let Some(empty) = rep.empty_view {
-                    let slot = rep.base.base.handle.slot.unwrap();
+                    let index = rep.base.base.handle.get_slot().unwrap();
                     tasks.push(RecTask {
                         xref: empty,
                         name: format!(
                             "{}_{}Empty_{}",
                             child_base_name,
                             rep.function_name_suffix,
-                            slot + 2
+                            index + 2
                         ),
                     });
                 }
-                let slot = rep.base.base.handle.slot.unwrap();
+                let index = rep.base.base.handle.get_slot().unwrap();
                 tasks.push(RecTask {
                     xref: rep.base.base.xref,
                     name: format!(
                         "{}_{}_{}",
                         child_base_name,
                         rep.function_name_suffix,
-                        slot + 1
+                        index + 1
                     ),
                 });
             }
@@ -550,10 +550,10 @@ fn process_op_with_var_names(
                 let proj_ptr = op_ptr as *mut ProjectionOp;
                 let proj = &mut *proj_ptr;
                 if let Some(fallback) = proj.fallback_view {
-                    let slot = proj.handle.slot.unwrap();
+                    let index = proj.handle.get_slot().unwrap();
                     tasks.push(RecTask {
                         xref: fallback,
-                        name: format!("{}_ProjectionFallback_{}", child_base_name, slot),
+                        name: format!("{}_ProjectionFallback_{}", child_base_name, index),
                     });
                 }
             }
@@ -565,10 +565,10 @@ fn process_op_with_var_names(
                 } else {
                     format!("_{}", template.function_name_suffix)
                 };
-                let slot = template.base.base.handle.slot.unwrap();
+                let index = template.base.base.handle.get_slot().unwrap();
                 tasks.push(RecTask {
                     xref: template.base.base.xref,
-                    name: format!("{}{}_{}", child_base_name, suffix, slot),
+                    name: format!("{}{}_{}", child_base_name, suffix, index),
                 });
             }
             ir::OpKind::ConditionalCreate => {
@@ -579,7 +579,7 @@ fn process_op_with_var_names(
                 } else {
                     format!("_{}", cond.function_name_suffix)
                 };
-                let slot = cond.base.base.handle.slot.unwrap();
+                let slot = cond.base.base.handle.get_slot().unwrap();
                 tasks.push(RecTask {
                     xref: cond.base.base.xref,
                     name: format!("{}{}_{}", child_base_name, suffix, slot),
@@ -594,7 +594,7 @@ fn process_op_with_var_names(
                 } else {
                     format!("_{}", branch.function_name_suffix)
                 };
-                let slot = branch.base.base.handle.slot.unwrap();
+                let slot = branch.base.base.handle.get_slot().unwrap();
                 tasks.push(RecTask {
                     xref: branch.base.base.xref,
                     name: format!("{}{}_{}", child_base_name, suffix, slot),

@@ -78,7 +78,7 @@ fn process_unit(
                     indices_to_insert_after.push((
                         index,
                         expr_op_ref.i18n_owner,
-                        expr_op_ref.handle,
+                        expr_op_ref.handle.clone(),
                         source_span,
                     ));
                 }

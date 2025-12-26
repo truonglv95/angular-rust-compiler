@@ -159,13 +159,13 @@ fn get_slot_from_create_op(op: &Box<dyn ir::CreateOp + Send + Sync>) -> Option<u
                 use crate::template::pipeline::ir::ops::create::ElementStartOp;
                 let elem_ptr = op_ptr as *const ElementStartOp;
                 let elem = &*elem_ptr;
-                elem.base.base.handle.slot
+                elem.base.base.handle.get_slot()
             }
             OpKind::Element => {
                 use crate::template::pipeline::ir::ops::create::ElementOp;
                 let elem_ptr = op_ptr as *const ElementOp;
                 let elem = &*elem_ptr;
-                elem.base.base.handle.slot
+                elem.base.base.handle.get_slot()
             }
             OpKind::ElementEnd => {
                 // ElementEnd doesn't have handle, skip
@@ -175,13 +175,13 @@ fn get_slot_from_create_op(op: &Box<dyn ir::CreateOp + Send + Sync>) -> Option<u
                 use crate::template::pipeline::ir::ops::create::ContainerStartOp;
                 let cont_ptr = op_ptr as *const ContainerStartOp;
                 let cont = &*cont_ptr;
-                cont.base.handle.slot
+                cont.base.handle.get_slot()
             }
             OpKind::Container => {
                 use crate::template::pipeline::ir::ops::create::ContainerOp;
                 let cont_ptr = op_ptr as *const ContainerOp;
                 let cont = &*cont_ptr;
-                cont.base.handle.slot
+                cont.base.handle.get_slot()
             }
             OpKind::ContainerEnd => {
                 // ContainerEnd doesn't have handle, skip
@@ -191,43 +191,43 @@ fn get_slot_from_create_op(op: &Box<dyn ir::CreateOp + Send + Sync>) -> Option<u
                 use crate::template::pipeline::ir::ops::create::TextOp;
                 let text_ptr = op_ptr as *const TextOp;
                 let text = &*text_ptr;
-                text.handle.slot
+                text.handle.get_slot()
             }
             OpKind::Template => {
                 use crate::template::pipeline::ir::ops::create::TemplateOp;
                 let template_ptr = op_ptr as *const TemplateOp;
                 let template = &*template_ptr;
-                template.base.base.handle.slot
+                template.base.base.handle.get_slot()
             }
             OpKind::RepeaterCreate => {
                 use crate::template::pipeline::ir::ops::create::RepeaterCreateOp;
                 let repeater_ptr = op_ptr as *const RepeaterCreateOp;
                 let repeater = &*repeater_ptr;
-                repeater.base.base.handle.slot
+                repeater.base.base.handle.get_slot()
             }
             OpKind::ConditionalCreate => {
                 use crate::template::pipeline::ir::ops::create::ConditionalCreateOp;
                 let cond_ptr = op_ptr as *const ConditionalCreateOp;
                 let cond = &*cond_ptr;
-                cond.base.base.handle.slot
+                cond.base.base.handle.get_slot()
             }
             OpKind::ConditionalBranchCreate => {
                 use crate::template::pipeline::ir::ops::create::ConditionalBranchCreateOp;
                 let branch_ptr = op_ptr as *const ConditionalBranchCreateOp;
                 let branch = &*branch_ptr;
-                branch.base.base.handle.slot
+                branch.base.base.handle.get_slot()
             }
             OpKind::Projection => {
                 use crate::template::pipeline::ir::ops::create::ProjectionOp;
                 let proj_ptr = op_ptr as *const ProjectionOp;
                 let proj = &*proj_ptr;
-                proj.handle.slot
+                proj.handle.get_slot()
             }
             OpKind::Defer => {
                 use crate::template::pipeline::ir::ops::create::DeferOp;
                 let defer_ptr = op_ptr as *const DeferOp;
                 let defer = &*defer_ptr;
-                defer.handle.slot
+                defer.handle.get_slot()
             }
             OpKind::I18nStart | OpKind::I18n | OpKind::I18nAttributes => {
                 use crate::template::pipeline::ir::ops::create::{
@@ -237,17 +237,17 @@ fn get_slot_from_create_op(op: &Box<dyn ir::CreateOp + Send + Sync>) -> Option<u
                     OpKind::I18nStart => {
                         let i18n_ptr = op_ptr as *const I18nStartOp;
                         let i18n = &*i18n_ptr;
-                        i18n.base.handle.slot
+                        i18n.base.handle.get_slot()
                     }
                     OpKind::I18n => {
                         let i18n_ptr = op_ptr as *const I18nOp;
                         let i18n = &*i18n_ptr;
-                        i18n.base.handle.slot
+                        i18n.base.handle.get_slot()
                     }
                     OpKind::I18nAttributes => {
                         let i18n_ptr = op_ptr as *const I18nAttributesOp;
                         let i18n = &*i18n_ptr;
-                        i18n.handle.slot
+                        i18n.handle.get_slot()
                     }
                     _ => None,
                 }
@@ -256,13 +256,13 @@ fn get_slot_from_create_op(op: &Box<dyn ir::CreateOp + Send + Sync>) -> Option<u
                 use crate::template::pipeline::ir::ops::create::DeclareLetOp;
                 let let_ptr = op_ptr as *const DeclareLetOp;
                 let let_op = &*let_ptr;
-                let_op.handle.slot
+                let_op.handle.get_slot()
             }
             OpKind::Pipe => {
                 use crate::template::pipeline::ir::ops::create::PipeOp;
                 let pipe_ptr = op_ptr as *const PipeOp;
                 let pipe = &*pipe_ptr;
-                pipe.handle.slot
+                pipe.handle.get_slot()
             }
             _ => None,
         }

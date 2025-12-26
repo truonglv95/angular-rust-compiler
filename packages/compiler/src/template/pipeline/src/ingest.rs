@@ -642,7 +642,12 @@ fn ingest_bound_text(
         .expressions
         .iter()
         .map(|expr| {
-            crate::template::pipeline::src::conversion::convert_ast(expr, job, base_source_span)
+            crate::template::pipeline::src::conversion::convert_ast(
+                expr,
+                job,
+                unit_xref,
+                base_source_span,
+            )
         })
         .collect();
 
@@ -707,7 +712,7 @@ fn ingest_if_block(unit_xref: ir::XrefId, if_block: t::IfBlock, job: &mut Compon
                 branch.block.start_source_span.clone(),
                 branch.block.source_span.clone(),
             );
-            let handle = op.base.base.handle; // Get handle value directly (SlotHandle is Copy)
+            let handle = op.base.base.handle.clone(); // Get handle value directly (SlotHandle is Copy)
             (Box::new(op) as Box<dyn ir::CreateOp + Send + Sync>, handle)
         } else {
             let op = ir::ops::create::ConditionalBranchCreateOp::new(
@@ -722,7 +727,7 @@ fn ingest_if_block(unit_xref: ir::XrefId, if_block: t::IfBlock, job: &mut Compon
                 branch.block.start_source_span.clone(),
                 branch.block.source_span.clone(),
             );
-            let handle = op.base.base.handle; // Get handle value directly (SlotHandle is Copy)
+            let handle = op.base.base.handle.clone(); // Get handle value directly (SlotHandle is Copy)
             (Box::new(op) as Box<dyn ir::CreateOp + Send + Sync>, handle)
         };
 
@@ -744,7 +749,7 @@ fn ingest_if_block(unit_xref: ir::XrefId, if_block: t::IfBlock, job: &mut Compon
         // Convert expression if present
         let case_expr = branch.expression.as_ref().map(|expr| {
             Box::new(crate::template::pipeline::src::conversion::convert_ast(
-                expr, job, None,
+                expr, job, unit_xref, None,
             ))
         });
 
@@ -823,7 +828,7 @@ fn ingest_switch_block(
                 case.block.start_source_span.clone(),
                 case.block.source_span.clone(),
             );
-            let handle = op.base.base.handle;
+            let handle = op.base.base.handle.clone();
             (Box::new(op) as Box<dyn ir::CreateOp + Send + Sync>, handle)
         } else {
             let op = ir::ops::create::ConditionalBranchCreateOp::new(
@@ -838,7 +843,7 @@ fn ingest_switch_block(
                 case.block.start_source_span.clone(),
                 case.block.source_span.clone(),
             );
-            let handle = op.base.base.handle;
+            let handle = op.base.base.handle.clone();
             (Box::new(op) as Box<dyn ir::CreateOp + Send + Sync>, handle)
         };
 
@@ -853,6 +858,7 @@ fn ingest_switch_block(
             Box::new(crate::template::pipeline::src::conversion::convert_ast(
                 expr,
                 job,
+                unit_xref,
                 Some(&switch_block.block.start_source_span),
             ))
         });
@@ -871,10 +877,13 @@ fn ingest_switch_block(
     }
 
     // Convert switch expression
+    // Convert switch expression
+    let switch_span = switch_block.block.source_span.clone();
     let switch_expr = crate::template::pipeline::src::conversion::convert_ast(
         &switch_block.expression,
         job,
-        None,
+        unit_xref,
+        Some(&switch_span),
     );
 
     // Create ConditionalOp update operation with switch expression
@@ -1052,7 +1061,7 @@ fn ingest_defer_block(
 
 /// Ingest defer triggers and create DeferOnOp/DeferWhenOp operations
 fn ingest_defer_triggers(
-    _unit_xref: ir::XrefId,
+    unit_xref: ir::XrefId,
     modifier: ir::enums::DeferOpModifierKind,
     triggers: &t::DeferredBlockTriggers,
     defer_on_ops: &mut Vec<Box<dyn ir::CreateOp + Send + Sync>>,
@@ -1164,8 +1173,10 @@ fn ingest_defer_triggers(
     }
 
     // Handle when trigger (creates DeferWhenOp, not DeferOnOp)
+    // Handle when trigger (creates DeferWhenOp, not DeferOnOp)
     if let Some(ref when) = triggers.when {
-        let expr = convert_ast(&when.value, job, None);
+        let span = when.source_span.clone();
+        let expr = convert_ast(&when.value, job, unit_xref, Some(&span));
 
         let defer_when_op = ir::ops::update::create_defer_when_op(
             defer_xref,
@@ -1458,12 +1469,9 @@ fn ingest_control_flow_insertion_point_from_children(
                             },
                         );
 
-                        // Extract i18n message if present
+                        // Extract i18n message
                         let i18n_message = match &attr.i18n {
-                            Some(I18nMeta::Node(I18nNode::Placeholder(_ph))) => {
-                                // Convert to Message if needed - for now use placeholder name
-                                None // TODO: Convert properly
-                            }
+                            Some(I18nMeta::Message(msg)) => Some(msg.clone()),
                             _ => None,
                         };
 
@@ -1663,6 +1671,7 @@ fn ingest_for_block(
     let track_expr = crate::template::pipeline::src::conversion::convert_ast(
         &for_loop.track_by.ast,
         job,
+        unit_xref,
         track_source_span,
     );
 
@@ -1728,7 +1737,7 @@ fn ingest_for_block(
     );
 
     // Get handle before boxing
-    let repeater_handle = repeater_create_op.base.base.handle;
+    let repeater_handle = repeater_create_op.base.base.handle.clone();
 
     // Box and push
     push_create_op(
@@ -1742,6 +1751,7 @@ fn ingest_for_block(
     let collection_expr = crate::template::pipeline::src::conversion::convert_ast(
         &for_loop.expression.ast,
         job,
+        unit_xref,
         expression_source_span,
     );
 
@@ -1776,6 +1786,7 @@ fn ingest_let_declaration(
     let value_expr = crate::template::pipeline::src::conversion::convert_ast(
         &let_decl.value,
         job,
+        unit_xref,
         Some(&let_decl.value_span),
     );
 
@@ -1876,6 +1887,7 @@ fn ingest_element_bindings(
         let expression = crate::template::pipeline::src::conversion::convert_ast(
             &input.value,
             job,
+            unit_xref,
             input.value_span.as_ref(),
         );
 
@@ -1921,7 +1933,8 @@ fn ingest_element_events(
     let target_slot = SlotHandle::with_slot(0);
 
     for output in &element.outputs {
-        let handler_ops = make_listener_handler_ops(&output.handler, &output.handler_span, job);
+        let handler_ops =
+            make_listener_handler_ops(&output.handler, &output.handler_span, unit_xref, job);
 
         match output.type_ {
             ParsedEventType::Animation => {
@@ -1963,8 +1976,12 @@ fn ingest_element_events(
             }
             ParsedEventType::TwoWay => {
                 // TwoWay events use create_two_way_listener_op
-                let two_way_handler_ops =
-                    make_listener_handler_ops(&output.handler, &output.handler_span, job);
+                let two_way_handler_ops = make_listener_handler_ops(
+                    &output.handler,
+                    &output.handler_span,
+                    unit_xref,
+                    job,
+                );
                 let two_way_listener_op = ir::ops::create::create_two_way_listener_op(
                     element_xref,
                     target_slot.clone(),
@@ -1998,6 +2015,7 @@ fn ingest_element_events(
 fn make_listener_handler_ops(
     handler: &crate::expression_parser::ast::AST,
     handler_span: &ParseSourceSpan,
+    unit_xref: ir::XrefId,
     job: &mut ComponentCompilationJob,
 ) -> crate::template::pipeline::ir::operations::OpList<
     Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
@@ -2031,7 +2049,12 @@ fn make_listener_handler_ops(
     let mut expressions: Vec<Expression> = handler_exprs
         .iter()
         .map(|expr| {
-            crate::template::pipeline::src::conversion::convert_ast(expr, job, Some(handler_span))
+            crate::template::pipeline::src::conversion::convert_ast(
+                expr,
+                job,
+                unit_xref,
+                Some(handler_span),
+            )
         })
         .collect();
 
@@ -2061,7 +2084,6 @@ fn make_listener_handler_ops(
         Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
     >(Box::new(stmt));
     handler_ops.push(Box::new(stmt_op));
-
     handler_ops
 }
 
@@ -2069,6 +2091,7 @@ fn make_listener_handler_ops(
 fn make_host_listener_handler_ops(
     handler: &crate::expression_parser::ast::AST,
     handler_span: &ParseSourceSpan,
+    unit_xref: ir::XrefId,
     job: &mut HostBindingCompilationJob,
 ) -> crate::template::pipeline::ir::operations::OpList<
     Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
@@ -2102,7 +2125,12 @@ fn make_host_listener_handler_ops(
     let mut expressions: Vec<Expression> = handler_exprs
         .iter()
         .map(|expr| {
-            crate::template::pipeline::src::conversion::convert_ast(expr, job, Some(handler_span))
+            crate::template::pipeline::src::conversion::convert_ast(
+                expr,
+                job,
+                unit_xref,
+                Some(handler_span),
+            )
         })
         .collect();
 
@@ -2198,7 +2226,8 @@ fn ingest_template_events(
     for output in outputs {
         // For NgTemplate, handle all event types
         if template_kind == ir::TemplateKind::NgTemplate {
-            let handler_ops = make_listener_handler_ops(&output.handler, &output.handler_span, job);
+            let handler_ops =
+                make_listener_handler_ops(&output.handler, &output.handler_span, unit_xref, job);
 
             let listener_op = create_listener_op(
                 template_xref,
@@ -2217,8 +2246,12 @@ fn ingest_template_events(
         // For structural templates, only handle animation events
         if template_kind == ir::TemplateKind::Structural {
             if let ParsedEventType::Animation = output.type_ {
-                let handler_ops =
-                    make_listener_handler_ops(&output.handler, &output.handler_span, job);
+                let handler_ops = make_listener_handler_ops(
+                    &output.handler,
+                    &output.handler_span,
+                    unit_xref,
+                    job,
+                );
 
                 // Determine animation kind based on event name
                 let animation_kind = if output.name.ends_with("enter") {
@@ -2341,6 +2374,7 @@ fn ingest_template_bindings(
         let expression = crate::template::pipeline::src::conversion::convert_ast(
             &input.value,
             job,
+            unit_xref,
             input.value_span.as_ref(),
         );
 
@@ -2433,6 +2467,7 @@ fn ingest_template_bindings(
                 let expression = crate::template::pipeline::src::conversion::convert_ast(
                     &bound_attr.value,
                     job,
+                    unit_xref,
                     bound_attr.value_span.as_ref(),
                 );
 
@@ -2533,6 +2568,7 @@ fn ingest_dom_property(
     binding_kind: ir::BindingKind,
     security_contexts: Vec<crate::core::SecurityContext>,
 ) {
+    let unit_xref = job.root.xref;
     use crate::expression_parser::ast::AST as ExprAST;
     use crate::template::pipeline::ir::ops::update::{create_binding_op, BindingExpression};
     use crate::template::pipeline::src::conversion::convert_ast;
@@ -2544,7 +2580,10 @@ fn ingest_dom_property(
             let exprs: Vec<Expression> = interp
                 .expressions
                 .iter()
-                .map(|expr| convert_ast(expr, job, Some(&property.source_span)))
+                .map(|expr| {
+                    let span = property.source_span.clone();
+                    convert_ast(expr, job, unit_xref, Some(&span))
+                })
                 .collect();
 
             // Create Interpolation expression
@@ -2557,7 +2596,8 @@ fn ingest_dom_property(
         }
         ast => {
             // Convert regular AST to Expression
-            BindingExpression::Expression(convert_ast(ast, job, Some(&property.source_span)))
+            let span = property.source_span.clone();
+            BindingExpression::Expression(convert_ast(ast, job, unit_xref, Some(&span)))
         }
     };
 
@@ -2617,6 +2657,7 @@ fn ingest_host_attribute(
 
 /// Ingest a host event binding
 fn ingest_host_event(job: &mut HostBindingCompilationJob, event: ParsedEvent) {
+    let unit_xref = job.root.xref;
     use crate::expression_parser::ast::ParsedEventType;
     use crate::output::output_ast::{ReturnStatement, Statement};
     use crate::template::pipeline::ir::handle::SlotHandle;
@@ -2629,7 +2670,7 @@ fn ingest_host_event(job: &mut HostBindingCompilationJob, event: ParsedEvent) {
     let mut handler_ops: OpList<
         Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
     > = OpList::new();
-    let handler_expr = convert_ast(&event.handler, job, Some(&event.handler_span));
+    let handler_expr = convert_ast(&event.handler, job, unit_xref, Some(&event.handler_span));
     let return_stmt = ReturnStatement {
         value: Box::new(handler_expr),
         source_span: Some(event.handler_span.clone()),
@@ -2685,7 +2726,7 @@ fn ingest_host_event(job: &mut HostBindingCompilationJob, event: ParsedEvent) {
         ParsedEventType::TwoWay => {
             // TwoWay events use create_two_way_listener_op
             let two_way_handler_ops =
-                make_host_listener_handler_ops(&event.handler, &event.handler_span, job);
+                make_host_listener_handler_ops(&event.handler, &event.handler_span, unit_xref, job);
             let two_way_listener_op = ir::ops::create::create_two_way_listener_op(
                 job.root.xref,
                 SlotHandle::default(),

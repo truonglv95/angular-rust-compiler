@@ -133,8 +133,9 @@ fn process_unit(
                 };
 
                 // Build conditional: case_expr ? slot : test
-                let slot_expr =
-                    Expression::SlotLiteral(SlotLiteralExpr::new(conditional_case.target_slot));
+                let slot_expr = Expression::SlotLiteral(SlotLiteralExpr::new(
+                    conditional_case.target_slot.clone(),
+                ));
                 test = Expression::Conditional(ConditionalExpr {
                     condition: Box::new(case_expr),
                     true_case: Box::new(slot_expr),

@@ -349,7 +349,7 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                     .as_any()
                     .downcast_ref::<ir::ops::create::ElementStartOp>()
                 {
-                    let index = element_op.base.base.handle.slot.unwrap();
+                    let index = element_op.base.base.handle.get_slot().unwrap();
                     // Handle tag which might be Option<String>
                     let tag = element_op.base.tag.clone().unwrap_or("div".to_string());
 
@@ -388,7 +388,7 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
             }
             ir::OpKind::Text => {
                 if let Some(text_op) = op.as_any().downcast_ref::<ir::ops::create::TextOp>() {
-                    let index = text_op.handle.slot.unwrap(); // Access field
+                    let index = text_op.handle.get_slot().unwrap(); // Access field
                     let content = &text_op.initial_value;
                     stmts.push(o::Statement::Expression(o::ExpressionStatement {
                         expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
@@ -407,7 +407,7 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                     .as_any()
                     .downcast_ref::<ir::ops::create::RepeaterCreateOp>()
                 {
-                    let index = rep_op.base.base.handle.slot.unwrap();
+                    let index = rep_op.base.base.handle.get_slot().unwrap();
 
                     // Build args: slot, templateFn, decls, vars, tag, constIndex, trackFn
                     let mut args: Vec<o::Expression> = vec![*o::literal(index as f64)];
@@ -481,7 +481,12 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                     .as_any()
                     .downcast_ref::<ir::ops::create::ConditionalCreateOp>()
                 {
-                    let slot = cond_op.base.base.handle.slot.expect("Expected a slot") as i32;
+                    let slot = cond_op
+                        .base
+                        .base
+                        .handle
+                        .get_slot()
+                        .expect("Expected a slot") as i32;
                     let view_xref = cond_op.base.base.xref;
                     let view = if view_xref == job.root.xref {
                         &job.root
@@ -524,7 +529,12 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                     .as_any()
                     .downcast_ref::<ir::ops::create::ConditionalBranchCreateOp>()
                 {
-                    let slot = branch_op.base.base.handle.slot.expect("Expected a slot") as i32;
+                    let slot = branch_op
+                        .base
+                        .base
+                        .handle
+                        .get_slot()
+                        .expect("Expected a slot") as i32;
                     let view_xref = branch_op.base.base.xref;
                     let view = if view_xref == job.root.xref {
                         &job.root

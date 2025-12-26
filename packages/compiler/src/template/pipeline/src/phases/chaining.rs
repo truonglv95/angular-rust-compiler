@@ -139,7 +139,7 @@ fn chain_operations_impl_create(
         println!("Op[{}]: Kind={:?}", index, op.kind());
         if op.kind() == OpKind::Text {
             if let Some(text_op) = op.as_any().downcast_ref::<ir::ops::create::TextOp>() {
-                if text_op.handle.slot.is_none() {
+                if text_op.handle.get_slot().is_none() {
                     continue;
                 }
             }

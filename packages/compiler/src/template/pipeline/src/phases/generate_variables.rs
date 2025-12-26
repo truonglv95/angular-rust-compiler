@@ -320,7 +320,7 @@ fn get_scope_for_view(
                 let let_op = &*let_ptr;
                 scope.let_declarations.push(LetDeclaration {
                     target_id: op.xref(),
-                    target_slot: let_op.handle,
+                    target_slot: let_op.handle.clone(),
                     variable: IdentifierVariable::new(let_op.declared_name.clone(), false),
                 });
             },
@@ -375,25 +375,25 @@ unsafe fn get_slot_from_op(
             use crate::template::pipeline::ir::ops::create::ElementStartOp;
             let elem_ptr = op_ptr as *const ElementStartOp;
             let elem = &*elem_ptr;
-            elem.base.base.handle
+            elem.base.base.handle.clone()
         }
         OpKind::ConditionalCreate => {
             use crate::template::pipeline::ir::ops::create::ConditionalCreateOp;
             let cond_ptr = op_ptr as *const ConditionalCreateOp;
             let cond = &*cond_ptr;
-            cond.base.base.handle
+            cond.base.base.handle.clone()
         }
         OpKind::ConditionalBranchCreate => {
             use crate::template::pipeline::ir::ops::create::ConditionalBranchCreateOp;
             let branch_ptr = op_ptr as *const ConditionalBranchCreateOp;
             let branch = &*branch_ptr;
-            branch.base.base.handle
+            branch.base.base.handle.clone()
         }
         OpKind::Template => {
             use crate::template::pipeline::ir::ops::create::TemplateOp;
             let template_ptr = op_ptr as *const TemplateOp;
             let template = &*template_ptr;
-            template.base.base.handle
+            template.base.base.handle.clone()
         }
         _ => SlotHandle::new(),
     }
@@ -515,7 +515,7 @@ fn generate_variables_in_scope_for_view(
         let ref_xref = component_job.allocate_xref_id();
         let ref_expr = Expression::Reference(ReferenceExpr::new(
             ref_item.target_id,
-            ref_item.target_slot,
+            ref_item.target_slot.clone(),
             ref_item.offset,
         ));
         let variable_op = create_variable_op::<Box<dyn ir::UpdateOp + Send + Sync>>(
@@ -533,7 +533,7 @@ fn generate_variables_in_scope_for_view(
             let let_xref = component_job.allocate_xref_id();
             let let_expr = Expression::ContextLetReference(ContextLetReferenceExpr::new(
                 decl.target_id,
-                decl.target_slot,
+                decl.target_slot.clone(),
             ));
             let variable_op = create_variable_op::<Box<dyn ir::UpdateOp + Send + Sync>>(
                 let_xref,

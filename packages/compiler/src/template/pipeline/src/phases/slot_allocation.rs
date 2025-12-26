@@ -41,10 +41,10 @@ pub fn phase(job: &mut ComponentCompilationJob) {
 
             // Assign slots to this declaration starting at the current `slotCount`.
             if let Some((handle, num_slots)) = get_slot_handle_and_num_slots_mut(op.as_mut()) {
-                handle.slot = Some(slot_count);
+                handle.set_slot(slot_count);
 
                 // And track its assigned slot in the `slotMap`.
-                slot_map.insert(xref, handle.slot.unwrap());
+                slot_map.insert(xref, handle.get_slot().unwrap());
 
                 // Each declaration may use more than 1 slot, so increment `slotCount` to reserve the number
                 // of slots required.
@@ -71,10 +71,10 @@ pub fn phase(job: &mut ComponentCompilationJob) {
 
             // Assign slots to this declaration starting at the current `slotCount`.
             if let Some((handle, num_slots)) = get_slot_handle_and_num_slots_mut(op.as_mut()) {
-                handle.slot = Some(slot_count);
+                handle.set_slot(slot_count);
 
                 // And track its assigned slot in the `slotMap`.
-                slot_map.insert(xref, handle.slot.unwrap());
+                slot_map.insert(xref, handle.get_slot().unwrap());
 
                 // Each declaration may use more than 1 slot, so increment `slotCount` to reserve the number
                 // of slots required.
@@ -177,33 +177,33 @@ fn propagate_slot_indexes_in_unit(
                 match expr {
                     Expression::Reference(ref mut ref_expr) => {
                         // Propagate slot index from slot_map if target exists
-                        if ref_expr.target_slot.slot.is_none() {
+                        if ref_expr.target_slot.get_slot().is_none() {
                             if let Some(&slot) = slot_map.get(&ref_expr.target) {
-                                ref_expr.target_slot.slot = Some(slot);
+                                ref_expr.target_slot.set_slot(slot);
                             }
                         }
                     }
                     Expression::ContextLetReference(ref mut ctx_let_ref) => {
                         // Propagate slot index from slot_map if target exists
-                        if ctx_let_ref.target_slot.slot.is_none() {
+                        if ctx_let_ref.target_slot.get_slot().is_none() {
                             if let Some(&slot) = slot_map.get(&ctx_let_ref.target) {
-                                ctx_let_ref.target_slot.slot = Some(slot);
+                                ctx_let_ref.target_slot.set_slot(slot);
                             }
                         }
                     }
                     Expression::PipeBinding(ref mut pipe_expr) => {
                         // Propagate slot index from slot_map for pipe binding
-                        if pipe_expr.target_slot.slot.is_none() {
+                        if pipe_expr.target_slot.get_slot().is_none() {
                             if let Some(&slot) = slot_map.get(&pipe_expr.target) {
-                                pipe_expr.target_slot.slot = Some(slot);
+                                pipe_expr.target_slot.set_slot(slot);
                             }
                         }
                     }
                     Expression::PipeBindingVariadic(ref mut pipe_expr) => {
                         // Propagate slot index from slot_map for variadic pipe binding
-                        if pipe_expr.target_slot.slot.is_none() {
+                        if pipe_expr.target_slot.get_slot().is_none() {
                             if let Some(&slot) = slot_map.get(&pipe_expr.target) {
-                                pipe_expr.target_slot.slot = Some(slot);
+                                pipe_expr.target_slot.set_slot(slot);
                             }
                         }
                     }
@@ -223,33 +223,33 @@ fn propagate_slot_indexes_in_unit(
                 match expr {
                     Expression::Reference(ref mut ref_expr) => {
                         // Propagate slot index from slot_map if target exists
-                        if ref_expr.target_slot.slot.is_none() {
+                        if ref_expr.target_slot.get_slot().is_none() {
                             if let Some(&slot) = slot_map.get(&ref_expr.target) {
-                                ref_expr.target_slot.slot = Some(slot);
+                                ref_expr.target_slot.set_slot(slot);
                             }
                         }
                     }
                     Expression::ContextLetReference(ref mut ctx_let_ref) => {
                         // Propagate slot index from slot_map if target exists
-                        if ctx_let_ref.target_slot.slot.is_none() {
+                        if ctx_let_ref.target_slot.get_slot().is_none() {
                             if let Some(&slot) = slot_map.get(&ctx_let_ref.target) {
-                                ctx_let_ref.target_slot.slot = Some(slot);
+                                ctx_let_ref.target_slot.set_slot(slot);
                             }
                         }
                     }
                     Expression::PipeBinding(ref mut pipe_expr) => {
                         // Propagate slot index from slot_map for pipe binding
-                        if pipe_expr.target_slot.slot.is_none() {
+                        if pipe_expr.target_slot.get_slot().is_none() {
                             if let Some(&slot) = slot_map.get(&pipe_expr.target) {
-                                pipe_expr.target_slot.slot = Some(slot);
+                                pipe_expr.target_slot.set_slot(slot);
                             }
                         }
                     }
                     Expression::PipeBindingVariadic(ref mut pipe_expr) => {
                         // Propagate slot index from slot_map for variadic pipe binding
-                        if pipe_expr.target_slot.slot.is_none() {
+                        if pipe_expr.target_slot.get_slot().is_none() {
                             if let Some(&slot) = slot_map.get(&pipe_expr.target) {
-                                pipe_expr.target_slot.slot = Some(slot);
+                                pipe_expr.target_slot.set_slot(slot);
                             }
                         }
                     }
@@ -272,7 +272,7 @@ fn propagate_slot_indexes_in_unit(
                     let listener = &mut *listener_ptr;
 
                     if let Some(&slot) = slot_map.get(&listener.target) {
-                        listener.target_slot.slot = Some(slot);
+                        listener.target_slot.set_slot(slot);
                     }
 
                     for handler_op in listener.handler_ops.iter_mut() {
@@ -348,16 +348,16 @@ fn propagate_slot_indexes_in_nested_ops(
         &mut |mut expr: Expression, _flags| {
             match expr {
                 Expression::Reference(ref mut ref_expr) => {
-                    if ref_expr.target_slot.slot.is_none() {
+                    if ref_expr.target_slot.get_slot().is_none() {
                         if let Some(&slot) = slot_map.get(&ref_expr.target) {
-                            ref_expr.target_slot.slot = Some(slot);
+                            ref_expr.target_slot.set_slot(slot);
                         }
                     }
                 }
                 Expression::ContextLetReference(ref mut ctx_let_ref) => {
-                    if ctx_let_ref.target_slot.slot.is_none() {
+                    if ctx_let_ref.target_slot.get_slot().is_none() {
                         if let Some(&slot) = slot_map.get(&ctx_let_ref.target) {
-                            ctx_let_ref.target_slot.slot = Some(slot);
+                            ctx_let_ref.target_slot.set_slot(slot);
                         }
                     }
                 }

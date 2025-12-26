@@ -46,10 +46,72 @@ fn reify_create_operations(
         );
 
         let new_op: Option<Box<dyn CreateOp + Send + Sync>> = match op.kind() {
+            ir::OpKind::Pipe => {
+                if let Some(pipe_op) = op.as_any().downcast_ref::<ir::ops::create::PipeOp>() {
+                    let slot = pipe_op.handle.get_slot().expect("Expected a slot") as i32;
+                    let name = pipe_op.name.clone();
+                    let stmt = ng::pipe(slot, name);
+                    Some(Box::new(ir::ops::shared::create_statement_op::<
+                        Box<dyn CreateOp + Send + Sync>,
+                    >(Box::new(stmt))))
+                } else {
+                    None
+                }
+            }
+            ir::OpKind::Namespace => {
+                if let Some(template_op) = op.as_any().downcast_ref::<ir::ops::create::TemplateOp>()
+                {
+                    let slot = template_op
+                        .base
+                        .base
+                        .handle
+                        .get_slot()
+                        .expect("Expected a slot") as i32;
+                    let view_xref = template_op.base.base.xref;
+                    let fn_name = view_name_map
+                        .get(&view_xref)
+                        .expect("Template function name not assigned");
+
+                    let decls = template_op.decls.unwrap_or(0);
+                    let vars = template_op.vars.unwrap_or(0);
+                    let tag = template_op.base.tag.clone();
+                    let const_index = template_op
+                        .base
+                        .base
+                        .attributes
+                        .map(|idx| idx.as_usize() as i32);
+                    let local_ref_index = template_op
+                        .base
+                        .base
+                        .local_refs_index
+                        .map(|idx| idx.as_usize() as i32);
+
+                    let stmt = ng::template(
+                        slot,
+                        *o::variable(fn_name),
+                        decls,
+                        vars,
+                        tag,
+                        const_index,
+                        local_ref_index,
+                        template_op.base.base.start_source_span.clone(),
+                    );
+                    Some(Box::new(ir::ops::shared::create_statement_op::<
+                        Box<dyn CreateOp + Send + Sync>,
+                    >(Box::new(stmt))))
+                } else {
+                    None
+                }
+            }
             ir::OpKind::Template => {
                 if let Some(template_op) = op.as_any().downcast_ref::<ir::ops::create::TemplateOp>()
                 {
-                    let slot = template_op.base.base.handle.slot.expect("Expected a slot") as i32;
+                    let slot = template_op
+                        .base
+                        .base
+                        .handle
+                        .get_slot()
+                        .expect("Expected a slot") as i32;
                     let view_xref = template_op.base.base.xref;
                     let fn_name = view_name_map
                         .get(&view_xref)
@@ -88,7 +150,7 @@ fn reify_create_operations(
             }
             ir::OpKind::Text => {
                 if let Some(text_op) = op.as_any().downcast_ref::<ir::ops::create::TextOp>() {
-                    if let Some(slot) = text_op.handle.slot {
+                    if let Some(slot) = text_op.handle.get_slot() {
                         let stmt = ng::text(
                             slot as i32,
                             text_op.initial_value.clone(),
@@ -109,7 +171,7 @@ fn reify_create_operations(
                     .as_any()
                     .downcast_ref::<ir::ops::create::ElementStartOp>()
                 {
-                    if let Some(slot) = el_op.base.base.handle.slot {
+                    if let Some(slot) = el_op.base.base.handle.get_slot() {
                         let const_index =
                             el_op.base.base.attributes.map(|idx| idx.as_usize() as i32);
                         let local_ref_index = el_op
@@ -133,7 +195,7 @@ fn reify_create_operations(
                     }
                 } else if let Some(el_op) = op.as_any().downcast_ref::<ir::ops::create::ElementOp>()
                 {
-                    if let Some(slot) = el_op.base.base.handle.slot {
+                    if let Some(slot) = el_op.base.base.handle.get_slot() {
                         let const_index =
                             el_op.base.base.attributes.map(|idx| idx.as_usize() as i32);
                         let local_ref_index = el_op
@@ -164,20 +226,6 @@ fn reify_create_operations(
                 Some(Box::new(ir::ops::shared::create_statement_op::<
                     Box<dyn CreateOp + Send + Sync>,
                 >(Box::new(stmt))))
-            }
-            ir::OpKind::Pipe => {
-                if let Some(pipe_op) = op.as_any().downcast_ref::<ir::ops::create::CreatePipeOp>() {
-                    if let Some(slot) = pipe_op.handle.slot {
-                        let stmt = ng::pipe(slot as i32, pipe_op.name.clone());
-                        Some(Box::new(ir::ops::shared::create_statement_op::<
-                            Box<dyn CreateOp + Send + Sync>,
-                        >(Box::new(stmt))))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
             }
 
             ir::OpKind::DisableBindings => {
@@ -599,14 +647,14 @@ fn reify_ir_expression(expr: o::Expression, flags: ir::VisitorContextFlag) -> o:
                 .map(|arg| reify_ir_expression(arg.clone(), flags))
                 .collect();
 
-            let pipe_slot = pipe.target_slot.slot.unwrap_or(0) as i32;
+            let pipe_slot = pipe.target_slot.get_slot().unwrap_or(0) as i32;
             let var_offset = pipe.var_offset.unwrap_or(0) as i32;
             ng::pipe_bind(pipe_slot, var_offset, reified_args)
         }
         o::Expression::PipeBindingVariadic(pipe) => {
             // Reify PipeBindingVariadicExpr to ɵɵpipeBindV call
             let reified_args = reify_ir_expression(*pipe.args.clone(), flags);
-            let pipe_slot = pipe.target_slot.slot.unwrap_or(0) as i32;
+            let pipe_slot = pipe.target_slot.get_slot().unwrap_or(0) as i32;
             let var_offset = pipe.var_offset.unwrap_or(0) as i32;
 
             // For variadic, wrap in array and call pipeBindV
@@ -615,14 +663,14 @@ fn reify_ir_expression(expr: o::Expression, flags: ir::VisitorContextFlag) -> o:
         }
         o::Expression::Reference(ref_expr) => {
             // Reify ReferenceExpr to ɵɵreference(slot + offset) expression
-            let slot = ref_expr.target_slot.slot.unwrap_or(0) as i32;
+            let slot = ref_expr.target_slot.get_slot().unwrap_or(0) as i32;
             let offset = ref_expr.offset as i32;
             ng::reference(slot + offset)
         }
         o::Expression::ContextLetReference(let_ref) => {
             // Reify ContextLetReferenceExpr to ɵɵstoreLet(slot) expression
             // This reads the stored @let value
-            let slot = let_ref.target_slot.slot.unwrap_or(0) as i32;
+            let slot = let_ref.target_slot.get_slot().unwrap_or(0) as i32;
             ng::reference(slot)
         }
         o::Expression::GetCurrentView(_) => *o::import_ref(

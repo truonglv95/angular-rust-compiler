@@ -137,7 +137,7 @@ fn handle_template_kind_op(
                                 (
                                     template.i18n_placeholder.as_ref(),
                                     template.template_kind,
-                                    template.base.base.handle.slot.unwrap_or(0),
+                                    template.base.base.handle.get_slot().unwrap_or(0),
                                 )
                             }
                             OpKind::ConditionalCreate => {
@@ -146,7 +146,7 @@ fn handle_template_kind_op(
                                 (
                                     cond.i18n_placeholder.as_ref(),
                                     cond.template_kind,
-                                    cond.base.base.handle.slot.unwrap_or(0),
+                                    cond.base.base.handle.get_slot().unwrap_or(0),
                                 )
                             }
                             OpKind::ConditionalBranchCreate => {
@@ -155,7 +155,7 @@ fn handle_template_kind_op(
                                 (
                                     branch.i18n_placeholder.as_ref(),
                                     branch.template_kind,
-                                    branch.base.base.handle.slot.unwrap_or(0),
+                                    branch.base.base.handle.get_slot().unwrap_or(0),
                                 )
                             }
                             _ => (None, TemplateKind::Structural, 0),
@@ -495,7 +495,7 @@ fn resolve_placeholders_for_view(
 
                                         let ph =
                                             proj.fallback_view_i18n_placeholder.as_ref().unwrap();
-                                        let slot = proj.handle.slot.unwrap_or(0);
+                                        let slot = proj.handle.get_slot().unwrap_or(0);
 
                                         // Record start
                                         {
@@ -583,7 +583,7 @@ fn resolve_placeholders_for_view(
 
                     // RepeaterCreate has 3 slots: the first is for the op itself, the second is for the @for
                     // template and the (optional) third is for the @empty template.
-                    let for_slot = repeater.base.base.handle.slot.unwrap_or(0) + 1;
+                    let for_slot = repeater.base.base.handle.get_slot().unwrap_or(0) + 1;
                     let for_view_xref = repeater.base.base.xref;
 
                     let job_ref = &mut *job;
@@ -659,7 +659,7 @@ fn resolve_placeholders_for_view(
                     if let Some(empty_view_xref) = repeater.empty_view {
                         // RepeaterCreate has 3 slots: the first is for the op itself, the second is for the @for
                         // template and the (optional) third is for the @empty template.
-                        let empty_slot = repeater.base.base.handle.slot.unwrap_or(0) + 2;
+                        let empty_slot = repeater.base.base.handle.get_slot().unwrap_or(0) + 2;
 
                         let job_ref = &mut *job;
                         if let Some(empty_view) = job_ref.views.get_mut(&empty_view_xref) {
@@ -746,7 +746,7 @@ fn record_element_start(
             (
                 ph.start_name.clone(),
                 ph.close_name.clone(),
-                elem.base.base.handle.slot.unwrap_or(0),
+                elem.base.base.handle.get_slot().unwrap_or(0),
             )
         } else {
             return;
@@ -756,7 +756,7 @@ fn record_element_start(
             (
                 ph.start_name.clone(),
                 ph.close_name.clone(),
-                proj.handle.slot.unwrap_or(0),
+                proj.handle.get_slot().unwrap_or(0),
             )
         } else {
             return;
@@ -774,11 +774,11 @@ fn record_element_start(
             flags |= I18nParamValueFlags::TEMPLATE_TAG;
             let struct_dir = &*struct_dir_ptr;
             let template_slot = if let Some(template) = struct_dir.downcast_ref::<TemplateOp>() {
-                template.base.base.handle.slot.unwrap_or(0)
+                template.base.base.handle.get_slot().unwrap_or(0)
             } else if let Some(cond) = struct_dir.downcast_ref::<ConditionalCreateOp>() {
-                cond.base.base.handle.slot.unwrap_or(0)
+                cond.base.base.handle.get_slot().unwrap_or(0)
             } else if let Some(branch) = struct_dir.downcast_ref::<ConditionalBranchCreateOp>() {
-                branch.base.base.handle.slot.unwrap_or(0)
+                branch.base.base.handle.get_slot().unwrap_or(0)
             } else {
                 return;
             };
@@ -815,14 +815,14 @@ fn record_element_close(
         if let Some(ref ph) = elem.i18n_placeholder {
             (
                 ph.close_name.clone(),
-                elem.base.base.handle.slot.unwrap_or(0),
+                elem.base.base.handle.get_slot().unwrap_or(0),
             )
         } else {
             return;
         }
     } else if let Some(proj) = op.downcast_ref::<ProjectionOp>() {
         if let Some(ref ph) = proj.i18n_placeholder {
-            (ph.close_name.clone(), proj.handle.slot.unwrap_or(0))
+            (ph.close_name.clone(), proj.handle.get_slot().unwrap_or(0))
         } else {
             return;
         }
@@ -843,12 +843,12 @@ fn record_element_close(
                 let struct_dir = &*struct_dir_ptr;
                 let template_slot = if let Some(template) = struct_dir.downcast_ref::<TemplateOp>()
                 {
-                    template.base.base.handle.slot.unwrap_or(0)
+                    template.base.base.handle.get_slot().unwrap_or(0)
                 } else if let Some(cond) = struct_dir.downcast_ref::<ConditionalCreateOp>() {
-                    cond.base.base.handle.slot.unwrap_or(0)
+                    cond.base.base.handle.get_slot().unwrap_or(0)
                 } else if let Some(branch) = struct_dir.downcast_ref::<ConditionalBranchCreateOp>()
                 {
-                    branch.base.base.handle.slot.unwrap_or(0)
+                    branch.base.base.handle.get_slot().unwrap_or(0)
                 } else {
                     return;
                 };
@@ -903,11 +903,11 @@ fn record_template_start(
         unsafe {
             let struct_dir = &*struct_dir_ptr;
             let template_slot = if let Some(template) = struct_dir.downcast_ref::<TemplateOp>() {
-                template.base.base.handle.slot.unwrap_or(0)
+                template.base.base.handle.get_slot().unwrap_or(0)
             } else if let Some(cond) = struct_dir.downcast_ref::<ConditionalCreateOp>() {
-                cond.base.base.handle.slot.unwrap_or(0)
+                cond.base.base.handle.get_slot().unwrap_or(0)
             } else if let Some(branch) = struct_dir.downcast_ref::<ConditionalBranchCreateOp>() {
-                branch.base.base.handle.slot.unwrap_or(0)
+                branch.base.base.handle.get_slot().unwrap_or(0)
             } else {
                 return;
             };
@@ -978,12 +978,12 @@ fn record_template_close(
                 let struct_dir = &*struct_dir_ptr;
                 let template_slot = if let Some(template) = struct_dir.downcast_ref::<TemplateOp>()
                 {
-                    template.base.base.handle.slot.unwrap_or(0)
+                    template.base.base.handle.get_slot().unwrap_or(0)
                 } else if let Some(cond) = struct_dir.downcast_ref::<ConditionalCreateOp>() {
-                    cond.base.base.handle.slot.unwrap_or(0)
+                    cond.base.base.handle.get_slot().unwrap_or(0)
                 } else if let Some(branch) = struct_dir.downcast_ref::<ConditionalBranchCreateOp>()
                 {
-                    branch.base.base.handle.slot.unwrap_or(0)
+                    branch.base.base.handle.get_slot().unwrap_or(0)
                 } else {
                     return;
                 };

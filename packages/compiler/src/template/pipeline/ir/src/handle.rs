@@ -38,6 +38,9 @@ impl ConstIndex {
     }
 }
 
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, Mutex};
+
 /// Slot handle for operations that consume slots.
 ///
 /// In TypeScript, this is defined as a class with a nullable `slot` field:
@@ -47,46 +50,37 @@ impl ConstIndex {
 /// }
 /// ```
 ///
-/// In Rust, we use a struct with an `Option<usize>` to represent the nullable slot value.
-/// The `handle` field in operations is typically initialized with `SlotHandle::new()` which creates
-/// a handle with `slot: None`, matching the TypeScript default value of `null`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SlotHandle {
-    /// The slot number, or `None` if slots have not yet been assigned.
-    /// This corresponds to the `slot: number | null` field in TypeScript.
-    pub slot: Option<usize>,
-}
+/// In Rust, we use a struct with an `Arc<Mutex<Option<usize>>>` to represent the nullable slot value
+/// with shared ownership and locked mutability, allowing thread-safe access.
+#[derive(Debug, Clone)]
+pub struct SlotHandle(Arc<Mutex<Option<usize>>>);
 
 impl SlotHandle {
     /// Create a new SlotHandle with no slot assigned (slot = None/null).
     /// This matches the TypeScript default: `slot: number | null = null`
+    /// Create a new specific slot handle (initially unallocated).
     pub fn new() -> Self {
-        SlotHandle { slot: None }
+        SlotHandle(Arc::new(Mutex::new(None)))
     }
 
     /// Create a SlotHandle with a specific slot number.
     pub fn with_slot(slot: usize) -> Self {
-        SlotHandle { slot: Some(slot) }
+        SlotHandle(Arc::new(Mutex::new(Some(slot))))
     }
 
-    /// Get the slot number if assigned, or None if not yet assigned.
+    /// Check if this handle has an assigned slot.
+    pub fn has_slot(&self) -> bool {
+        self.0.lock().unwrap().is_some()
+    }
+
+    /// Get the slot number if assigned.
     pub fn get_slot(&self) -> Option<usize> {
-        self.slot
+        *self.0.lock().unwrap()
     }
 
     /// Set the slot number.
-    pub fn set_slot(&mut self, slot: usize) {
-        self.slot = Some(slot);
-    }
-
-    /// Clear the slot assignment (set to None/null).
-    pub fn clear_slot(&mut self) {
-        self.slot = None;
-    }
-
-    /// Check if a slot has been assigned.
-    pub fn has_slot(&self) -> bool {
-        self.slot.is_some()
+    pub fn set_slot(&self, slot: usize) {
+        *self.0.lock().unwrap() = Some(slot);
     }
 }
 
@@ -96,16 +90,29 @@ impl Default for SlotHandle {
     }
 }
 
-// Implement PartialEq and Eq manually to match TypeScript behavior
-// (TypeScript classes use reference equality by default, but here we use value equality)
+impl PartialEq for SlotHandle {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for SlotHandle {}
+
+impl Hash for SlotHandle {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.0).hash(state);
+    }
+}
+
+// Implement PartialEq<usize> for SlotHandle compatibility (value check)
 impl PartialEq<usize> for SlotHandle {
     fn eq(&self, other: &usize) -> bool {
-        self.slot == Some(*other)
+        self.get_slot() == Some(*other)
     }
 }
 
 impl PartialEq<SlotHandle> for usize {
     fn eq(&self, other: &SlotHandle) -> bool {
-        Some(*self) == other.slot
+        Some(*self) == other.get_slot()
     }
 }

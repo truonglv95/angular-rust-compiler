@@ -54,6 +54,13 @@ pub trait CompilationJob {
     fn as_any(&self) -> &dyn std::any::Any;
     /// Get as Any mut
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
+
+    /// Add a pipe to the job and return its slot handle and xref
+    fn add_pipe(
+        &mut self,
+        name: &str,
+        view_xref: ir::XrefId,
+    ) -> (ir::handle::SlotHandle, ir::XrefId);
 }
 
 /// Compilation-in-progress of a whole component's template, including the main template and any
@@ -203,6 +210,50 @@ impl CompilationJob for ComponentCompilationJob {
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }
+
+    fn add_pipe(
+        &mut self,
+        name: &str,
+        view_xref: ir::XrefId,
+    ) -> (ir::handle::SlotHandle, ir::XrefId) {
+        // First check if pipe exists (immutably)
+        {
+            let unit = if view_xref == self.root.xref {
+                &self.root
+            } else {
+                self.views.get(&view_xref).expect("View not found")
+            };
+            if let Some((slot, xref)) = unit.pipes.get(name) {
+                eprintln!(
+                    "DEBUG: add_pipe found existing: name='{}', xref={:?}, slot={:?}",
+                    name, xref, slot
+                );
+                return (slot.clone(), *xref);
+            }
+        }
+
+        // Create new pipe
+        let slot = ir::handle::SlotHandle::new();
+        let xref = self.allocate_xref_id();
+
+        // Re-borrow mutably to insert
+        let unit = if view_xref == self.root.xref {
+            &mut self.root
+        } else {
+            self.views.get_mut(&view_xref).expect("View not found")
+        };
+
+        unit.pipes.insert(name.to_string(), (slot.clone(), xref));
+
+        let op = ir::ops::create::PipeOp::new(xref, slot.clone(), name.to_string());
+        unit.create.push(Box::new(op));
+
+        eprintln!(
+            "DEBUG: add_pipe created NEW: name='{}', xref={:?}, slot={:?}",
+            name, xref, slot
+        );
+        (slot, xref)
+    }
 }
 
 /// A compilation unit is compiled into a template function. Some example units are views and host
@@ -253,6 +304,7 @@ pub struct ViewCompilationUnit {
     pub vars: Option<usize>,
     pub create: ir::OpList<Box<dyn ir::CreateOp + Send + Sync>>,
     pub update: ir::OpList<Box<dyn ir::UpdateOp + Send + Sync>>,
+    pub pipes: indexmap::IndexMap<String, (ir::handle::SlotHandle, ir::XrefId)>,
 }
 
 impl ViewCompilationUnit {
@@ -267,6 +319,7 @@ impl ViewCompilationUnit {
             vars: None,
             create: ir::OpList::new(),
             update: ir::OpList::new(),
+            pipes: indexmap::IndexMap::new(),
         }
     }
 }
@@ -401,6 +454,27 @@ impl CompilationJob for HostBindingCompilationJob {
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }
+
+    fn add_pipe(
+        &mut self,
+        name: &str,
+        _view_xref: ir::XrefId,
+    ) -> (ir::handle::SlotHandle, ir::XrefId) {
+        let unit = &mut self.root;
+        if let Some((slot, xref)) = unit.pipes.get(name) {
+            (slot.clone(), *xref)
+        } else {
+            let slot = ir::handle::SlotHandle::new();
+            // Host binding job xref handling
+            let xref = ir::XrefId::new(0); // Dummy xref as before
+            unit.pipes.insert(name.to_string(), (slot.clone(), xref));
+
+            let op = ir::ops::create::PipeOp::new(xref, slot.clone(), name.to_string());
+            unit.create.push(Box::new(op));
+
+            (slot, xref)
+        }
+    }
 }
 
 pub struct HostBindingCompilationUnit {
@@ -410,6 +484,7 @@ pub struct HostBindingCompilationUnit {
     pub vars: Option<usize>,
     pub create: ir::OpList<Box<dyn ir::CreateOp + Send + Sync>>,
     pub update: ir::OpList<Box<dyn ir::UpdateOp + Send + Sync>>,
+    pub pipes: indexmap::IndexMap<String, (ir::handle::SlotHandle, ir::XrefId)>,
 }
 
 impl HostBindingCompilationUnit {
@@ -421,6 +496,7 @@ impl HostBindingCompilationUnit {
             vars: None,
             create: ir::OpList::new(),
             update: ir::OpList::new(),
+            pipes: indexmap::IndexMap::new(),
         }
     }
 }

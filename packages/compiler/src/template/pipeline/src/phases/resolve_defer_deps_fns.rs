@@ -48,12 +48,12 @@ fn process_unit(
             // If own_resolver_fn is set, extract it to a shared function
             if let Some(own_resolver_fn) = &defer.own_resolver_fn {
                 // Check that slot is assigned
-                if defer.handle.slot.is_none() {
+                if defer.handle.get_slot().is_none() {
                     panic!("AssertionError: slot must be assigned before extracting defer deps functions");
                 }
 
                 // Generate function name
-                let slot = defer.handle.slot.unwrap();
+                let slot = defer.handle.get_slot().unwrap();
                 let fn_name = format!("{}_Defer_{}_DepsFn", full_path_name, slot);
 
                 // Get shared function reference
