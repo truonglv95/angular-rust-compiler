@@ -22,9 +22,9 @@ function NgIfTest_div_15_Template(rf, ctx) {
     i0.ɵɵelementEnd()();
   }
   if (rf & 2) {
-    const ctx_r0 = i0.ɵɵnextContext();
+    const ctx_r1 = i0.ɵɵnextContext();
     i0.ɵɵadvance(2);
-    i0.ɵɵtextInterpolate1('👋 Welcome back, ', ctx_r0.userName, '!');
+    i0.ɵɵtextInterpolate1('👋 Welcome back, ', ctx_r1.userName, '!');
   }
 }
 function NgIfTest_ng_template_16_Template(rf, ctx) {
@@ -66,13 +66,13 @@ function NgIfTest_div_33_Template(rf, ctx) {
     i0.ɵɵelementEnd()();
   }
   if (rf & 2) {
-    const currentUser_r2 = ctx.ngIf;
+    const currentUser_r3 = ctx.ngIf;
     i0.ɵɵadvance(2);
-    i0.ɵɵtextInterpolate1('User: ', currentUser_r2.name);
+    i0.ɵɵtextInterpolate1('User: ', currentUser_r3.name, '');
     i0.ɵɵadvance(2);
-    i0.ɵɵtextInterpolate1('Role: ', currentUser_r2.role);
+    i0.ɵɵtextInterpolate1('Role: ', currentUser_r3.role, '');
     i0.ɵɵadvance(2);
-    i0.ɵɵtextInterpolate1('Premium: ', currentUser_r2.premium ? 'Yes' : 'No');
+    i0.ɵɵtextInterpolate1('Premium: ', currentUser_r3.premium ? 'Yes' : 'No', '');
   }
 }
 function NgIfTest_p_34_Template(rf, ctx) {
@@ -84,6 +84,7 @@ function NgIfTest_p_34_Template(rf, ctx) {
 }
 function NgIfTest_div_38_Template(rf, ctx) {
   if (rf & 1) {
+    const _r4 = i0.ɵɵgetCurrentView();
     i0.ɵɵelementStart(0, 'div');
     i0.ɵɵtemplate(1, NgIfTest_div_38_div_1_Template, 3, 0, 'div', 6)(
       2,
@@ -102,43 +103,47 @@ function NgIfTest_div_38_Template(rf, ctx) {
     );
     i0.ɵɵelementStart(5, 'div')(6, 'button', 5);
     i0.ɵɵlistener('click', function NgIfTest_div_38_Template_button_click_6_listener() {
-      const ctx_r2 = i0.ɵɵnextContext();
-      return i0.ɵɵresetView(ctx_r2.setUserRole('admin'));
+      i0.ɵɵrestoreView(_r4);
+      const ctx_r4 = i0.ɵɵnextContext();
+      return i0.ɵɵresetView(ctx_r4.setUserRole('admin'));
     });
     i0.ɵɵtext(7, 'Set Admin');
     i0.ɵɵelementEnd();
     i0.ɵɵelementStart(8, 'button', 5);
     i0.ɵɵlistener('click', function NgIfTest_div_38_Template_button_click_8_listener() {
-      const ctx_r2 = i0.ɵɵnextContext();
-      return i0.ɵɵresetView(ctx_r2.setUserRole('user'));
+      i0.ɵɵrestoreView(_r4);
+      const ctx_r4 = i0.ɵɵnextContext();
+      return i0.ɵɵresetView(ctx_r4.setUserRole('user'));
     });
     i0.ɵɵtext(9, 'Set User');
     i0.ɵɵelementEnd();
     i0.ɵɵelementStart(10, 'button', 5);
     i0.ɵɵlistener('click', function NgIfTest_div_38_Template_button_click_10_listener() {
-      const ctx_r2 = i0.ɵɵnextContext();
-      return i0.ɵɵresetView(ctx_r2.setUserRole('guest'));
+      i0.ɵɵrestoreView(_r4);
+      const ctx_r4 = i0.ɵɵnextContext();
+      return i0.ɵɵresetView(ctx_r4.setUserRole('guest'));
     });
     i0.ɵɵtext(11, 'Set Guest');
     i0.ɵɵelementEnd();
     i0.ɵɵelementStart(12, 'button', 5);
     i0.ɵɵlistener('click', function NgIfTest_div_38_Template_button_click_12_listener() {
-      const ctx_r2 = i0.ɵɵnextContext();
-      return i0.ɵɵresetView(ctx_r2.togglePremium());
+      i0.ɵɵrestoreView(_r4);
+      const ctx_r4 = i0.ɵɵnextContext();
+      return i0.ɵɵresetView(ctx_r4.togglePremium());
     });
     i0.ɵɵtext(13, 'Toggle Premium');
     i0.ɵɵelementEnd()()();
   }
   if (rf & 2) {
-    const ctx_r2 = i0.ɵɵnextContext();
+    const ctx_r4 = i0.ɵɵnextContext();
     i0.ɵɵadvance();
-    i0.ɵɵproperty('ngIf', ctx_r2.user.role === 'admin');
+    i0.ɵɵproperty('ngIf', ctx_r4.user.role === 'admin');
     i0.ɵɵadvance();
-    i0.ɵɵproperty('ngIf', ctx_r2.user.role === 'user');
+    i0.ɵɵproperty('ngIf', ctx_r4.user.role === 'user');
     i0.ɵɵadvance();
-    i0.ɵɵproperty('ngIf', ctx_r2.user.role === 'guest');
+    i0.ɵɵproperty('ngIf', ctx_r4.user.role === 'guest');
     i0.ɵɵadvance();
-    i0.ɵɵproperty('ngIf', ctx_r2.user.premium);
+    i0.ɵɵproperty('ngIf', ctx_r4.user.premium);
   }
 }
 function NgIfTest_div_38_div_1_Template(rf, ctx) {
@@ -197,9 +202,9 @@ function NgIfTest_div_59_Template(rf, ctx) {
     i0.ɵɵelementEnd()();
   }
   if (rf & 2) {
-    const ctx_r3 = i0.ɵɵnextContext();
+    const ctx_r5 = i0.ɵɵnextContext();
     i0.ɵɵadvance(2);
-    i0.ɵɵtextInterpolate1('You have ', ctx_r3.items.length, ' item(s)');
+    i0.ɵɵtextInterpolate1('You have ', ctx_r5.items.length, ' item(s)');
   }
 }
 function NgIfTest_ng_template_60_Template(rf, ctx) {
@@ -211,10 +216,12 @@ function NgIfTest_ng_template_60_Template(rf, ctx) {
 }
 function NgIfTest_button_67_Template(rf, ctx) {
   if (rf & 1) {
+    const _r7 = i0.ɵɵgetCurrentView();
     i0.ɵɵelementStart(0, 'button', 5);
     i0.ɵɵlistener('click', function NgIfTest_button_67_Template_button_click_0_listener() {
-      const ctx_r4 = i0.ɵɵnextContext();
-      return i0.ɵɵresetView(ctx_r4.clearError());
+      i0.ɵɵrestoreView(_r7);
+      const ctx_r7 = i0.ɵɵnextContext();
+      return i0.ɵɵresetView(ctx_r7.clearError());
     });
     i0.ɵɵtext(1, 'Clear Error');
     i0.ɵɵelementEnd();
@@ -222,14 +229,14 @@ function NgIfTest_button_67_Template(rf, ctx) {
 }
 function NgIfTest_div_68_Template(rf, ctx) {
   if (rf & 1) {
-    i0.ɵɵelementStart(0, 'div', 11);
+    i0.ɵɵelementStart(0, 'div', 12);
     i0.ɵɵtext(1);
     i0.ɵɵelementEnd();
   }
   if (rf & 2) {
-    const ctx_r5 = i0.ɵɵnextContext();
+    const ctx_r8 = i0.ɵɵnextContext();
     i0.ɵɵadvance();
-    i0.ɵɵtextInterpolate1('⚠️ ', ctx_r5.errorMessage);
+    i0.ɵɵtextInterpolate1('⚠️ ', ctx_r8.errorMessage, '');
   }
 }
 function NgIfTest_div_69_Template(rf, ctx) {
@@ -344,12 +351,14 @@ export class NgIfTest {
       [4, 'ngIf'],
       [4, 'ngIf', 'ngIfElse'],
       [4, 'ngIf', 'ngIfThen', 'ngIfElse'],
-      [3, 'disabled', 'click'],
+      [3, 'click', 'disabled'],
+      [3, 'click', 4, 'ngIf'],
       ['class', 'error-message', 4, 'ngIf'],
       [1, 'error-message'],
     ],
     template: function NgIfTest_Template(rf, ctx) {
       if (rf & 1) {
+        const _r1 = i0.ɵɵgetCurrentView();
         i0.ɵɵelementStart(0, 'div', 4)(1, 'h2');
         i0.ɵɵtext(2, 'NgIf Test Cases');
         i0.ɵɵelementEnd();
@@ -358,7 +367,8 @@ export class NgIfTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(6, 'button', 5);
         i0.ɵɵlistener('click', function NgIfTest_Template_button_click_6_listener() {
-          return ctx.toggleShow();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.toggleShow());
         });
         i0.ɵɵtext(7, 'Toggle Show');
         i0.ɵɵelementEnd();
@@ -376,7 +386,8 @@ export class NgIfTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(13, 'button', 5);
         i0.ɵɵlistener('click', function NgIfTest_Template_button_click_13_listener() {
-          return ctx.toggleLogin();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.toggleLogin());
         });
         i0.ɵɵtext(14);
         i0.ɵɵelementEnd();
@@ -396,7 +407,8 @@ export class NgIfTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(21, 'button', 5);
         i0.ɵɵlistener('click', function NgIfTest_Template_button_click_21_listener() {
-          return ctx.simulateLoading();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.simulateLoading());
         });
         i0.ɵɵtext(22, 'Load Data');
         i0.ɵɵelementEnd();
@@ -425,7 +437,8 @@ export class NgIfTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(31, 'button', 5);
         i0.ɵɵlistener('click', function NgIfTest_Template_button_click_31_listener() {
-          return ctx.toggleUser();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.toggleUser());
         });
         i0.ɵɵtext(32);
         i0.ɵɵelementEnd();
@@ -448,7 +461,8 @@ export class NgIfTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(42, 'div')(43, 'button', 9);
         i0.ɵɵlistener('click', function NgIfTest_Template_button_click_43_listener() {
-          return ctx.decrement();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.decrement());
         });
         i0.ɵɵtext(44, '-');
         i0.ɵɵelementEnd();
@@ -457,7 +471,8 @@ export class NgIfTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(47, 'button', 9);
         i0.ɵɵlistener('click', function NgIfTest_Template_button_click_47_listener() {
-          return ctx.increment();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.increment());
         });
         i0.ɵɵtext(48, '+');
         i0.ɵɵelementEnd()();
@@ -475,13 +490,15 @@ export class NgIfTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(55, 'button', 5);
         i0.ɵɵlistener('click', function NgIfTest_Template_button_click_55_listener() {
-          return ctx.addItem();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.addItem());
         });
         i0.ɵɵtext(56, 'Add Item');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(57, 'button', 5);
         i0.ɵɵlistener('click', function NgIfTest_Template_button_click_57_listener() {
-          return ctx.clearItems();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.clearItems());
         });
         i0.ɵɵtext(58, 'Clear All');
         i0.ɵɵelementEnd();
@@ -501,38 +518,39 @@ export class NgIfTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(65, 'button', 5);
         i0.ɵɵlistener('click', function NgIfTest_Template_button_click_65_listener() {
-          return ctx.simulateError();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.simulateError());
         });
         i0.ɵɵtext(66, 'Trigger Error');
         i0.ɵɵelementEnd();
-        i0.ɵɵtemplate(67, NgIfTest_button_67_Template, 2, 0, 'button', 6)(
+        i0.ɵɵtemplate(67, NgIfTest_button_67_Template, 2, 0, 'button', 10)(
           68,
           NgIfTest_div_68_Template,
           2,
           1,
           'div',
-          10,
+          11,
         )(69, NgIfTest_div_69_Template, 2, 0, 'div', 6);
         i0.ɵɵelementEnd()();
       }
       if (rf & 2) {
-        i0.ɵɵadvance(16);
-        const loggedOutTemplate_r7 = i0.ɵɵreference(17);
+        const loggedOutTemplate_r10 = i0.ɵɵreference(17);
+        const loadingTpl_r11 = i0.ɵɵreference(25);
+        const contentTpl_r12 = i0.ɵɵreference(27);
+        const noItemsTpl_r13 = i0.ɵɵreference(61);
         i0.ɵɵadvance(8);
-        const loadingTpl_r8 = i0.ɵɵreference(25);
-        i0.ɵɵadvance(2);
-        const contentTpl_r9 = i0.ɵɵreference(27);
-        i0.ɵɵadvance(34);
-        const noItemsTpl_r10 = i0.ɵɵreference(61);
         i0.ɵɵproperty('ngIf', ctx.isShow);
         i0.ɵɵadvance();
         i0.ɵɵproperty('ngIf', !ctx.isShow);
         i0.ɵɵadvance(5);
         i0.ɵɵtextInterpolate(ctx.isLoggedIn ? 'Logout' : 'Login');
         i0.ɵɵadvance();
-        i0.ɵɵproperty('ngIf', ctx.isLoggedIn)('ngIfElse', loggedOutTemplate_r7);
+        i0.ɵɵproperty('ngIf', ctx.isLoggedIn)('ngIfElse', loggedOutTemplate_r10);
         i0.ɵɵadvance(8);
-        i0.ɵɵproperty('ngIf', ctx.isLoading)('ngIfThen', loadingTpl_r8)('ngIfElse', contentTpl_r9);
+        i0.ɵɵproperty('ngIf', ctx.isLoading)('ngIfThen', loadingTpl_r11)(
+          'ngIfElse',
+          contentTpl_r12,
+        );
         i0.ɵɵadvance(9);
         i0.ɵɵtextInterpolate(ctx.user ? 'Remove User' : 'Add User');
         i0.ɵɵadvance();
@@ -554,7 +572,7 @@ export class NgIfTest {
         i0.ɵɵadvance();
         i0.ɵɵproperty('ngIf', ctx.count >= ctx.maxCount);
         i0.ɵɵadvance(8);
-        i0.ɵɵproperty('ngIf', ctx.items.length > 0)('ngIfElse', noItemsTpl_r10);
+        i0.ɵɵproperty('ngIf', ctx.items.length > 0)('ngIfElse', noItemsTpl_r13);
         i0.ɵɵadvance(8);
         i0.ɵɵproperty('ngIf', ctx.errorMessage);
         i0.ɵɵadvance();

@@ -106,6 +106,7 @@ export class PropertyBindingTest {
     ],
     template: function PropertyBindingTest_Template(rf, ctx) {
       if (rf & 1) {
+        const _r1 = i0.ɵɵgetCurrentView();
         i0.ɵɵelementStart(0, 'div', 0)(1, 'h2');
         i0.ɵɵtext(2);
         i0.ɵɵelementEnd();
@@ -125,19 +126,22 @@ export class PropertyBindingTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(14, 'div')(15, 'button', 3);
         i0.ɵɵlistener('click', function PropertyBindingTest_Template_button_click_15_listener() {
-          return ctx.toggleDisabled();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.toggleDisabled());
         });
         i0.ɵɵtext(16, 'Toggle Disabled');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(17, 'button', 3);
         i0.ɵɵlistener('click', function PropertyBindingTest_Template_button_click_17_listener() {
-          return ctx.toggleReadonly();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.toggleReadonly());
         });
         i0.ɵɵtext(18, 'Toggle Readonly');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(19, 'button', 3);
         i0.ɵɵlistener('click', function PropertyBindingTest_Template_button_click_19_listener() {
-          return ctx.toggleHidden();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.toggleHidden());
         });
         i0.ɵɵtext(20, 'Toggle Hidden');
         i0.ɵɵelementEnd()();
@@ -156,31 +160,36 @@ export class PropertyBindingTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(30, 'div')(31, 'button', 3);
         i0.ɵɵlistener('click', function PropertyBindingTest_Template_button_click_31_listener() {
-          return ctx.setColor('red');
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.setColor('red'));
         });
         i0.ɵɵtext(32, 'Red');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(33, 'button', 3);
         i0.ɵɵlistener('click', function PropertyBindingTest_Template_button_click_33_listener() {
-          return ctx.setColor('green');
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.setColor('green'));
         });
         i0.ɵɵtext(34, 'Green');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(35, 'button', 3);
         i0.ɵɵlistener('click', function PropertyBindingTest_Template_button_click_35_listener() {
-          return ctx.setColor('blue');
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.setColor('blue'));
         });
         i0.ɵɵtext(36, 'Blue');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(37, 'button', 3);
         i0.ɵɵlistener('click', function PropertyBindingTest_Template_button_click_37_listener() {
-          return ctx.increaseFontSize();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.increaseFontSize());
         });
         i0.ɵɵtext(38, 'Font +');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(39, 'button', 3);
         i0.ɵɵlistener('click', function PropertyBindingTest_Template_button_click_39_listener() {
-          return ctx.decreaseFontSize();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.decreaseFontSize());
         });
         i0.ɵɵtext(40, 'Font -');
         i0.ɵɵelementEnd()();
@@ -201,19 +210,22 @@ export class PropertyBindingTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(53, 'div')(54, 'button', 3);
         i0.ɵɵlistener('click', function PropertyBindingTest_Template_button_click_54_listener() {
-          return ctx.toggleActive();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.toggleActive());
         });
         i0.ɵɵtext(55, 'Toggle Active');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(56, 'button', 3);
         i0.ɵɵlistener('click', function PropertyBindingTest_Template_button_click_56_listener() {
-          return ctx.toggleHighlighted();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.toggleHighlighted());
         });
         i0.ɵɵtext(57, 'Toggle Highlighted');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(58, 'button', 3);
         i0.ɵɵlistener('click', function PropertyBindingTest_Template_button_click_58_listener() {
-          return ctx.togglePrimary();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.togglePrimary());
         });
         i0.ɵɵtext(59, 'Toggle Primary');
         i0.ɵɵelementEnd()();
@@ -234,7 +246,8 @@ export class PropertyBindingTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(72, 'button', 3);
         i0.ɵɵlistener('click', function PropertyBindingTest_Template_button_click_72_listener() {
-          return ctx.toggleAriaExpanded();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.toggleAriaExpanded());
         });
         i0.ɵɵtext(73, ' ARIA Bound Button ');
         i0.ɵɵelementEnd();
@@ -274,6 +287,7 @@ export class PropertyBindingTest {
           ctx.isReadonly,
           ', Hidden: ',
           ctx.isHidden,
+          '',
         );
         i0.ɵɵadvance(15);
         i0.ɵɵstyleProp('color', ctx.textColor)('font-size', ctx.fontSize, 'px');
@@ -297,12 +311,13 @@ export class PropertyBindingTest {
           ctx.isHighlighted,
           ', Primary: ',
           ctx.isPrimary,
+          '',
         );
         i0.ɵɵadvance(4);
         i0.ɵɵproperty('ngClass', ctx.dynamicClasses);
         i0.ɵɵadvance(5);
         i0.ɵɵadvance(3);
-        i0.ɵɵtextInterpolate1('aria-expanded: ', ctx.ariaExpanded);
+        i0.ɵɵtextInterpolate1('aria-expanded: ', ctx.ariaExpanded, '');
         i0.ɵɵadvance();
         i0.ɵɵadvance(5);
       }

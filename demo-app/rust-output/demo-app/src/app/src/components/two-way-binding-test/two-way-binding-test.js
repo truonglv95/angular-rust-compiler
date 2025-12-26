@@ -24,10 +24,10 @@ function TwoWayBindingTest_option_48_Template(rf, ctx) {
     i0.ɵɵelementEnd();
   }
   if (rf & 2) {
-    const country_r1 = ctx.$implicit;
-    i0.ɵɵproperty('value', country_r1.code);
+    const country_r2 = ctx.$implicit;
+    i0.ɵɵproperty('value', country_r2.code);
     i0.ɵɵadvance();
-    i0.ɵɵtextInterpolate1(' ', country_r1.name, ' ');
+    i0.ɵɵtextInterpolate1(' ', country_r2.name, ' ');
   }
 }
 export class TwoWayBindingTest {
@@ -142,18 +142,21 @@ export class TwoWayBindingTest {
     ],
     template: function TwoWayBindingTest_Template(rf, ctx) {
       if (rf & 1) {
+        const _r1 = i0.ɵɵgetCurrentView();
         i0.ɵɵelementStart(0, 'div', 0)(1, 'h2');
         i0.ɵɵtext(2, 'Two-Way Binding Test Cases [(ngModel)]');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(3, 'div', 1)(4, 'button', 2);
         i0.ɵɵlistener('click', function TwoWayBindingTest_Template_button_click_4_listener() {
-          return ctx.resetForm();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.resetForm());
         });
         i0.ɵɵtext(5, 'Reset All');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(6, 'button', 2);
         i0.ɵɵlistener('click', function TwoWayBindingTest_Template_button_click_6_listener() {
-          return ctx.submitForm();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.submitForm());
         });
         i0.ɵɵtext(7, 'Submit Form');
         i0.ɵɵelementEnd()();
@@ -167,7 +170,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_input_ngModelChange_14_listener() {
-            return ctx.name;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.name);
           },
         );
         i0.ɵɵelementEnd();
@@ -181,7 +185,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_input_ngModelChange_20_listener() {
-            return ctx.email;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.email);
           },
         );
         i0.ɵɵelementEnd();
@@ -198,7 +203,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_input_ngModelChange_29_listener() {
-            return ctx.age;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.age);
           },
         );
         i0.ɵɵelementEnd();
@@ -215,7 +221,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_textarea_ngModelChange_38_listener() {
-            return ctx.message;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.message);
           },
         );
         i0.ɵɵelementEnd();
@@ -232,7 +239,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_select_ngModelChange_47_listener() {
-            return ctx.selectedCountry;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.selectedCountry);
           },
         );
         i0.ɵɵtemplate(48, TwoWayBindingTest_option_48_Template, 2, 2, 'option', 9);
@@ -247,7 +255,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_input_ngModelChange_56_listener() {
-            return ctx.agreeTerms;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.agreeTerms);
           },
         );
         i0.ɵɵelementEnd();
@@ -260,7 +269,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_input_ngModelChange_62_listener() {
-            return ctx.receiveNewsletter;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.receiveNewsletter);
           },
         );
         i0.ɵɵelementEnd();
@@ -276,7 +286,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_input_ngModelChange_71_listener() {
-            return ctx.gender;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.gender);
           },
         );
         i0.ɵɵelementEnd();
@@ -286,7 +297,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_input_ngModelChange_74_listener() {
-            return ctx.gender;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.gender);
           },
         );
         i0.ɵɵelementEnd();
@@ -296,7 +308,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_input_ngModelChange_77_listener() {
-            return ctx.gender;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.gender);
           },
         );
         i0.ɵɵelementEnd();
@@ -315,7 +328,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_input_ngModelChange_87_listener() {
-            return ctx.volume;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.volume);
           },
         );
         i0.ɵɵelementEnd();
@@ -328,7 +342,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_input_ngModelChange_92_listener() {
-            return ctx.brightness;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.brightness);
           },
         );
         i0.ɵɵelementEnd();
@@ -344,7 +359,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_input_ngModelChange_100_listener() {
-            return ctx.selectedDate;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.selectedDate);
           },
         );
         i0.ɵɵelementEnd();
@@ -358,7 +374,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_input_ngModelChange_106_listener() {
-            return ctx.selectedTime;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.selectedTime);
           },
         );
         i0.ɵɵelementEnd();
@@ -375,7 +392,8 @@ export class TwoWayBindingTest {
         i0.ɵɵlistener(
           'ngModelChange',
           function TwoWayBindingTest_Template_input_ngModelChange_115_listener() {
-            return ctx.favoriteColor;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.favoriteColor);
           },
         );
         i0.ɵɵelementEnd();
@@ -398,29 +416,29 @@ export class TwoWayBindingTest {
         i0.ɵɵtextInterpolate2('Current value: ', ctx.name, ' (', ctx.nameLength, ' characters)');
         i0.ɵɵadvance(4);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Current value: ', ctx.email);
+        i0.ɵɵtextInterpolate1('Current value: ', ctx.email, '');
         i0.ɵɵadvance(7);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Current value: ', ctx.age);
+        i0.ɵɵtextInterpolate1('Current value: ', ctx.age, '');
         i0.ɵɵadvance(7);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Current value: ', ctx.message);
+        i0.ɵɵtextInterpolate1('Current value: ', ctx.message, '');
         i0.ɵɵadvance(7);
         i0.ɵɵadvance();
         i0.ɵɵproperty('ngForOf', ctx.countries);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Selected code: ', ctx.selectedCountry);
+        i0.ɵɵtextInterpolate1('Selected code: ', ctx.selectedCountry, '');
         i0.ɵɵadvance(6);
         i0.ɵɵadvance(3);
-        i0.ɵɵtextInterpolate1('Agreed: ', ctx.agreeTerms);
+        i0.ɵɵtextInterpolate1('Agreed: ', ctx.agreeTerms, '');
         i0.ɵɵadvance(3);
         i0.ɵɵadvance(3);
-        i0.ɵɵtextInterpolate1('Subscribed: ', ctx.receiveNewsletter);
+        i0.ɵɵtextInterpolate1('Subscribed: ', ctx.receiveNewsletter, '');
         i0.ɵɵadvance(6);
         i0.ɵɵadvance(3);
         i0.ɵɵadvance(3);
         i0.ɵɵadvance(3);
-        i0.ɵɵtextInterpolate1('Selected: ', ctx.gender);
+        i0.ɵɵtextInterpolate1('Selected: ', ctx.gender, '');
         i0.ɵɵadvance(6);
         i0.ɵɵtextInterpolate2('Volume: ', ctx.volume, '% (', ctx.volumeLabel, ')');
         i0.ɵɵadvance();
@@ -433,15 +451,15 @@ export class TwoWayBindingTest {
         i0.ɵɵstyleProp('width', ctx.brightness, '%');
         i0.ɵɵadvance(7);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Selected: ', ctx.selectedDate);
+        i0.ɵɵtextInterpolate1('Selected: ', ctx.selectedDate, '');
         i0.ɵɵadvance(4);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Selected: ', ctx.selectedTime);
+        i0.ɵɵtextInterpolate1('Selected: ', ctx.selectedTime, '');
         i0.ɵɵadvance(7);
         i0.ɵɵadvance();
         i0.ɵɵstyleProp('background-color', ctx.favoriteColor);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Selected: ', ctx.favoriteColor);
+        i0.ɵɵtextInterpolate1('Selected: ', ctx.favoriteColor, '');
         i0.ɵɵadvance(5);
         i0.ɵɵtextInterpolate(
           i0.ɵɵpipeBind1(

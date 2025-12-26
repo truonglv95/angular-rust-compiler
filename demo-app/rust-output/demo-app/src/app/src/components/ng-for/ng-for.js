@@ -11,7 +11,7 @@ function NgForTest_li_7_Template(rf, ctx) {
     const item_r1 = ctx.$implicit;
     const i_r2 = ctx.index;
     i0.ɵɵadvance();
-    i0.ɵɵtextInterpolate2('', i_r2 + 1, '. ', item_r1);
+    i0.ɵɵtextInterpolate2('', i_r2 + 1, '. ', item_r1, '');
   }
 }
 function NgForTest_div_11_Template(rf, ctx) {
@@ -327,7 +327,7 @@ export class NgForTest {
         i0.ɵɵadvance(4);
         i0.ɵɵproperty('ngForOf', ctx.items);
         i0.ɵɵadvance(3);
-        i0.ɵɵtextInterpolate1('6. Current Users Count: ', ctx.users.length);
+        i0.ɵɵtextInterpolate1('6. Current Users Count: ', ctx.users.length, '');
       }
     },
     standalone: true,

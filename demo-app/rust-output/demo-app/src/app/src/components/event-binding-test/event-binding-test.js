@@ -9,24 +9,21 @@ function EventBindingTest_p_16_Template(rf, ctx) {
     i0.ɵɵelementEnd();
   }
   if (rf & 2) {
-    const ctx_r0 = i0.ɵɵnextContext();
+    const ctx_r1 = i0.ɵɵnextContext();
     i0.ɵɵadvance();
-    i0.ɵɵtextInterpolate1('Last click: ', ctx_r0.lastClickTime);
+    i0.ɵɵtextInterpolate1('Last click: ', ctx_r1.lastClickTime, '');
   }
 }
 function EventBindingTest_p_65_Template(rf, ctx) {
   if (rf & 1) {
     i0.ɵɵelementStart(0, 'p');
     i0.ɵɵtext(1);
-    i0
-      .ɵɵelementEnd
-      // Click events
-      ();
+    i0.ɵɵelementEnd();
   }
   if (rf & 2) {
-    const ctx_r1 = i0.ɵɵnextContext();
+    const ctx_r2 = i0.ɵɵnextContext();
     i0.ɵɵadvance();
-    i0.ɵɵtextInterpolate1('Selected: ', ctx_r1.selectedOption);
+    i0.ɵɵtextInterpolate1('Selected: ', ctx_r2.selectedOption, '');
   }
 }
 function EventBindingTest_div_83_Template(rf, ctx) {
@@ -38,6 +35,7 @@ function EventBindingTest_div_83_Template(rf, ctx) {
 }
 function EventBindingTest_div_84_Template(rf, ctx) {
   if (rf & 1) {
+    // Click handlers
     i0.ɵɵelementStart(0, 'div', 20)(1, 'span', 21);
     i0.ɵɵtext(2);
     i0.ɵɵelementEnd();
@@ -49,16 +47,17 @@ function EventBindingTest_div_84_Template(rf, ctx) {
     i0.ɵɵelementEnd()();
   }
   if (rf & 2) {
-    const log_r3 = ctx.$implicit;
+    const log_r4 = ctx.$implicit;
     i0.ɵɵadvance(2);
-    i0.ɵɵtextInterpolate1('[', log_r3.type, ']');
+    i0.ɵɵtextInterpolate1('[', log_r4.type, ']');
     i0.ɵɵadvance(2);
-    i0.ɵɵtextInterpolate(log_r3.details);
+    i0.ɵɵtextInterpolate(log_r4.details);
     i0.ɵɵadvance(2);
-    i0.ɵɵtextInterpolate(log_r3.timestamp.toLocaleTimeString());
+    i0.ɵɵtextInterpolate(log_r4.timestamp.toLocaleTimeString());
   }
 }
 export class EventBindingTest {
+  // Click events
   clickCount = 0;
   lastClickTime = '';
   // Mouse events
@@ -80,7 +79,6 @@ export class EventBindingTest {
   // Event log
   eventLog = [];
   maxLogEntries = 10;
-  // Click handlers
   onClick() {
     this.clickCount++;
     this.lastClickTime = new Date().toLocaleTimeString();
@@ -241,12 +239,14 @@ export class EventBindingTest {
     ],
     template: function EventBindingTest_Template(rf, ctx) {
       if (rf & 1) {
+        const _r1 = i0.ɵɵgetCurrentView();
         i0.ɵɵelementStart(0, 'div', 1)(1, 'h2');
         i0.ɵɵtext(2, 'Event Binding Test Cases');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(3, 'button', 2);
         i0.ɵɵlistener('click', function EventBindingTest_Template_button_click_3_listener() {
-          return ctx.resetAll();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.resetAll());
         });
         i0.ɵɵtext(4, 'Reset All');
         i0.ɵɵelementEnd();
@@ -255,13 +255,15 @@ export class EventBindingTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(8, 'button', 2);
         i0.ɵɵlistener('click', function EventBindingTest_Template_button_click_8_listener() {
-          return ctx.onClick();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.onClick());
         });
         i0.ɵɵtext(9, 'Click Me');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(10, 'button', 3);
         i0.ɵɵlistener('dblclick', function EventBindingTest_Template_button_dblclick_10_listener() {
-          return ctx.onDoubleClick();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.onDoubleClick());
         });
         i0.ɵɵtext(11, 'Double Click Me');
         i0.ɵɵelementEnd();
@@ -269,7 +271,8 @@ export class EventBindingTest {
         i0.ɵɵlistener(
           'contextmenu',
           function EventBindingTest_Template_button_contextmenu_12_listener() {
-            return ctx.onRightClick(ctx.$event);
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.onRightClick(ctx.$event));
           },
         );
         i0.ɵɵtext(13, 'Right Click Me');
@@ -286,23 +289,28 @@ export class EventBindingTest {
         i0.ɵɵlistener(
           'mouseenter',
           function EventBindingTest_Template_div_mouseenter_20_listener() {
-            return ctx.onMouseEnter();
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.onMouseEnter());
           },
         );
         i0.ɵɵlistener(
           'mouseleave',
           function EventBindingTest_Template_div_mouseleave_20_listener() {
-            return ctx.onMouseLeave();
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.onMouseLeave());
           },
         );
         i0.ɵɵlistener('mousemove', function EventBindingTest_Template_div_mousemove_20_listener() {
-          return ctx.onMouseMove(ctx.$event);
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.onMouseMove(ctx.$event));
         });
         i0.ɵɵlistener('mousedown', function EventBindingTest_Template_div_mousedown_20_listener() {
-          return ctx.onMouseDown(ctx.$event);
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.onMouseDown(ctx.$event));
         });
         i0.ɵɵlistener('mouseup', function EventBindingTest_Template_div_mouseup_20_listener() {
-          return ctx.onMouseUp(ctx.$event);
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.onMouseUp(ctx.$event));
         });
         i0.ɵɵelementStart(21, 'p');
         i0.ɵɵtext(22, 'Mouse over this area');
@@ -318,24 +326,29 @@ export class EventBindingTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(30, 'input', 7);
         i0.ɵɵlistener('input', function EventBindingTest_Template_input_input_30_listener() {
-          return ctx.onInput(ctx.$event);
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.onInput(ctx.$event));
         });
         i0.ɵɵlistener('keydown', function EventBindingTest_Template_input_keydown_30_listener() {
-          return ctx.onKeyDown(ctx.$event);
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.onKeyDown(ctx.$event));
         });
         i0.ɵɵlistener('keyup', function EventBindingTest_Template_input_keyup_30_listener() {
-          return ctx.onKeyUp(ctx.$event);
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.onKeyUp(ctx.$event));
         });
         i0.ɵɵlistener(
           'keydown.enter',
           function EventBindingTest_Template_input_keydown_enter_30_listener() {
-            return ctx.onEnterKey();
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.onEnterKey());
           },
         );
         i0.ɵɵlistener(
           'keydown.escape',
           function EventBindingTest_Template_input_keydown_escape_30_listener() {
-            return ctx.onEscapeKey();
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.onEscapeKey());
           },
         );
         i0.ɵɵelementEnd();
@@ -356,10 +369,12 @@ export class EventBindingTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(43, 'input', 8);
         i0.ɵɵlistener('focus', function EventBindingTest_Template_input_focus_43_listener() {
-          return ctx.onFocus();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.onFocus());
         });
         i0.ɵɵlistener('blur', function EventBindingTest_Template_input_blur_43_listener() {
-          return ctx.onBlur();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.onBlur());
         });
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(44, 'p');
@@ -370,13 +385,15 @@ export class EventBindingTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(49, 'form', 9);
         i0.ɵɵlistener('submit', function EventBindingTest_Template_form_submit_49_listener() {
-          return ctx.onSubmit(ctx.$event);
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.onSubmit(ctx.$event));
         });
         i0.ɵɵelementStart(50, 'input', 10);
         i0.ɵɵlistener(
           'ngModelChange',
           function EventBindingTest_Template_input_ngModelChange_50_listener() {
-            return ctx.formValue;
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.formValue);
           },
         );
         i0.ɵɵelementEnd();
@@ -388,7 +405,8 @@ export class EventBindingTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(56, 'select', 12);
         i0.ɵɵlistener('change', function EventBindingTest_Template_select_change_56_listener() {
-          return ctx.onSelectChange(ctx.$event);
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.onSelectChange(ctx.$event));
         });
         i0.ɵɵelementStart(57, 'option', 13);
         i0.ɵɵtext(58, '-- Select --');
@@ -406,7 +424,8 @@ export class EventBindingTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(66, 'div')(67, 'label')(68, 'input', 17);
         i0.ɵɵlistener('change', function EventBindingTest_Template_input_change_68_listener() {
-          return ctx.onCheckboxChange(ctx.$event);
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.onCheckboxChange(ctx.$event));
         });
         i0.ɵɵelementEnd();
         i0.ɵɵtext(69, ' Check me ');
@@ -419,9 +438,12 @@ export class EventBindingTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(75, 'button', 2, 0);
         i0.ɵɵlistener('click', function EventBindingTest_Template_button_click_75_listener() {
-          return ctx.logEvent(
-            'click',
-            'Button at position: ' + ctx.$event.clientX + ',' + ctx.$event.clientY,
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(
+            ctx.logEvent(
+              'click',
+              'Button at position: ' + ctx.$event.clientX + ',' + ctx.$event.clientY,
+            ),
           );
         });
         i0.ɵɵtext(76, ' Click to log position ');
@@ -431,7 +453,8 @@ export class EventBindingTest {
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(80, 'button', 2);
         i0.ɵɵlistener('click', function EventBindingTest_Template_button_click_80_listener() {
-          return ctx.clearLog();
+          i0.ɵɵrestoreView(_r1);
+          return i0.ɵɵresetView(ctx.clearLog());
         });
         i0.ɵɵtext(81, 'Clear Log');
         i0.ɵɵelementEnd();
@@ -448,34 +471,34 @@ export class EventBindingTest {
       }
       if (rf & 2) {
         i0.ɵɵadvance(15);
-        i0.ɵɵtextInterpolate1('Click count: ', ctx.clickCount);
+        i0.ɵɵtextInterpolate1('Click count: ', ctx.clickCount, '');
         i0.ɵɵadvance();
         i0.ɵɵproperty('ngIf', ctx.lastClickTime);
         i0.ɵɵadvance(4);
         i0.ɵɵclassProp('hovering', ctx.isHovering);
         i0.ɵɵadvance(4);
-        i0.ɵɵtextInterpolate2('Position: X=', ctx.mousePosition.x, ', Y=', ctx.mousePosition.y);
+        i0.ɵɵtextInterpolate2('Position: X=', ctx.mousePosition.x, ', Y=', ctx.mousePosition.y, '');
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Hovering: ', ctx.isHovering ? 'Yes' : 'No');
+        i0.ɵɵtextInterpolate1('Hovering: ', ctx.isHovering ? 'Yes' : 'No', '');
         i0.ɵɵadvance(4);
         i0.ɵɵproperty('value', ctx.inputValue);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Input value: ', ctx.inputValue);
+        i0.ɵɵtextInterpolate1('Input value: ', ctx.inputValue, '');
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Last key: ', ctx.lastKeyPressed);
+        i0.ɵɵtextInterpolate1('Last key: ', ctx.lastKeyPressed, '');
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Total key presses: ', ctx.keyPressCount);
+        i0.ɵɵtextInterpolate1('Total key presses: ', ctx.keyPressCount, '');
         i0.ɵɵadvance(7);
         i0.ɵɵclassProp('focused', ctx.isFocused);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Input is ', ctx.isFocused ? 'focused' : 'not focused');
+        i0.ɵɵtextInterpolate1('Input is ', ctx.isFocused ? 'focused' : 'not focused', '');
         i0.ɵɵadvance(5);
         i0.ɵɵadvance(15);
         i0.ɵɵproperty('ngIf', ctx.selectedOption);
         i0.ɵɵadvance(3);
         i0.ɵɵproperty('checked', ctx.checkboxValue);
         i0.ɵɵadvance(3);
-        i0.ɵɵtextInterpolate1('Checkbox is: ', ctx.checkboxValue ? 'checked' : 'unchecked');
+        i0.ɵɵtextInterpolate1('Checkbox is: ', ctx.checkboxValue ? 'checked' : 'unchecked', '');
         i0.ɵɵadvance(8);
         i0.ɵɵtextInterpolate1('Event Log (Last ', ctx.maxLogEntries, ' events)');
         i0.ɵɵadvance(4);

@@ -73,7 +73,7 @@ function App_div_47_Template(rf, ctx) {
     const item_r4 = ctx.$implicit;
     const i_r5 = ctx.index;
     i0.ɵɵadvance();
-    i0.ɵɵtextInterpolate2('', item_r4.title, ' ', i_r5);
+    i0.ɵɵtextInterpolate2('', item_r4.title, ' ', i_r5, '');
   }
 }
 export class App {
@@ -350,9 +350,9 @@ export class App {
       }
       if (rf & 2) {
         i0.ɵɵadvance(20);
-        i0.ɵɵtextInterpolate1('Hello, ', ctx.title());
+        i0.ɵɵtextInterpolate1('Hello, ', ctx.title(), '');
         i0.ɵɵadvance(4);
-        i0.ɵɵtextInterpolate1('hello ', i0.ɵɵpipeBind2(25, 3, ctx.name, ctx.surname));
+        i0.ɵɵtextInterpolate1('hello ', i0.ɵɵpipeBind2(25, 3, ctx.name, ctx.surname), '');
         i0.ɵɵadvance(5);
         i0.ɵɵrepeater(
           i0.ɵɵpureFunction6(
