@@ -226,16 +226,35 @@ cargo test -p angular-compiler expression_parser
 
 ### December 2024 (Latest)
 
-- ✅ **Event Binding Emission**: Full support for `(click)="handler()"` with proper `ɵɵlistener()` emission and consts array extraction
-- ✅ **NgFor Index Variable**: Fixed `*ngFor="let item of items; index as i"` to correctly bind `i` to `ctx.index` instead of `ctx.$implicit`
-- ✅ **NgIf Directive**: Full support for `*ngIf` structural directive
-- ✅ **ConstsIndex for Elements**: Elements with event bindings now get proper constsIndex in `ɵɵelementStart()`
-- ✅ **Rolldown/Vite Integration**: Added Angular Linker plugin for Rolldown bundler compatibility
-- ✅ **Deterministic Build Output**: Fixed non-deterministic ordering of `inputs`, `outputs`, and template variables by replacing `HashMap` with `IndexMap`
-- ✅ **changeDetection Support**: Properly extract and emit `ChangeDetectionStrategy.OnPush` (as `changeDetection: 0`)
-- ✅ **$index/$count Ordering**: Fixed context variable ordering in `@for` loops to match official Angular compiler
-- ✅ **Signal Inputs/Outputs**: Full support for `input()` and `output()` signals
-- ✅ **NgFor Variable Optimization**: Optimized context access in listener functions (removed extraneous `nextContext()` calls) and fixed variable naming collision/reuse issues.
+#### NgFor Directive (`*ngFor`)
+
+- ✅ **Full Template Syntax**: `*ngFor="let item of items; index as i; first as isFirst; last as isLast; even as isEven; odd as isOdd; trackBy: trackFn"`
+- ✅ **Context Variables**: All loop variables (`$implicit`, `index`, `count`, `first`, `last`, `even`, `odd`) correctly mapped
+- ✅ **Source-Span Sorting**: Attributes in `consts` array are sorted by their source position in the template, ensuring parity with NGTSC
+- ✅ **Nested Loops**: Full support for nested `*ngFor` with correct view restoration
+- ✅ **Event Handlers Inside Loops**: Proper `getCurrentView()`/`restoreView()` emission for event handlers within loop bodies
+
+#### NgIf Directive (`*ngIf`)
+
+- ✅ **Basic Conditionals**: `*ngIf="condition"`
+- ✅ **Else Template**: `*ngIf="condition; else elseTemplate"` with `TemplateRef` extraction
+- ✅ **Then/Else Templates**: `*ngIf="condition; then thenTpl; else elseTpl"`
+- ✅ **As Syntax**: `*ngIf="user$ | async as user"` with local variable binding
+- ✅ **Nested NgIf**: Complex nested conditionals with proper context isolation
+
+#### Optimizations & Parity
+
+- ✅ **RestoreView Optimization**: Single-usage context variables are inlined (`const user = restoreView().$implicit`) while multi-usage retains separate statements
+- ✅ **Variable Naming Parity**: Global monotonic variable naming (`_r1`, `_r2`, ...) matches NGTSC exactly
+- ✅ **Consts Array Parity**: Attribute ordering and marker values (`3` for bindings, `4` for template directives) match NGTSC
+- ✅ **OnPush Optimization**: Root view listeners skip unnecessary `restoreView()`/`resetView()` calls for `OnPush` components
+
+#### Other Improvements
+
+- ✅ **Event Binding Emission**: Full support for `(click)="handler()"` with proper `ɵɵlistener()` emission
+- ✅ **Rolldown/Vite Integration**: Angular Linker plugin for Rolldown bundler compatibility
+- ✅ **Deterministic Build Output**: `HashMap` → `IndexMap` for consistent ordering of `inputs`, `outputs`
+- ✅ **Signal Inputs/Outputs**: Full support for `input()`, `input.required()`, and `output()` signals
 
 ---
 
