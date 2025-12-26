@@ -113,7 +113,7 @@ export class TwoWayBindingTest {
 	static ɵcmp = /* @__PURE__ */ i0.ɵɵdefineComponent({
 		type: TwoWayBindingTest,
 		selectors: [['app-two-way-binding-test']],
-		decls: 126,
+		decls: 125,
 		vars: 54,
 		consts: [
 			[1, 'two-way-binding-test'],
@@ -450,7 +450,7 @@ export class TwoWayBindingTest {
 				i0.ɵɵelementEnd();
 				i0.ɵɵelementStart(122, 'pre');
 				i0.ɵɵtext(123);
-				i0.ɵɵpipe(125, 'json');
+				i0.ɵɵpipe(124, 'json');
 				i0.ɵɵelementEnd()()();
 			}
 			if (rf & 2) {
@@ -504,7 +504,7 @@ export class TwoWayBindingTest {
 				i0.ɵɵadvance(2);
 				i0.ɵɵtextInterpolate1('Selected: ', ctx.favoriteColor, '');
 				i0.ɵɵadvance(5);
-				i0.ɵɵtextInterpolate(i0.ɵɵpipeBind1(125, 38, i0.ɵɵpureFunctionV(40, _c0, [
+				i0.ɵɵtextInterpolate(i0.ɵɵpipeBind1(124, 38, i0.ɵɵpureFunctionV(40, _c0, [
 					ctx.name,
 					ctx.email,
 					ctx.age,

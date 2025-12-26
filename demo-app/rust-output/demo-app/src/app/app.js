@@ -44,11 +44,11 @@ const _c6 = (a0, a1, a2, a3, a4, a5) => [
 const _forTrack0 = ($index, $item) => $item.title;
 function App_For_30_Template(rf, ctx) {
 	if (rf & 1) {
-		i0.ɵɵelementStart(0, 'a', 34)(1, 'span');
+		i0.ɵɵelementStart(0, 'a', 21)(1, 'span');
 		i0.ɵɵtext(2);
 		i0.ɵɵelementEnd();
 		i0.ɵɵnamespaceSVG();
-		i0.ɵɵelementStart(3, 'svg', 35)(4, 'path', 36);
+		i0.ɵɵelementStart(3, 'svg', 34)(4, 'path', 35);
 		i0.ɵɵelementEnd()()();
 	}
 	if (rf & 2) {
@@ -62,7 +62,7 @@ function App_For_30_Template(rf, ctx) {
 }
 function App_div_47_Template(rf, ctx) {
 	if (rf & 1) {
-		i0.ɵɵelementStart(0, 'div', 37);
+		i0.ɵɵelementStart(0, 'div', 36);
 		i0.ɵɵtext(1);
 		i0.ɵɵelementEnd();
 	}
@@ -107,7 +107,7 @@ export class App {
 	static ɵcmp = /* @__PURE__ */ i0.ɵɵdefineComponent({
 		type: App,
 		selectors: [['app-root']],
-		decls: 53,
+		decls: 52,
 		vars: 19,
 		consts: [
 			[1, 'main'],
@@ -217,7 +217,16 @@ export class App {
 			],
 			[1, 'right-side'],
 			[1, 'pill-group'],
-			[3, 'href'],
+			[
+				'target',
+				'_blank',
+				'rel',
+				'noopener',
+				1,
+				'pill',
+				3,
+				'href'
+			],
 			[1, 'social-links'],
 			[
 				'href',
@@ -315,16 +324,6 @@ export class App {
 				'ngForOf'
 			],
 			[
-				'target',
-				'_blank',
-				'rel',
-				'noopener',
-				1,
-				'pill',
-				3,
-				'href'
-			],
-			[
 				'xmlns',
 				'http://www.w3.org/2000/svg',
 				'height',
@@ -372,7 +371,7 @@ export class App {
 				i0.ɵɵelementEnd();
 				i0.ɵɵelementStart(23, 'p');
 				i0.ɵɵtext(24);
-				i0.ɵɵpipe(52, 'fullName');
+				i0.ɵɵpipe(25, 'fullName');
 				i0.ɵɵelementEnd()();
 				i0.ɵɵelementStart(26, 'div', 18);
 				i0.ɵɵelementEnd();
@@ -418,7 +417,7 @@ export class App {
 				i0.ɵɵadvance(20);
 				i0.ɵɵtextInterpolate1('Hello, ', ctx.title(), '');
 				i0.ɵɵadvance(4);
-				i0.ɵɵtextInterpolate1('hello ', i0.ɵɵpipeBind2(52, 3, ctx.name, ctx.surname), '');
+				i0.ɵɵtextInterpolate1('hello ', i0.ɵɵpipeBind2(25, 3, ctx.name, ctx.surname), '');
 				i0.ɵɵadvance(5);
 				i0.ɵɵrepeater(i0.ɵɵpureFunction6(12, _c6, i0.ɵɵpureFunction0(6, _c0), i0.ɵɵpureFunction0(7, _c1), i0.ɵɵpureFunction0(8, _c2), i0.ɵɵpureFunction0(9, _c3), i0.ɵɵpureFunction0(10, _c4), i0.ɵɵpureFunction0(11, _c5)));
 				i0.ɵɵadvance(18);
