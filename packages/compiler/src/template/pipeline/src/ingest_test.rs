@@ -31,6 +31,7 @@ mod tests {
             None, // all_deferrable_deps_fn
             Some("test.html".to_string()),
             false, // enable_debug_locations
+            None,  // change_detection
         );
 
         // Verify Structure

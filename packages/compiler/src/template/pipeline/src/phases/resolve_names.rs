@@ -393,8 +393,10 @@ fn transform_lexical_reads_in_op(
                         restore_view_xref, saved_view
                     );
                     if let Some(saved) = saved_view {
-                        if saved.view == *restore_view_xref {
-                            println!("DEBUG resolve_names: Matched! Replacing with ReadVariable xref={:?}", saved.variable);
+                        // RestoreViewExpr now contains saved_view_xref (the variable xref)
+                        // instead of unit_xref (the view xref), so we match by variable
+                        if saved.variable == *restore_view_xref {
+                            println!("DEBUG resolve_names: Matched by variable! Replacing with ReadVariable xref={:?}", saved.variable);
                             return Expression::RestoreView(ir::expression::RestoreViewExpr {
                                 view: EitherXrefIdOrExpression::Expression(Box::new(
                                     Expression::ReadVariable(ReadVariableExpr {
@@ -408,8 +410,8 @@ fn transform_lexical_reads_in_op(
                             });
                         } else {
                             println!(
-                                "DEBUG resolve_names: SavedView.view={:?} != RestoreView.xref={:?}",
-                                saved.view, restore_view_xref
+                                "DEBUG resolve_names: SavedView.variable={:?} != RestoreView.xref={:?}",
+                                saved.variable, restore_view_xref
                             );
                         }
                     } else {

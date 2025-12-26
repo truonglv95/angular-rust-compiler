@@ -75,8 +75,8 @@ use crate::template::pipeline::src::compilation::ComponentCompilationJob;
 pub fn run(job: &mut ComponentCompilationJob) {
     // Simplified phase order for vars debugging
     pure_literal_structures::phase(job);
-    save_restore_view::save_and_restore_view(job); // Save/restore view for listeners in embedded views - MUST run before generate_variables
     generate_variables::phase(job); // Generate context variables including $implicit
+    save_restore_view::save_and_restore_view(job); // Save/restore view for listeners - MUST run AFTER generate_variables so RestoreView is prepended last (appears first)
     resolve_names::phase(job);
     resolve_contexts::phase(job);
 

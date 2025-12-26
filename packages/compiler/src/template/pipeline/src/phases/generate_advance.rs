@@ -366,52 +366,12 @@ fn get_target_from_update_op(
 /// This is done by downcasting to concrete types and checking expressions directly,
 /// avoiding the need for unsafe mutable reference casting.
 fn check_expressions_for_reference_in_update_op(
-    op: &Box<dyn ir::UpdateOp + Send + Sync>,
+    _op: &Box<dyn ir::UpdateOp + Send + Sync>,
 ) -> (Option<ir::XrefId>, Option<ParseSourceSpan>) {
-    unsafe {
-        let op_ptr = op.as_ref() as *const dyn ir::UpdateOp;
-
-        match op.kind() {
-            OpKind::Binding => {
-                use crate::template::pipeline::ir::ops::update::BindingOp;
-                let binding_ptr = op_ptr as *const BindingOp;
-                let binding = &*binding_ptr;
-
-                match &binding.expression {
-                    crate::template::pipeline::ir::ops::update::BindingExpression::Expression(expr) => {
-                        check_expression_recursive_for_reference(expr)
-                    }
-                    crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(interp) => {
-                        // Check all expressions in interpolation
-                        for expr in &interp.expressions {
-                            let result = check_expression_recursive_for_reference(expr);
-                            if result.0.is_some() {
-                                return result;
-                            }
-                        }
-                        (None, None)
-                    }
-                }
-            }
-            OpKind::Statement => {
-                use crate::template::pipeline::ir::ops::shared::StatementOp;
-                let stmt_ptr = op_ptr as *const StatementOp<Box<dyn ir::UpdateOp + Send + Sync>>;
-                let stmt = &*stmt_ptr;
-                check_statement_for_reference(&stmt.statement)
-            }
-            OpKind::Variable => {
-                use crate::template::pipeline::ir::ops::shared::VariableOp;
-                let var_ptr = op_ptr as *const VariableOp<Box<dyn ir::UpdateOp + Send + Sync>>;
-                let var = &*var_ptr;
-                check_expression_recursive_for_reference(&var.initializer)
-            }
-            _ => {
-                // For other op types, we don't check expressions
-                // Most ops that depend on slot context implement DependsOnSlotContextOpTrait directly
-                (None, None)
-            }
-        }
-    }
+    // ReferenceExpr does not actually depend on the slot context in Ivy.
+    // ɵɵreference(index) can be called from any context.
+    // Therefore, we should not advance to the reference's target slot.
+    (None, None)
 }
 
 /// Recursively check an expression for ReferenceExpr

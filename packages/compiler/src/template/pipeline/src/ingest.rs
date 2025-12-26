@@ -4,6 +4,7 @@
 //! Converts R3 AST nodes into IR operations
 
 use crate::constant_pool::ConstantPool;
+use crate::core::ChangeDetectionStrategy;
 use crate::expression_parser::ast::{ParsedEvent, ParsedProperty, AST as ExprAST};
 use crate::i18n::i18n_ast::{I18nMeta, Node as I18nNode};
 use crate::ml_parser::tags::split_ns_name;
@@ -63,6 +64,7 @@ pub fn ingest_component(
     all_deferrable_deps_fn: Option<Expression>,
     relative_template_path: Option<String>,
     enable_debug_locations: bool,
+    change_detection: Option<ChangeDetectionStrategy>,
 ) -> ComponentCompilationJob {
     if component_name.contains("NgForTest") {}
     let mut job = ComponentCompilationJob::new(
@@ -76,6 +78,7 @@ pub fn ingest_component(
         all_deferrable_deps_fn,
         relative_template_path,
         enable_debug_locations,
+        change_detection,
     );
 
     // Ingest nodes into root using Safe XrefId approach
@@ -1547,6 +1550,7 @@ fn ingest_control_flow_insertion_point_from_children(
                                                 None, // i18n_context
                                                 i18n_message.clone(),
                                                 vec![security_context.clone()],
+                                                None, // source_span - derived from class literal?
                                             );
                                         push_create_op(job, unit_xref, extracted_attr_op);
                                     }
@@ -1564,6 +1568,7 @@ fn ingest_control_flow_insertion_point_from_children(
                             None, // i18n_context
                             i18n_message,
                             vec![security_context],
+                            Some(attr.source_span.clone()),
                         );
                         push_create_op(job, unit_xref, extracted_attr_op);
                     }
@@ -1583,9 +1588,10 @@ fn ingest_control_flow_insertion_point_from_children(
                             None, // name
                             input.name.clone(),
                             None, // value
+                            None, // i18n_context
                             None, // i18n_message
-                            None, // source_span
                             vec![security_context],
+                            Some(input.source_span.clone()),
                         );
                         push_create_op(job, unit_xref, extracted_attr_op);
                     }
@@ -1631,6 +1637,7 @@ fn ingest_control_flow_insertion_point_from_children(
                             None, // i18n_context
                             i18n_message,
                             vec![security_context],
+                            Some(attr.source_span.clone()),
                         );
                         push_create_op(job, unit_xref, extracted_attr_op);
                     }
@@ -1650,9 +1657,10 @@ fn ingest_control_flow_insertion_point_from_children(
                             None,
                             input.name.clone(),
                             None,
-                            None,
-                            None,
+                            None, // i18n_context
+                            None, // i18n_message
                             vec![security_context],
+                            Some(input.source_span.clone()),
                         );
                         push_create_op(job, unit_xref, extracted_attr_op);
                     }
@@ -2353,6 +2361,28 @@ fn ingest_template_events(
                     output.source_span.clone(),
                 );
                 push_create_op(job, unit_xref, animation_listener_op);
+            } else if let ParsedEventType::Regular = output.type_ {
+                // For regular events on structural directives, we don't create a ListenerOp
+                // because the listener belongs to the element inside the views.
+                // HOWEVER, the presence of the binding must be recorded in the `consts` array
+                // for directive matching purposes. So we manually create an ExtractedAttributeOp.
+
+                // We need to access SecurityContext but don't have schema registry here easily.
+                // Listeners typically have SecurityContext::NONE.
+                use crate::core::SecurityContext;
+
+                let extracted_attr_op = ir::ops::create::create_extracted_attribute_op(
+                    template_xref,
+                    ir::BindingKind::Property, // Listeners are treated as properties in consts
+                    None,
+                    output.name.clone(),
+                    None,
+                    None,
+                    None, // i18n_message
+                    vec![SecurityContext::NONE],
+                    Some(output.source_span.clone()),
+                );
+                push_create_op(job, unit_xref, extracted_attr_op);
             }
         }
     }
@@ -2435,6 +2465,7 @@ fn ingest_template_bindings(
                 None, // i18n_context
                 None, // i18n_message
                 vec![input.security_context],
+                Some(input.source_span.clone()),
             );
             push_create_op(job, unit_xref, extracted_op);
             continue;
@@ -2595,6 +2626,7 @@ fn ingest_template_bindings(
                         None, // i18n_context
                         None, // i18n_message
                         vec![crate::core::SecurityContext::NONE],
+                        Some(bound_attr.source_span.clone()),
                     );
                     push_create_op(job, unit_xref, extracted_op);
                 }

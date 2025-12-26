@@ -8,8 +8,10 @@ use crate::output::output_ast::{
     Expression, LiteralArrayExpr, LiteralExpr, LiteralValue, TaggedTemplateLiteralExpr,
     TemplateLiteral, TemplateLiteralElement,
 };
+use crate::parse_util::ParseSourceSpan;
 use crate::template::pipeline::ir;
 use crate::template::pipeline::ir::enums::{BindingKind, OpKind};
+use crate::template::pipeline::ir::operations::Op;
 use crate::template::pipeline::ir::ops::create::{ExtractedAttributeOp, ProjectionOp};
 use crate::template::pipeline::src::compilation::{
     CompilationJob, CompilationJobKind, CompilationUnit, ComponentCompilationJob,
@@ -62,6 +64,7 @@ impl ElementAttributes {
         value: Option<Expression>,
         namespace: Option<String>,
         trusted_value_fn: Option<Expression>,
+        source_span: Option<ParseSourceSpan>,
     ) {
         // Check for duplicates (except in compatibility mode for some binding kinds)
         let allow_duplicates = self.compatibility
@@ -116,7 +119,7 @@ impl ElementAttributes {
         array.push(Expression::Literal(LiteralExpr {
             value: LiteralValue::String(name),
             type_: None,
-            source_span: None,
+            source_span,
         }));
 
         // Add value for attribute and style properties
@@ -200,6 +203,7 @@ pub fn collect_element_consts(job: &mut dyn CompilationJob) {
                     extracted_attr.expression.clone(),
                     extracted_attr.namespace.clone(),
                     extracted_attr.trusted_value_fn.clone(),
+                    extracted_attr.source_span().cloned(),
                 );
 
                 indices_to_remove.push(index);
@@ -604,7 +608,44 @@ fn serialize_attributes(attrs: ElementAttributes) -> LiteralArrayExpr {
             type_: None,
             source_span: None,
         }));
-        attr_array.extend(attrs.bindings);
+
+        // Sort bindings alphabetically for deterministic output and parity with NGTSC
+        // We need to clone to sort, or sort in place if mutable
+        // attrs was passed by value but we already moved collections out of it except bindings?
+        // attrs.bindings is a Vec<Expression>. We need to sort based on the source span of the literal.
+        let mut sorted_bindings = attrs.bindings;
+        sorted_bindings.sort_by(|a, b| {
+            let get_span = |expr: &Expression| -> Option<ParseSourceSpan> {
+                match expr {
+                    Expression::Literal(l) => l.source_span.clone(),
+                    _ => None,
+                }
+            };
+
+            let span_a = get_span(a);
+            let span_b = get_span(b);
+
+            match (span_a, span_b) {
+                (Some(sa), Some(sb)) => sa.start.offset.cmp(&sb.start.offset),
+                (Some(_), None) => std::cmp::Ordering::Less, // Spanned comes first? Or last?
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => {
+                    // Fallback to alphabetical for determinism if no span
+                    let get_str = |expr: &Expression| -> String {
+                        match expr {
+                            Expression::Literal(l) => match &l.value {
+                                LiteralValue::String(s) => s.clone(),
+                                _ => String::new(),
+                            },
+                            _ => String::new(),
+                        }
+                    };
+                    get_str(a).cmp(&get_str(b))
+                }
+            }
+        });
+
+        attr_array.extend(sorted_bindings);
     }
 
     // Add template marker and template

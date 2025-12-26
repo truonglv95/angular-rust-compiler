@@ -62,10 +62,7 @@ fn process_lexical_scope(
     let unit_xref = unit.xref();
 
     // The current view's context is accessible via the `ctx` parameter.
-    println!(
-        "DEBUG resolve_contexts: scope.insert current_view={:?} -> ReadVar(ctx)",
-        unit_xref
-    );
+
     scope.insert(
         unit_xref,
         Expression::ReadVar(crate::output::output_ast::ReadVarExpr {
@@ -87,7 +84,6 @@ fn process_lexical_scope(
                 if matches!(variable_op.variable.kind(), SemanticVariableKind::Context) {
                     // Get the view from the variable
                     if let ir::SemanticVariable::Context(ctx_var) = &variable_op.variable {
-                        println!("DEBUG resolve_contexts: scope.insert view={:?} -> ReadVariable({:?}) (from create)", ctx_var.view, variable_op.xref);
                         scope.insert(
                             ctx_var.view,
                             Expression::ReadVariable(ReadVariableExpr {
@@ -218,16 +214,22 @@ fn process_listener_scope(
     }
 }
 
+use crate::template::pipeline::ir::expression::visit_expressions_in_op;
+
 fn process_ops_with_scope(
     handler_ops: &mut ir::OpList<Box<dyn ir::UpdateOp + Send + Sync>>,
     parent_scope: &std::collections::HashMap<ir::XrefId, Expression>,
     _label: &str,
 ) {
+    // Pass 0: Count context usages to determine inlining eligibility
+    let usage_counts = count_context_usages(handler_ops);
+
     // Build scope from handler_ops VariableOps
     let mut scope = parent_scope.clone();
+    let mut indices_to_remove = Vec::new();
 
     // First pass: collect VariableOps with Context or SavedView variables
-    for handler_op in handler_ops.iter() {
+    for (i, handler_op) in handler_ops.iter().enumerate() {
         if handler_op.kind() == OpKind::Variable {
             unsafe {
                 let handler_op_ptr = handler_op.as_ref() as *const dyn ir::UpdateOp;
@@ -238,14 +240,27 @@ fn process_ops_with_scope(
                 match &variable_op.variable {
                     ir::SemanticVariable::Context(ctx_var) => {
                         // For RestoreView initializer (embedded view context):
-                        // Store the restoreView() expression directly so ContextExpr
-                        // resolves to restoreView().$implicit (chained pattern)
-                        //
-                        // For NextContext initializer (parent scope context):
-                        // Store ReadVariable so a separate variable is created like NGTSC's
-                        // `const ctx_r9 = nextContext();` followed by `ctx_r9.method()`
+                        // Check usage count to decide on inlining.
                         if matches!(*variable_op.initializer, Expression::RestoreView(_)) {
-                            scope.insert(ctx_var.view, (*variable_op.initializer).clone());
+                            let count = usage_counts.get(&ctx_var.view).copied().unwrap_or(0);
+
+                            if count == 1 {
+                                // EXACTLY ONE usage: Inline it!
+                                // "const user = restoreView().$implicit"
+                                scope.insert(ctx_var.view, (*variable_op.initializer).clone());
+                                indices_to_remove.push(i);
+                            } else {
+                                // 0 usages (side-effect only) OR >1 usages (avoid code duplication)
+                                // Keep the variable, map context to ReadVariable
+                                scope.insert(
+                                    ctx_var.view,
+                                    Expression::ReadVariable(ReadVariableExpr {
+                                        xref: variable_op.xref,
+                                        name: variable_op.variable.name().map(|s| s.to_string()),
+                                        source_span: None,
+                                    }),
+                                );
+                            }
                         } else {
                             // NextContext or other - keep as ReadVariable for named variable
                             scope.insert(
@@ -274,38 +289,33 @@ fn process_ops_with_scope(
         }
     }
 
+    // Remove inlined variable ops (reverse order to keep indices valid)
+    for index in indices_to_remove.iter().rev() {
+        handler_ops.remove_at(*index);
+    }
+
     // Second pass: transform context expressions using the built scope
     for handler_op in handler_ops.iter_mut() {
         transform_context_exprs_in_op(handler_op.as_mut(), &scope);
     }
+}
 
-    // Third pass: remove only Context VariableOps with RestoreView initializer since their values
-    // have been inlined. Keep Context VariableOps with NextContext initializer as they need to be
-    // emitted as named variables (like NGTSC's `const ctx_r9 = nextContext();`)
-    let mut indices_to_remove = Vec::new();
-    for (index, handler_op) in handler_ops.iter().enumerate() {
-        if handler_op.kind() == OpKind::Variable {
-            unsafe {
-                let handler_op_ptr = handler_op.as_ref() as *const dyn ir::UpdateOp;
-                let variable_op_ptr =
-                    handler_op_ptr as *const VariableOp<Box<dyn ir::UpdateOp + Send + Sync>>;
-                let variable_op = &*variable_op_ptr;
-
-                if matches!(variable_op.variable, ir::SemanticVariable::Context(_)) {
-                    // Only remove if initializer is RestoreView (embedded view context)
-                    // Keep if initializer is NextContext (parent scope context)
-                    if matches!(*variable_op.initializer, Expression::RestoreView(_)) {
-                        indices_to_remove.push(index);
-                    }
+fn count_context_usages(
+    ops: &mut ir::OpList<Box<dyn ir::UpdateOp + Send + Sync>>,
+) -> std::collections::HashMap<ir::XrefId, usize> {
+    let mut counts = std::collections::HashMap::new();
+    for op in ops.iter_mut() {
+        unsafe {
+            let op_ptr = op.as_mut() as *mut dyn ir::UpdateOp;
+            let op_ptr = op_ptr as *mut dyn ir::Op;
+            visit_expressions_in_op(&mut *op_ptr, &mut |expr, _flags| {
+                if let Expression::Context(ref ctx_expr) = expr {
+                    *counts.entry(ctx_expr.view).or_insert(0) += 1;
                 }
-            }
+            });
         }
     }
-    // Remove in reverse order to maintain correct indices
-    indices_to_remove.reverse();
-    for index in indices_to_remove {
-        handler_ops.remove_at(index);
-    }
+    counts
 }
 
 fn process_repeater_scope(

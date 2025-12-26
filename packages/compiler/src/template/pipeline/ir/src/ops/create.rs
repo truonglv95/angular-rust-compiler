@@ -2087,6 +2087,8 @@ pub struct ExtractedAttributeOp {
     pub trusted_value_fn: Option<OutputExpression>,
     /// i18n message
     pub i18n_message: Option<I18nMessage>,
+    /// Source span
+    pub source_span: Option<ParseSourceSpan>,
 }
 
 impl ExtractedAttributeOp {
@@ -2099,6 +2101,7 @@ impl ExtractedAttributeOp {
         i18n_context: Option<XrefId>,
         i18n_message: Option<I18nMessage>,
         security_context: Vec<SecurityContext>,
+        source_span: Option<ParseSourceSpan>,
     ) -> Self {
         ExtractedAttributeOp {
             target,
@@ -2110,6 +2113,7 @@ impl ExtractedAttributeOp {
             security_context,
             trusted_value_fn: None,
             i18n_message,
+            source_span,
         }
     }
 }
@@ -2128,7 +2132,7 @@ impl Op for ExtractedAttributeOp {
     }
 
     fn source_span(&self) -> Option<&ParseSourceSpan> {
-        None
+        self.source_span.as_ref()
     }
 }
 
@@ -2151,6 +2155,7 @@ pub fn create_extracted_attribute_op(
     i18n_context: Option<XrefId>,
     i18n_message: Option<I18nMessage>,
     security_context: Vec<SecurityContext>,
+    source_span: Option<ParseSourceSpan>,
 ) -> Box<dyn CreateOp + Send + Sync> {
     Box::new(ExtractedAttributeOp::new(
         target,
@@ -2161,6 +2166,7 @@ pub fn create_extracted_attribute_op(
         i18n_context,
         i18n_message,
         security_context,
+        source_span,
     ))
 }
 

@@ -423,6 +423,12 @@ impl ComponentDecoratorHandler {
             None, // all_deferrable_deps_fn
             r3_metadata.relative_template_path.clone(),
             false, // enable_debug_locations
+            r3_metadata.change_detection.as_ref().map(|cd| match cd {
+                angular_compiler::render3::view::api::ChangeDetectionOrExpression::Strategy(s) => {
+                    *s
+                }
+                _ => angular_compiler::core::ChangeDetectionStrategy::Default,
+            }),
         );
 
         // 2. Run all pipeline phases

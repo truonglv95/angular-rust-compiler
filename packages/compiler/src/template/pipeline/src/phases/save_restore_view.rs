@@ -5,6 +5,7 @@
 //! view should save the current view, and each listener must have the ability to restore the
 //! appropriate view. We eagerly generate all save view variables; they will be optimized away later.
 
+use crate::core::ChangeDetectionStrategy;
 use crate::output::output_ast::{Expression, Statement};
 use crate::template::pipeline::ir;
 use crate::template::pipeline::ir::enums::{OpKind, VariableFlags};
@@ -16,7 +17,7 @@ use crate::template::pipeline::ir::ops::create::{
 };
 use crate::template::pipeline::ir::ops::shared::{create_variable_op, StatementOp, VariableOp};
 use crate::template::pipeline::ir::variable::{
-    ContextVariable, SavedViewVariable, SemanticVariable,
+    ContextVariable, IdentifierVariable, SavedViewVariable, SemanticVariable,
 };
 use crate::template::pipeline::src::compilation::{
     CompilationJob, CompilationJobKind, CompilationUnit, ComponentCompilationJob,
@@ -75,10 +76,7 @@ fn process_unit(
     // Prepend a variable op with SavedView for this unit FIRST
     // (before collecting op indices, since prepend may reallocate)
     let saved_view_xref = component_job.allocate_xref_id();
-    println!(
-        "DEBUG save_restore_view: unit_xref={:?}, saved_view_xref={:?}, is_root={}",
-        unit_xref, saved_view_xref, is_root
-    );
+
     let saved_view_variable = SemanticVariable::SavedView(SavedViewVariable::new(unit_xref));
     let get_current_view_expr = Expression::GetCurrentView(GetCurrentViewExpr::new());
 
@@ -103,17 +101,11 @@ fn process_unit(
             | OpKind::TwoWayListener
             | OpKind::Animation
             | OpKind::AnimationListener => {
-                // Embedded views always need the save/restore view operation.
-                let mut needs_restore_view = !is_root;
+                // NGTSC always wraps listeners with restoreView/resetView pattern,
+                // regardless of whether they are in root or embedded views.
+                // This ensures consistent behavior and proper view context handling.
 
-                if !needs_restore_view {
-                    // Check if handler ops contain ReferenceExpr or ContextLetReferenceExpr
-                    needs_restore_view = check_needs_restore_view(op);
-                }
-
-                if needs_restore_view {
-                    ops_needing_restore_view_indices.push(idx);
-                }
+                ops_needing_restore_view_indices.push(idx);
             }
             _ => {}
         }
@@ -127,7 +119,12 @@ fn process_unit(
         unsafe {
             let unit_ref = &mut *unit_ptr;
             if let Some(op) = unit_ref.create_mut().get_mut(idx) {
-                add_save_restore_view_operation_to_listener(unit_ptr, op, component_job_ptr);
+                add_save_restore_view_operation_to_listener(
+                    unit_ptr,
+                    op,
+                    component_job_ptr,
+                    saved_view_xref,
+                );
             }
         }
     }
@@ -397,17 +394,47 @@ unsafe fn add_save_restore_view_operation_to_listener(
     unit_ptr: *mut crate::template::pipeline::src::compilation::ViewCompilationUnit,
     op: &mut Box<dyn ir::CreateOp + Send + Sync>,
     component_job_ptr: *mut ComponentCompilationJob,
+    saved_view_xref: ir::XrefId,
 ) {
     let unit = &mut *unit_ptr;
     let unit_xref = unit.xref();
     let context_xref = unsafe { (&mut *component_job_ptr).allocate_xref_id() };
-    println!(
-        "DEBUG save_restore_view: Creating RestoreView - unit_xref={:?}, context_xref={:?}",
-        unit_xref, context_xref
-    );
-    let context_variable = SemanticVariable::Context(ContextVariable::new(unit_xref));
+
+    let root_xref = unsafe { (&*component_job_ptr).root.xref() };
+    let change_detection = unsafe { (&*component_job_ptr).change_detection };
+
+    // Optimization: For OnPush components, listeners in the root view that only access state
+    // via ctx (which is captured) do not need to restore the view or use resetView.
+    // This matches NGTSC behavior.
+    if unit_xref == root_xref && change_detection == Some(ChangeDetectionStrategy::OnPush) {
+        return;
+    }
+
+    let context_variable = if unit_xref == root_xref {
+        // For the root view, we want to use the generic 'ctx' available in the closure,
+        // so we treat the restoreView result as a generic IdentifierVariable that isn't
+        // mapped by resolve_contexts.
+        SemanticVariable::Identifier(IdentifierVariable::new(
+            "restored_ctx".to_string(), // Name doesn't matter much as it won't be used for lookup
+            true,
+        ))
+    } else {
+        // For embedded views, we need to map all context accesses to this variable,
+        // so we use ContextVariable.
+        // Explicitly name it "ctx" to match NGTSC and avoid consuming a numbered index (e.g. _r9)
+        let mut cv = ContextVariable::new(unit_xref);
+        cv.name = Some("ctx".to_string());
+        SemanticVariable::Context(cv)
+    };
+
+    // Use saved_view_xref to reference the variable holding getCurrentView() result.
+    // We MUST use ReadVariable here so that validation phases (like variable_optimization)
+    // can see that the variable is being used. If we used raw XrefId, it would be invisible
+    // to visitors and the variable would be incorrectly removed as dead code.
     let restore_view_expr = Expression::RestoreView(RestoreViewExpr::new(
-        EitherXrefIdOrExpression::XrefId(unit_xref),
+        EitherXrefIdOrExpression::Expression(Box::new(Expression::ReadVariable(
+            crate::template::pipeline::ir::expression::ReadVariableExpr::new(saved_view_xref),
+        ))),
     ));
 
     let variable_op = create_variable_op::<Box<dyn ir::UpdateOp + Send + Sync>>(

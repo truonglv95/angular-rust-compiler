@@ -4,6 +4,7 @@
 //! Contains the core compilation structures for template pipeline
 
 use crate::constant_pool::ConstantPool;
+use crate::core::ChangeDetectionStrategy;
 use crate::output::output_ast::Expression;
 use crate::render3::view::api::R3ComponentDeferMetadata;
 use crate::template::pipeline::ir;
@@ -76,6 +77,7 @@ pub struct ComponentCompilationJob {
     pub all_deferrable_deps_fn: Option<Expression>,
     pub relative_template_path: Option<String>,
     pub enable_debug_locations: bool,
+    pub change_detection: Option<ChangeDetectionStrategy>,
 
     pub root: ViewCompilationUnit,
     pub views: indexmap::IndexMap<ir::XrefId, ViewCompilationUnit>,
@@ -98,6 +100,7 @@ impl ComponentCompilationJob {
         all_deferrable_deps_fn: Option<Expression>,
         relative_template_path: Option<String>,
         enable_debug_locations: bool,
+        change_detection: Option<ChangeDetectionStrategy>,
     ) -> Self {
         let root_xref = ir::XrefId::new(0);
         let root = ViewCompilationUnit::new(root_xref, None);
@@ -118,6 +121,7 @@ impl ComponentCompilationJob {
             all_deferrable_deps_fn,
             relative_template_path,
             enable_debug_locations,
+            change_detection,
             root,
             views,
             content_selectors: None,

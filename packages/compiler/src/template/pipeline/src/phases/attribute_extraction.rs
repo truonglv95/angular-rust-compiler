@@ -7,6 +7,7 @@ use crate::core::SecurityContext;
 use crate::output::output_ast::ExpressionTrait;
 use crate::template::pipeline::ir;
 use crate::template::pipeline::ir::enums::{BindingKind, OpKind};
+use crate::template::pipeline::ir::operations::Op;
 use crate::template::pipeline::ir::ops::create::{
     create_extracted_attribute_op, ListenerOp, TwoWayListenerOp,
 };
@@ -122,6 +123,7 @@ fn process_unit(
                                         attr_op.i18n_context,
                                         attr_op.i18n_message.clone(),
                                         attr_op.security_context.clone(),
+                                        attr_op.source_span().cloned(),
                                     );
                                     extracted_attributes
                                         .entry(attr_op.target)
@@ -144,6 +146,7 @@ fn process_unit(
                     attr_op.i18n_context,
                     attr_op.i18n_message.clone(),
                     attr_op.security_context.clone(),
+                    attr_op.source_span().cloned(),
                 );
                 extracted_attributes
                     .entry(attr_op.target)
@@ -173,6 +176,7 @@ fn process_unit(
                     prop_op.i18n_context,
                     None,
                     prop_op.security_context.clone(),
+                    prop_op.source_span().cloned(),
                 );
                 extracted_attributes
                     .entry(prop_op.target)
@@ -189,6 +193,7 @@ fn process_unit(
                 None,
                 None,
                 control_op.security_context.clone(),
+                control_op.source_span().cloned(),
             );
             extracted_attributes
                 .entry(control_op.target)
@@ -204,6 +209,7 @@ fn process_unit(
                 None,
                 None,
                 twoway_op.security_context.clone(),
+                twoway_op.source_span().cloned(),
             );
             extracted_attributes
                 .entry(twoway_op.target)
@@ -220,6 +226,7 @@ fn process_unit(
                     None,
                     None,
                     vec![SecurityContext::NONE],
+                    listener_op.source_span().cloned(),
                 );
 
                 if job_kind == CompilationJobKind::Host {
@@ -249,6 +256,7 @@ fn process_unit(
                         None,
                         None,
                         vec![SecurityContext::STYLE],
+                        style_op.source_span().cloned(),
                     );
                     extracted_attributes
                         .entry(style_op.target)
@@ -269,6 +277,7 @@ fn process_unit(
                         None,
                         None,
                         vec![SecurityContext::STYLE],
+                        class_op.source_span().cloned(),
                     );
                     extracted_attributes
                         .entry(class_op.target)
@@ -293,6 +302,7 @@ fn process_unit(
                     None,
                     None,
                     vec![SecurityContext::NONE],
+                    listener_op.source_span().cloned(),
                 );
                 extracted_attributes
                     .entry(listener_op.target)
@@ -311,6 +321,7 @@ fn process_unit(
                 None,
                 None,
                 vec![SecurityContext::NONE],
+                twoway_listener.source_span().cloned(),
             );
             extracted_attributes
                 .entry(twoway_listener.target)

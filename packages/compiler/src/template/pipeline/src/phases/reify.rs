@@ -298,8 +298,6 @@ fn reify_create_operations(
                             use crate::template::pipeline::ir::ops::shared::VariableOp;
                             use crate::template::pipeline::ir::SemanticVariable;
 
-                            // 3. Fallback to normal DeclareVar (only for UpdateOp as per original logic)
-                            // 3. Fallback to normal DeclareVar (only for UpdateOp as per original logic)
                             if let Some(var_op) = handler_op
                                 .as_any()
                                 .downcast_ref::<VariableOp<Box<dyn ir::UpdateOp + Send + Sync>>>()
@@ -313,28 +311,34 @@ fn reify_create_operations(
                                     SemanticVariable::SavedView(_) => None,
                                 };
 
-                                if let Some(name) = var_name {
-                                    let reified_initializer = reify_ir_expression(
-                                        *var_op.initializer.clone(),
-                                        ir::VisitorContextFlag::NONE,
-                                    );
+                                let reified_initializer = reify_ir_expression(
+                                    *var_op.initializer.clone(),
+                                    ir::VisitorContextFlag::NONE,
+                                );
 
-                                    let stmt = o::Statement::DeclareVar(o::DeclareVarStmt {
+                                let stmt = if let Some(name) = var_name {
+                                    // Normal case: emit as DeclareVarStmt
+                                    o::Statement::DeclareVar(o::DeclareVarStmt {
                                         name: name.clone(),
                                         value: Some(Box::new(reified_initializer)),
                                         type_: None,
                                         modifiers: o::StmtModifier::Final,
                                         source_span: None,
-                                    });
+                                    })
+                                } else {
+                                    // No variable name: emit as expression statement
+                                    // This matches NGTSC behavior for restoreView() calls
+                                    o::Statement::Expression(o::ExpressionStatement {
+                                        expr: Box::new(reified_initializer),
+                                        source_span: None,
+                                    })
+                                };
 
-                                    let new_op: Box<dyn ir::UpdateOp + Send + Sync> =
-                                        Box::new(ir::ops::shared::create_statement_op::<
-                                            Box<dyn ir::UpdateOp + Send + Sync>,
-                                        >(
-                                            Box::new(stmt)
-                                        ));
-                                    *handler_op = new_op;
-                                }
+                                let new_op: Box<dyn ir::UpdateOp + Send + Sync> =
+                                    Box::new(ir::ops::shared::create_statement_op::<
+                                        Box<dyn ir::UpdateOp + Send + Sync>,
+                                    >(Box::new(stmt)));
+                                *handler_op = new_op;
                             }
                         }
                     }

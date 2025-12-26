@@ -438,8 +438,9 @@ fn optimize_variables_in_op_list_impl_create(
                     .downcast_ref::<VariableOp<Box<dyn ir::CreateOp + Send + Sync>>>()
                 {
                     let usage_count = var_usages.get(&var_op.xref).copied().unwrap_or(0);
+                    let is_remote = var_remote_usages.contains(&var_op.xref);
 
-                    if usage_count == 0 && !var_remote_usages.contains(&var_op.xref) {
+                    if usage_count == 0 && !is_remote {
                         let op_info = op_map.get(&index).unwrap();
                         if (context_is_used && op_info.fences.contains(Fence::VIEW_CONTEXT_WRITE))
                             || op_info.fences.contains(Fence::SIDE_EFFECTFUL)
@@ -1253,11 +1254,6 @@ fn visit_expressions_recursive(
                 visit_expressions_recursive(expr, visitor, flags);
             }
         }
-        OutputExpr::RestoreView(ir_expr) => {
-            if let ir::expression::EitherXrefIdOrExpression::Expression(expr) = &ir_expr.view {
-                visit_expressions_recursive(expr, visitor, flags);
-            }
-        }
         OutputExpr::ArrowFn(ir_expr) => {
             if let crate::output::output_ast::ArrowFunctionBody::Expression(ref expr) = ir_expr.body
             {
@@ -1365,9 +1361,6 @@ fn count_variable_usages(
     visit_expressions_in_op_readonly(
         op,
         &mut |expr: &Expression, flags| {
-            let expr_debug = format!("{:?}", expr);
-            if expr_debug.contains("134") {}
-
             // 1. Handle regular ReadVariable usage
             if let Expression::ReadVariable(read_var) = expr {
                 if let Some(count) = var_usages.get_mut(&read_var.xref) {
@@ -1565,6 +1558,7 @@ fn fences_for_ir_expression(expr: &ir::IRExpression) -> Fence {
         ir::IRExpression::RestoreView(_) => {
             Fence::VIEW_CONTEXT_READ | Fence::VIEW_CONTEXT_WRITE | Fence::SIDE_EFFECTFUL
         }
+        ir::IRExpression::GetCurrentView(_) => Fence::NONE,
         ir::IRExpression::StoreLet(_) => Fence::SIDE_EFFECTFUL,
         ir::IRExpression::Reference(_) | ir::IRExpression::ContextLetReference(_) => {
             Fence::VIEW_CONTEXT_READ

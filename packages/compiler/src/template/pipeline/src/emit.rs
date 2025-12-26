@@ -655,12 +655,10 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                             args.push(*o::literal(interpolation.strings[idx].clone()));
                             args.push(expr.clone());
                         }
-                        // Add last string only if non-empty (NGTSC omits trailing empty strings)
+                        // Add last string (NGTSC always includes it even if empty, except for textInterpolate(v))
                         let last_string =
                             interpolation.strings[interpolation.strings.len() - 1].clone();
-                        if !last_string.is_empty() {
-                            args.push(*o::literal(last_string));
-                        }
+                        args.push(*o::literal(last_string));
                         args
                     };
 

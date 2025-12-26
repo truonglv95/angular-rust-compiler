@@ -285,6 +285,7 @@ pub fn parse_extracted_styles(job: &mut dyn CompilationJob) {
                                                     None, // i18n_context
                                                     None, // i18n_message
                                                     vec![SecurityContext::STYLE],
+                                                    None, // source_span
                                                 );
                                                 new_ops.push(new_op);
                                             }
@@ -313,6 +314,7 @@ pub fn parse_extracted_styles(job: &mut dyn CompilationJob) {
                                                     None, // i18n_context
                                                     None, // i18n_message
                                                     vec![SecurityContext::NONE],
+                                                    None, // source_span
                                                 );
                                                 new_ops.push(new_op);
                                             }
@@ -404,6 +406,7 @@ pub fn parse_extracted_styles(job: &mut dyn CompilationJob) {
                                                             None,
                                                             None,
                                                             vec![SecurityContext::STYLE],
+                                                            None, // source_span
                                                         );
                                                         new_ops.push(new_op);
                                                     }
@@ -434,6 +437,7 @@ pub fn parse_extracted_styles(job: &mut dyn CompilationJob) {
                                                             None,
                                                             None,
                                                             vec![SecurityContext::NONE],
+                                                            None, // source_span
                                                         );
                                                         new_ops.push(new_op);
                                                     }

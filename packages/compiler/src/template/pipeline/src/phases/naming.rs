@@ -59,6 +59,8 @@ fn process_view_safe(
         unit.fn_name().is_none()
     };
 
+    // ... (omitted lines) ...
+
     // Update base_name for root view in compatibility mode
     // effective_base_name is used for the *current* view's function name.
     let mut effective_base_name = base_name.clone();
