@@ -1,6 +1,6 @@
 {
   "name": "angular-rust-plugins",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Angular plugins for bundlers (Vite, esbuild, Rolldown, Webpack, Rspack) - powered by Rust compiler",
   "author": "Truonglv4",
   "license": "MIT",
@@ -57,7 +57,7 @@
     "build": "npm run copy-binding && tsup && npm run copy-binding-to-dist && npm run copy-package && npm run copy-docs",
     "build:full": "cd ../binding && npm run build && cd ../linker-plugins && npm run build",
     "dev": "tsup --watch",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "npm run build:full",
     "pack:dist": "cd dist && npm pack",
     "publish": "cd dist && npm publish"
   },

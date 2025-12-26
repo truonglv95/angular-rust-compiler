@@ -4,6 +4,14 @@ High-performance Angular linker and compiler plugins powered by Rust. Supports *
 
 This package bundles the Angular Rust binding - no additional dependencies needed!
 
+## ✨ Features
+
+- ✅ **Standard Directives**: Full support for `*ngIf` (with `else`, `then`, `as`) and `*ngFor` (with all context variables).
+- ✅ **Template Parity**: 100% output parity with NGTSC for template instructions and `consts` array sorting.
+- ✅ **Change Detection**: Optimized listener emission for `OnPush` components.
+- ✅ **Signal Support**: Full support for modern Angular signals (`input()`, `output()`, `computed()`, etc.).
+- ✅ **Blazing Fast**: Uses the Rust-based compiler for ~3-5x faster compilation compared to standard TypeScript-based compilation.
+
 ## 🚀 Installation
 
 ```bash
@@ -276,6 +284,20 @@ Ensure your `tsconfig.json` includes:
 ### HMR (Hot Module Replacement)
 
 The compiler plugin includes HMR support for `.html` template files. When you modify a template, the corresponding component will be recompiled automatically.
+
+## 💡 Advanced Directive Support
+
+The compiler now achieves full feature parity with the standard Angular compiler for core structural directives:
+
+### `*ngFor` Support
+- **Full Context Access**: Support for `index`, `count`, `first`, `last`, `even`, `odd`.
+- **Performance**: Automatic optimization of context access in event listeners.
+- **Parity**: Identical `consts` array ordering through source-span sorting.
+
+### `*ngIf` Support
+- **Complex Templates**: Support for `else` and `then` templates with `TemplateRef` extraction.
+- **As Syntax**: Support for the `as` local variable binding (e.g., `*ngIf="obs$ | async as val"`).
+- **Context Isolation**: Correct variable scoping and restoration for nested conditionals.
 
 ## ⚡ Performance
 
