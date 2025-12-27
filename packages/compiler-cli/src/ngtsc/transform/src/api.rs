@@ -176,6 +176,9 @@ pub struct CompileResult {
 
     /// Import declarations that can be deferred.
     pub deferrable_imports: Option<HashSet<String>>, // TODO: Replace with ImportDeclaration
+
+    /// Diagnostics produced during compilation.
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 impl CompileResult {
@@ -186,6 +189,7 @@ impl CompileResult {
             statements: Vec::new(),
             type_desc: type_desc.into(),
             deferrable_imports: None,
+            diagnostics: Vec::new(),
         }
     }
 }

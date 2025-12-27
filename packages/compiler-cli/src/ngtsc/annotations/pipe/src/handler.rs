@@ -93,6 +93,7 @@ impl PipeDecoratorHandler {
                 metadata.name, metadata.pipe_name, metadata.standalone
             ),
             deferrable_imports: None,
+            diagnostics: Vec::new(),
         }
     }
 }

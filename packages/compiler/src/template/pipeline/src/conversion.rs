@@ -424,6 +424,9 @@ pub fn convert_ast(
             // Use add_pipe to get or create the slot for this pipe in the current view
             let (slot_handle, target_xref) = job.add_pipe(&pipe.name, view_xref);
 
+            // Also mark as used
+            job.mark_pipe_used(&pipe.name);
+
             let mut args = vec![convert_ast(&pipe.exp, job, view_xref, base_source_span)];
             args.extend(
                 pipe.args

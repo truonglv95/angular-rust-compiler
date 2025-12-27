@@ -15,6 +15,8 @@ pub struct CompileResult {
     pub type_expr: Option<String>,
     /// Deferrable imports, if any.
     pub deferrable_imports: Option<Vec<String>>,
+    /// Diagnostics produced during compilation.
+    pub diagnostics: Vec<String>,
 }
 
 impl CompileResult {
@@ -25,6 +27,7 @@ impl CompileResult {
             statements: Vec::new(),
             type_expr: None,
             deferrable_imports: None,
+            diagnostics: Vec::new(),
         }
     }
 
@@ -87,6 +90,7 @@ pub fn compile_ng_factory_def_field(metadata: &R3FactoryMetadata) -> CompileResu
         statements: Vec::new(),
         type_expr: Some(format!("FactoryDeclaration<{}, never>", metadata.type_name)),
         deferrable_imports: None,
+        diagnostics: Vec::new(),
     }
 }
 
@@ -100,6 +104,7 @@ pub fn compile_declare_factory(metadata: &R3FactoryMetadata) -> CompileResult {
         statements: Vec::new(),
         type_expr: Some(format!("FactoryDeclaration<{}, never>", metadata.type_name)),
         deferrable_imports: None,
+        diagnostics: Vec::new(),
     }
 }
 

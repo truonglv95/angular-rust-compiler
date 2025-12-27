@@ -4,12 +4,16 @@
 
 use crate::template::pipeline::ir;
 
+use crate::render3::view::api::R3TemplateDependencyMetadata;
 use crate::template::pipeline::src::compilation::{
     CompilationUnit, ComponentCompilationJob, ViewCompilationUnit,
 };
 
 pub fn create_pipes(job: &mut ComponentCompilationJob) {
     let compatibility = job.compatibility;
+
+    // Process pipe usage tracking
+    track_pipe_usage(job);
 
     // Process root view
     process_pipe_bindings_in_view(&mut job.root, compatibility);
@@ -93,6 +97,54 @@ fn process_pipe_bindings_in_view(
     // TODO: If reordering is needed, find existing pipe ops and move them
     // instead of creating new ones.
     let _ = pipes; // Suppress unused warning
+}
+
+fn track_pipe_usage(job: &mut ComponentCompilationJob) {
+    let mut used_indices = Vec::new();
+
+    // Iterate over all views to find pipe usages
+    let mut root_unit = &mut job.root;
+    process_unit_pipe_usage(root_unit, &job.available_dependencies, &mut used_indices);
+
+    for view in job.views.values_mut() {
+        process_unit_pipe_usage(view, &job.available_dependencies, &mut used_indices);
+    }
+
+    for i in used_indices {
+        job.used_dependencies.insert(i);
+    }
+}
+
+fn process_unit_pipe_usage(
+    unit: &mut ViewCompilationUnit,
+    available_dependencies: &Vec<R3TemplateDependencyMetadata>,
+    used_indices: &mut Vec<usize>,
+) {
+    for op in unit.update_mut().iter_mut() {
+        ir::visit_expressions_in_op(op.as_mut(), &mut |expr, _flags| {
+            if !ir::is_ir_expression(expr) {
+                return;
+            }
+
+            if let Some(ir_expr) = ir::as_ir_expression(expr) {
+                let name = match ir_expr {
+                    ir::IRExpression::PipeBinding(pb) => Some(pb.name),
+                    ir::IRExpression::PipeBindingVariadic(pb) => Some(pb.name),
+                    _ => None,
+                };
+
+                if let Some(name) = name {
+                    for (i, dep) in available_dependencies.iter().enumerate() {
+                        if let R3TemplateDependencyMetadata::Pipe(pipe) = dep {
+                            if pipe.name == name {
+                                used_indices.push(i);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
 }
 
 fn add_pipe_to_creation_block(

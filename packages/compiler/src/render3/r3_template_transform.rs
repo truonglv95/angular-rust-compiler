@@ -275,7 +275,6 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
             if is_structural {
                 // Structural Directive (*ngIf, *ngFor, etc.) -> Convert to inline template binding
                 // The directive.attrs contains the parsed attribute like 'let item of items'
-                println!("DEBUG: Found structural directive: {}", directive.name);
                 let template_key = &directive.name;
 
                 // Get the value from the directive's first attr (if any) - the full binding expression

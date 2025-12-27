@@ -6,8 +6,10 @@
 use crate::constant_pool::ConstantPool;
 use crate::core::ChangeDetectionStrategy;
 use crate::output::output_ast::Expression;
-use crate::render3::view::api::R3ComponentDeferMetadata;
+use crate::parse_util::ParseError;
+use crate::render3::view::api::{R3ComponentDeferMetadata, R3TemplateDependencyMetadata};
 use crate::template::pipeline::ir;
+use std::collections::{HashMap, HashSet};
 
 /// The kind of compilation job
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +64,10 @@ pub trait CompilationJob {
         name: &str,
         view_xref: ir::XrefId,
     ) -> (ir::handle::SlotHandle, ir::XrefId);
+    /// Mark a pipe as used
+    fn mark_pipe_used(&mut self, name: &str);
+    /// Mark a directive as used by its selector or tag name
+    fn mark_directive_used(&mut self, tag_or_selector: &str);
 }
 
 /// Compilation-in-progress of a whole component's template, including the main template and any
@@ -85,6 +91,10 @@ pub struct ComponentCompilationJob {
     pub consts: Vec<Expression>,
     pub consts_initializers: Vec<Expression>,
 
+    pub available_dependencies: Vec<R3TemplateDependencyMetadata>,
+    pub used_dependencies: HashSet<usize>,
+    pub diagnostics: Vec<ParseError>,
+
     next_xref_id: ir::XrefId,
 }
 
@@ -101,6 +111,7 @@ impl ComponentCompilationJob {
         relative_template_path: Option<String>,
         enable_debug_locations: bool,
         change_detection: Option<ChangeDetectionStrategy>,
+        available_dependencies: Vec<R3TemplateDependencyMetadata>,
     ) -> Self {
         let root_xref = ir::XrefId::new(0);
         let root = ViewCompilationUnit::new(root_xref, None);
@@ -127,6 +138,9 @@ impl ComponentCompilationJob {
             content_selectors: None,
             consts: Vec::new(),
             consts_initializers: Vec::new(),
+            available_dependencies,
+            used_dependencies: HashSet::new(),
+            diagnostics: Vec::new(),
             next_xref_id: ir::XrefId::new(1),
         }
     }
@@ -248,7 +262,41 @@ impl CompilationJob for ComponentCompilationJob {
         let op = ir::ops::create::PipeOp::new(xref, slot.clone(), name.to_string());
         unit.create.push(Box::new(op));
 
+        // Also mark as used
+        self.mark_pipe_used(name);
+
         (slot, xref)
+    }
+
+    fn mark_pipe_used(&mut self, name: &str) {
+        for (i, dep) in self.available_dependencies.iter().enumerate() {
+            if let R3TemplateDependencyMetadata::Pipe(pipe) = dep {
+                if pipe.name == name {
+                    self.used_dependencies.insert(i);
+                }
+            }
+        }
+    }
+
+    fn mark_directive_used(&mut self, name: &str) {
+        for (i, dep) in self.available_dependencies.iter().enumerate() {
+            if let R3TemplateDependencyMetadata::Directive(dir) = dep {
+                if dir.selector == name {
+                    self.used_dependencies.insert(i);
+                } else {
+                    // Also check if name is the component class name
+                    let type_name = match &dir.type_ {
+                        Expression::ReadVar(rv) => Some(&rv.name),
+                        _ => None,
+                    };
+                    if let Some(tn) = type_name {
+                        if tn == name {
+                            self.used_dependencies.insert(i);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -471,6 +519,9 @@ impl CompilationJob for HostBindingCompilationJob {
             (slot, xref)
         }
     }
+
+    fn mark_pipe_used(&mut self, _name: &str) {}
+    fn mark_directive_used(&mut self, _name: &str) {}
 }
 
 pub struct HostBindingCompilationUnit {

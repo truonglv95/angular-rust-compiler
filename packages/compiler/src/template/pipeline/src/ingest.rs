@@ -13,6 +13,7 @@ use crate::parse_util::ParseSourceSpan;
 use crate::render3::r3_ast as t;
 use crate::render3::view::api::R3ComponentDeferMetadata;
 // Note: DomElementSchemaRegistry is created per-call in ingest_element_bindings
+use crate::render3::view::api::R3TemplateDependencyMetadata;
 use crate::template::pipeline::ir;
 use crate::template::pipeline::src::compilation::{
     CompilationJob, ComponentCompilationJob, HostBindingCompilationJob, TemplateCompilationMode,
@@ -65,6 +66,7 @@ pub fn ingest_component(
     relative_template_path: Option<String>,
     enable_debug_locations: bool,
     change_detection: Option<ChangeDetectionStrategy>,
+    available_dependencies: Vec<R3TemplateDependencyMetadata>,
 ) -> ComponentCompilationJob {
     if component_name.contains("NgForTest") {}
     let mut job = ComponentCompilationJob::new(
@@ -79,6 +81,7 @@ pub fn ingest_component(
         relative_template_path,
         enable_debug_locations,
         change_detection,
+        available_dependencies,
     );
 
     // Ingest nodes into root using Safe XrefId approach
@@ -320,6 +323,77 @@ fn ingest_children_into_view(
     ingest_nodes_internal(view_xref, children, job);
 }
 
+fn maybe_record_directive_usage(
+    job: &mut ComponentCompilationJob,
+    tag_name: &str,
+    attributes: &Vec<t::TextAttribute>,
+    inputs: &Vec<t::BoundAttribute>,
+    outputs: &Vec<t::BoundEvent>,
+    template_attrs: &Vec<t::TemplateAttr>,
+) {
+    use crate::render3::view::api::R3TemplateDependencyMetadata;
+
+    for (i, dep) in job.available_dependencies.iter().enumerate() {
+        if let R3TemplateDependencyMetadata::Directive(dir) = dep {
+            let selector = &dir.selector;
+
+            // Simple selector matching:
+            // 1. Tag match (e.g. "my-comp")
+            if selector == tag_name {
+                job.used_dependencies.insert(i);
+                continue;
+            }
+
+            // 2. Attribute match
+            // Handle multiple attribute selectors like [ngFor][ngForOf]
+            let mut selectors = Vec::new();
+            let mut current = selector.as_str();
+            while current.starts_with('[') {
+                if let Some(end) = current.find(']') {
+                    selectors.push(&current[1..end]);
+                    current = &current[end + 1..];
+                } else {
+                    break;
+                }
+            }
+
+            if selectors.is_empty() {
+                // Not an attribute selector, or already checked tag match
+                continue;
+            }
+
+            // Check if ALL attribute selectors match
+            let all_match = selectors.iter().all(|&attr_to_match| {
+                // Check attributes (static)
+                if attributes.iter().any(|a| a.name == attr_to_match) {
+                    return true;
+                }
+                // Check inputs (bindings)
+                if inputs.iter().any(|a| a.name == attr_to_match) {
+                    return true;
+                }
+                // Check outputs (events)
+                if outputs.iter().any(|e| e.name == attr_to_match) {
+                    return true;
+                }
+                // Check template_attrs (structural)
+                for attr in template_attrs {
+                    match attr {
+                        t::TemplateAttr::Text(a) if a.name == attr_to_match => return true,
+                        t::TemplateAttr::Bound(a) if a.name == attr_to_match => return true,
+                        _ => {}
+                    }
+                }
+                false
+            });
+
+            if all_match {
+                job.used_dependencies.insert(i);
+            }
+        }
+    }
+}
+
 /// Ingest an element AST from the template into the given `ViewCompilationUnit`.
 fn ingest_element(unit_xref: ir::XrefId, element: t::Element, job: &mut ComponentCompilationJob) {
     // Check i18n metadata
@@ -357,6 +431,16 @@ fn ingest_element(unit_xref: ir::XrefId, element: t::Element, job: &mut Componen
         element.source_span.clone(),
     );
     push_create_op(job, unit_xref, start_op);
+
+    // Record directive usage
+    maybe_record_directive_usage(
+        job,
+        &element_name,
+        &element.attributes,
+        &element.inputs,
+        &element.outputs,
+        &vec![],
+    );
 
     // Ingest element bindings, events, and references
     ingest_element_bindings(unit_xref, id, &element, job);
@@ -447,6 +531,16 @@ fn ingest_template(unit_xref: ir::XrefId, tmpl: t::Template, job: &mut Component
     );
 
     push_create_op(job, unit_xref, template_op);
+
+    // Record directive usage for templates (structural directives)
+    maybe_record_directive_usage(
+        job,
+        tag_name_without_namespace.as_deref().unwrap_or_default(),
+        &tmpl.attributes,
+        &tmpl.inputs,
+        &tmpl.outputs,
+        &tmpl.template_attrs,
+    );
 
     // Ingest template bindings, events, and references
     // Ingest template bindings, events, and references

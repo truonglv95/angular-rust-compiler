@@ -5,8 +5,8 @@ use angular_compiler::output::output_ast as o;
 use angular_compiler::parse_util::{ParseLocation, ParseSourceFile, ParseSourceSpan};
 use angular_compiler::render3::util::R3Reference;
 use angular_compiler::render3::view::api::{
-    DeclarationListEmitMode, DeferBlockDepsEmitMode, R3ComponentDeferMetadata, R3ComponentMetadata,
-    R3ComponentTemplate, R3DirectiveMetadata, R3HostMetadata, R3LifecycleMetadata,
+    DeclarationListEmitMode, R3ComponentDeferMetadata, R3ComponentMetadata, R3ComponentTemplate,
+    R3DirectiveMetadata, R3HostMetadata, R3LifecycleMetadata,
 };
 use angular_compiler::render3::view::compiler::compile_component_from_metadata;
 use angular_compiler::schema::dom_element_schema_registry::DomElementSchemaRegistry;
@@ -84,8 +84,8 @@ fn compile_template(template: &str) -> (Vec<o::Statement>, ConstantPool) {
     let compiled =
         compile_component_from_metadata(&component_meta, &mut constant_pool, &binding_parser);
 
-    let mut statements = constant_pool.statements.clone();
-    if let o::Expression::InvokeFn(expr) = compiled.expression {
+    let statements = constant_pool.statements.clone();
+    if let o::Expression::InvokeFn(_expr) = compiled.expression {
         // statements.push(o::Statement::Expression(o::ExpressionStatement { expr: Box::new(o::Expression::InvokeFn(expr)), source_span: None }));
         // In reality we just care about the constant pool outputs mostly for the trackBy function
     }

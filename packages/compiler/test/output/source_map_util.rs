@@ -20,12 +20,15 @@ pub struct SourceLocation {
     pub source: Option<String>,
 }
 
+#[allow(dead_code)]
 const B64_DIGITS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+#[allow(dead_code)]
 fn b64_value(c: char) -> Option<i32> {
     B64_DIGITS.find(c).map(|v| v as i32)
 }
 
+#[allow(dead_code)]
 fn decode_vlq(input: &str) -> (Vec<i32>, usize) {
     let mut values = Vec::new();
     let chars: Vec<char> = input.chars().collect();
@@ -54,6 +57,7 @@ fn decode_vlq(input: &str) -> (Vec<i32>, usize) {
     (values, i)
 }
 
+#[allow(dead_code)]
 pub fn original_position_for(
     source_map: &SourceMap,
     gen_line: u32,
@@ -230,6 +234,7 @@ pub fn original_position_for(
     }
 }
 
+#[allow(dead_code)]
 pub fn extract_source_map(source: &str) -> Option<SourceMap> {
     if let Some(pos) = source.rfind("\n//#") {
         let comment_part = &source[pos..];

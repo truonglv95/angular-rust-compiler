@@ -30,6 +30,7 @@ pub fn extract_css_content(css: &str) -> String {
     result.trim().to_string()
 }
 
+#[allow(dead_code)]
 pub fn assert_equal_css(actual: &str, expected: &str) {
     let actual_css = extract_css_content(actual);
     let expected_css = extract_css_content(expected);
@@ -50,6 +51,7 @@ pub fn assert_contains(actual: &str, expected: &str) {
     );
 }
 
+#[allow(dead_code)]
 pub fn assert_not_contains(actual: &str, expected: &str) {
     assert!(
         !actual.contains(expected),

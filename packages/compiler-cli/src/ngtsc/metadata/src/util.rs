@@ -225,8 +225,8 @@ pub fn extract_directive_metadata<'a>(
                     if let PropertyKey::StaticIdentifier(key) = &prop.key {
                         match key.name.as_str() {
                             "selector" => {
-                                if let Expression::StringLiteral(val) = &prop.value {
-                                    meta.t2.selector = Some(val.value.to_string());
+                                if let Some(val) = extract_string_value(&prop.value) {
+                                    meta.t2.selector = Some(val);
                                 }
                             }
                             "inputs" => match &prop.value {
@@ -332,27 +332,23 @@ pub fn extract_directive_metadata<'a>(
                                 _ => {}
                             },
                             "exportAs" => {
-                                if let Expression::StringLiteral(val) = &prop.value {
+                                if let Some(val) = extract_string_value(&prop.value) {
                                     meta.t2.export_as = Some(
-                                        val.value
-                                            .to_string()
-                                            .split(',')
-                                            .map(|s| s.trim().to_string())
-                                            .collect(),
+                                        val.split(',').map(|s| s.trim().to_string()).collect(),
                                     );
                                 }
                             }
                             "templateUrl" => {
-                                if let Expression::StringLiteral(val) = &prop.value {
+                                if let Some(val) = extract_string_value(&prop.value) {
                                     if let Some(comp) = meta.component.as_mut() {
-                                        comp.template_url = Some(val.value.to_string());
+                                        comp.template_url = Some(val);
                                     }
                                 }
                             }
                             "template" => {
-                                if let Expression::StringLiteral(val) = &prop.value {
+                                if let Some(val) = extract_string_value(&prop.value) {
                                     if let Some(comp) = meta.component.as_mut() {
-                                        comp.template = Some(val.value.to_string());
+                                        comp.template = Some(val);
                                     }
                                 }
                             }
@@ -376,9 +372,9 @@ pub fn extract_directive_metadata<'a>(
                                 }
                             }
                             "styleUrl" => {
-                                if let Expression::StringLiteral(val) = &prop.value {
+                                if let Some(val) = extract_string_value(&prop.value) {
                                     if let Some(comp) = meta.component.as_mut() {
-                                        comp.style_urls = Some(vec![val.value.to_string()]);
+                                        comp.style_urls = Some(vec![val]);
                                     }
                                 }
                             }
@@ -410,9 +406,10 @@ pub fn extract_directive_metadata<'a>(
                                         .filter_map(|e| {
                                             if let Some(expr) = e.as_expression() {
                                                 if let Expression::Identifier(ident) = expr {
-                                                    return Some(Reference::from_name(
+                                                    return Some(Reference::from_name_with_span(
                                                         ident.name.to_string(),
                                                         Some(source_file.to_path_buf()),
+                                                        ident.span,
                                                     ));
                                                 }
                                             }
@@ -628,4 +625,22 @@ pub fn get_all_metadata<'a>(
     }
 
     directives
+}
+
+/// Helper to extract string value from Expression (StringLiteral or TemplateLiteral)
+fn extract_string_value(expr: &oxc_ast::ast::Expression) -> Option<String> {
+    use oxc_ast::ast::Expression;
+    match expr {
+        Expression::StringLiteral(s) => Some(s.value.to_string()),
+        Expression::TemplateLiteral(t) => {
+            // Join all quasis into a single string.
+            // Note: We ignore expressions in template literals as they're not common in Angular templates/selectors
+            let mut result = String::new();
+            for quasi in &t.quasis {
+                result.push_str(&quasi.value.raw);
+            }
+            Some(result)
+        }
+        _ => None,
+    }
 }

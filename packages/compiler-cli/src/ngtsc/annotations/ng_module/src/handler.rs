@@ -250,6 +250,7 @@ impl DecoratorHandler<NgModuleAnalysis, NgModuleAnalysis, NgModuleSymbol, NgModu
                 statements: vec![],
                 type_desc: "NgModuleDef".to_string(),
                 deferrable_imports: None,
+                diagnostics: Vec::new(),
             },
             CompileResult {
                 name: "ɵinj".to_string(),
@@ -257,6 +258,7 @@ impl DecoratorHandler<NgModuleAnalysis, NgModuleAnalysis, NgModuleSymbol, NgModu
                 statements: vec![],
                 type_desc: "InjectorDef".to_string(),
                 deferrable_imports: None,
+                diagnostics: Vec::new(),
             },
             CompileResult {
                 name: "ɵfac".to_string(),
@@ -264,6 +266,7 @@ impl DecoratorHandler<NgModuleAnalysis, NgModuleAnalysis, NgModuleSymbol, NgModu
                 statements: vec![],
                 type_desc: "Factory".to_string(),
                 deferrable_imports: None,
+                diagnostics: Vec::new(),
             },
         ]
     }

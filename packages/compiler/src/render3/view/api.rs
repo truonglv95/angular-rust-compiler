@@ -199,6 +199,8 @@ pub struct R3DirectiveDependencyMetadata {
     pub export_as: Option<Vec<String>>,
     /// If true then this directive is actually a component.
     pub is_component: bool,
+    /// A source span for the directive reference in the imports array.
+    pub source_span: Option<ParseSourceSpan>,
 }
 
 /// Pipe dependency metadata
@@ -207,6 +209,8 @@ pub struct R3PipeDependencyMetadata {
     pub kind: R3TemplateDependencyKind,
     pub type_: Expression,
     pub name: String,
+    /// A source span for the pipe reference in the imports array.
+    pub source_span: Option<ParseSourceSpan>,
 }
 
 /// NgModule dependency metadata

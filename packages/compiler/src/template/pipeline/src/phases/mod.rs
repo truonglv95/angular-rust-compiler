@@ -17,6 +17,7 @@ pub mod convert_animations;
 pub mod deduplicate_text_bindings;
 pub mod defer_configs;
 pub mod defer_resolve_targets;
+pub mod diagnostics;
 pub mod empty_elements;
 pub mod expand_safe_reads;
 pub mod generate_advance;
@@ -101,6 +102,7 @@ pub fn run(job: &mut ComponentCompilationJob) {
     variable_optimization::optimize_variables(job); // Remove unused variables
     naming::name_functions_and_variables(job);
     generate_advance::phase(job);
+    diagnostics::phase(job);
     reify::reify(job);
     chaining::chain(job);
 }

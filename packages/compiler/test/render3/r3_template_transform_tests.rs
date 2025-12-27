@@ -2123,7 +2123,7 @@ foo) {{{ item }}}
 
         #[test]
         fn should_not_report_an_error_on_non_attr_bindings_on_ng_container() {
-            let result = parse_r3(
+            let _result = parse_r3(
                 r#"<ng-container *ngIf="test" [ngTemplateOutlet]="foo"></ng-container>"#,
                 ParseR3Options {
                     ignore_error: Some(true),

@@ -308,19 +308,45 @@ pub fn perform_compilation(
         };
     }
 
-    if let Err(e) = program.emit() {
+    // Aggregate diagnostics from analysis
+    for d in program.get_diagnostics() {
         diagnostics.push(Diagnostic {
             category: DiagnosticCategory::Error,
-            code: -1,
-            message: e,
-            file: None,
-            start: None,
-            length: None,
+            code: d.code as i32,
+            message: d.message,
+            file: d.file.map(|p| p.to_string_lossy().to_string()),
+            start: d.start,
+            length: d.length,
         });
-        return CompilationResult {
-            diagnostics,
-            program: None,
-        };
+    }
+
+    match program.emit() {
+        Ok(emit_diagnostics) => {
+            for d in emit_diagnostics {
+                diagnostics.push(Diagnostic {
+                    category: DiagnosticCategory::Warning, // Default for now
+                    code: d.code as i32,
+                    message: d.message,
+                    file: d.file.map(|p| p.to_string_lossy().to_string()),
+                    start: d.start,
+                    length: d.length,
+                });
+            }
+        }
+        Err(e) => {
+            diagnostics.push(Diagnostic {
+                category: DiagnosticCategory::Error,
+                code: -1,
+                message: e,
+                file: None,
+                start: None,
+                length: None,
+            });
+            return CompilationResult {
+                diagnostics,
+                program: None,
+            };
+        }
     }
 
     CompilationResult {
@@ -385,6 +411,8 @@ pub fn perform_compilation_simple(
 
     let mut program = NgtscProgram::new(root_names, options, &fs);
 
+    let mut diagnostics = Vec::new();
+
     // Trigger analysis
     if let Err(e) = program.load_ng_structure(Path::new(".")) {
         return PerformCompileResult {
@@ -394,16 +422,52 @@ pub fn perform_compilation_simple(
         };
     }
 
-    if let Err(e) = program.emit() {
-        return PerformCompileResult {
-            diagnostics: vec![e],
-            program: None,
-            emit_result: None,
-        };
+    // Collect diagnostics from analysis
+    for d in program.get_diagnostics() {
+        diagnostics.push(Diagnostic {
+            category: DiagnosticCategory::Error,
+            code: d.code as i32,
+            message: d.message,
+            file: d.file.map(|p| p.to_string_lossy().to_string()),
+            start: d.start,
+            length: d.length,
+        });
     }
 
+    match program.emit() {
+        Ok(emit_diagnostics) => {
+            for d in emit_diagnostics {
+                diagnostics.push(Diagnostic {
+                    category: DiagnosticCategory::Warning,
+                    code: d.code as i32,
+                    message: d.message,
+                    file: d.file.map(|p| p.to_string_lossy().to_string()),
+                    start: d.start,
+                    length: d.length,
+                });
+            }
+        }
+        Err(e) => {
+            return PerformCompileResult {
+                diagnostics: vec![e],
+                program: None,
+                emit_result: None,
+            };
+        }
+    }
+
+    let formatted = format_diagnostics(
+        &diagnostics,
+        &crate::main_entry::FormatDiagnosticsHost::new(None),
+    );
+    let diag_strings = if formatted.is_empty() {
+        vec![]
+    } else {
+        vec![formatted]
+    };
+
     PerformCompileResult {
-        diagnostics: vec![],
+        diagnostics: diag_strings,
         program: Some(()),
         emit_result: Some(()),
     }
@@ -417,26 +481,71 @@ pub fn format_diagnostics(
     let mut output = String::new();
     for diag in diagnostics {
         let category = match diag.category {
-            DiagnosticCategory::Error => "error",
-            DiagnosticCategory::Warning => "warning",
-            DiagnosticCategory::Suggestion => "suggestion",
+            DiagnosticCategory::Error => "\x1b[1;31merror\x1b[0m",
+            DiagnosticCategory::Warning => "\x1b[1;33mwarning\x1b[0m",
+            DiagnosticCategory::Suggestion => "\x1b[1;36msuggestion\x1b[0m",
             DiagnosticCategory::Message => "message",
         };
-        if let Some(file) = &diag.file {
+
+        let message = format!("{}: NG{}: {}", category, diag.code, diag.message);
+        output.push_str(&message);
+        output.push('\n');
+
+        if let Some(file_path) = &diag.file {
             if let Some(start) = diag.start {
-                output.push_str(&format!(
-                    "{} TS{}: {} ({}:{})\n",
-                    category, diag.code, diag.message, file, start
-                ));
+                if let Ok(content) = std::fs::read_to_string(file_path) {
+                    // Calculate line and column
+                    let mut line_num = 1;
+                    let mut col_num = 1;
+                    let mut line_start = 0;
+
+                    for (i, c) in content.char_indices() {
+                        if i == start {
+                            break;
+                        }
+                        if c == '\n' {
+                            line_num += 1;
+                            col_num = 1;
+                            line_start = i + 1;
+                        } else {
+                            col_num += 1;
+                        }
+                    }
+
+                    // Find end of line
+                    let mut line_end = line_start;
+                    for c in content[line_start..].chars() {
+                        if c == '\n' || c == '\r' {
+                            break;
+                        }
+                        line_end += c.len_utf8();
+                    }
+
+                    let source_line = &content[line_start..line_end];
+                    let file_loc = format!("  at {}:{}:{}\n\n", file_path, line_num, col_num);
+                    output.push_str(&file_loc);
+
+                    // Show code context
+                    output.push_str(&format!("{:>4} | {}\n", line_num, source_line));
+
+                    // Underline
+                    output.push_str("     | ");
+                    for _ in 0..(col_num - 1) {
+                        output.push(' ');
+                    }
+                    let length = diag.length.unwrap_or(1);
+                    for _ in 0..length {
+                        output.push('~');
+                    }
+                    output.push('\n');
+                } else {
+                    output.push_str(&format!("  at {}:{}\n", file_path, start));
+                }
             } else {
-                output.push_str(&format!(
-                    "{} TS{}: {} ({})\n",
-                    category, diag.code, diag.message, file
-                ));
+                output.push_str(&format!("  at {}\n", file_path));
             }
-        } else {
-            output.push_str(&format!("{} TS{}: {}\n", category, diag.code, diag.message));
         }
+        output.push('\n');
     }
     output
 }

@@ -8,7 +8,7 @@ use angular_compiler::ml_parser::html_whitespaces::{
 };
 use angular_compiler::ml_parser::lexer::TokenizeOptions;
 // t is not used directly in this file
-use angular_compiler::expression_parser::parser::Parser;
+// use angular_compiler::expression_parser::parser::Parser;
 use angular_compiler::render3::r3_template_transform::{
     html_ast_to_render3_ast, Render3ParseOptions, Render3ParseResult,
 };
@@ -21,7 +21,7 @@ use angular_compiler::render3::view::template::{
 // Instead, we create a new BindingParser each time in parse_r3
 
 /// Options for parsing R3 templates in tests
-#[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ParseR3Options {
     pub preserve_whitespaces: Option<bool>,
     pub leading_trivia_chars: Option<Vec<char>>,

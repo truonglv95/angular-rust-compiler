@@ -383,6 +383,7 @@ impl PartialComponentLinker2 {
                                     kind,
                                     type_: type_expr,
                                     name: selector, // Pipe name is passed in selector field in Partial Ivy
+                                    source_span: None,
                                 },
                             ));
                         } else {
@@ -399,6 +400,7 @@ impl PartialComponentLinker2 {
                                         Some(export_as)
                                     },
                                     is_component: kind_str == "component",
+                                    source_span: None,
                                 },
                             ));
                         }

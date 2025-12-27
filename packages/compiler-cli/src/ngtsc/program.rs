@@ -43,7 +43,15 @@ impl<'a, T: FileSystem> NgtscProgram<'a, T> {
         Ok(())
     }
 
-    pub fn emit(&self) -> Result<(), String> {
+    pub fn get_diagnostics(&self) -> Vec<crate::ngtsc::core::Diagnostic> {
+        if let Some(result) = &self.result {
+            result.diagnostics.clone()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn emit(&self) -> Result<Vec<crate::ngtsc::core::Diagnostic>, String> {
         // Ensure analysis happens if not already done (simplified)
         // In reality, load_ng_structure is called before emit.
         if let Some(result) = &self.result {

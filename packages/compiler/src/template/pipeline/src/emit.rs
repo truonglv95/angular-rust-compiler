@@ -310,7 +310,20 @@ pub fn emit_component(
                             None
                         }
                     }
-                    _ => None, // For now, only handle directives
+                    R3TemplateDependencyMetadata::Pipe(pipe) => {
+                        if let Expression::ReadVar(ref read_var) = pipe.type_ {
+                            Some(*o::variable(&read_var.name))
+                        } else {
+                            None
+                        }
+                    }
+                    R3TemplateDependencyMetadata::NgModule(module) => {
+                        if let Expression::ReadVar(ref read_var) = module.type_ {
+                            Some(*o::variable(&read_var.name))
+                        } else {
+                            None
+                        }
+                    }
                 }
             })
             .collect();

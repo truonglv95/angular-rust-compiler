@@ -29,5 +29,6 @@ pub struct Diagnostic {
     pub file: Option<PathBuf>,
     pub message: String,
     pub code: usize,
-    // Start/length for source mapping would go here
+    pub start: Option<usize>,
+    pub length: Option<usize>,
 }

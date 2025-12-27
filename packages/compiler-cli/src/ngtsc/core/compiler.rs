@@ -36,6 +36,7 @@ pub struct NgCompiler<'a, T: FileSystem> {
 pub struct CompilationResult {
     pub files: Vec<PathBuf>,
     pub directives: Vec<DirectiveMetadata<'static>>,
+    pub diagnostics: Vec<crate::ngtsc::core::Diagnostic>,
 }
 
 impl<'a, T: FileSystem> NgCompiler<'a, T> {
@@ -117,8 +118,18 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                         };
 
                         if let Some(template) = template_str {
+                            println!(
+                                "DEBUG: analyze_async - parsing template for {}: '{}'",
+                                dir.t2.name, template
+                            );
                             let parser = HtmlParser::new(get_html_tag_definition_wrapper);
                             let parse_result = parser.parse(&template, "template.html", None);
+
+                            println!(
+                                "DEBUG: analyze_async - parser found {} nodes for {}",
+                                parse_result.root_nodes.len(),
+                                dir.t2.name
+                            );
 
                             if !parse_result.errors.is_empty() {
                                 println!(
@@ -167,7 +178,11 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
         Ok(result)
     }
 
-    pub fn emit(&self, compilation_result: &CompilationResult) -> Result<(), String> {
+    pub fn emit(
+        &self,
+        compilation_result: &CompilationResult,
+    ) -> Result<Vec<crate::ngtsc::core::Diagnostic>, String> {
+        let mut result_diagnostics = Vec::new();
         let fs = self.fs;
 
         let component_handler =
@@ -219,6 +234,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                             pipe.name, pipe.pipe_name, pipe.is_standalone
                         ),
                         deferrable_imports: None,
+                        diagnostics: Vec::new(),
                     }];
                     (results, pipe.name.clone(), pipe.source_file.clone())
                 }
@@ -246,6 +262,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                             statements: vec![],
                             type_desc: format!("i0.ɵɵFactoryDeclaration<{}, never>", inj.name),
                             deferrable_imports: None,
+                            diagnostics: Vec::new(),
                         },
                         crate::ngtsc::transform::src::api::CompileResult {
                             name: "ɵprov".to_string(),
@@ -253,6 +270,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                             statements: vec![],
                             type_desc: format!("i0.ɵɵInjectableDeclaration<{}>", inj.name),
                             deferrable_imports: None,
+                            diagnostics: Vec::new(),
                         },
                     ];
                     (results, inj.name.clone(), inj.source_file.clone())
@@ -268,7 +286,18 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                 compiled_results.len()
             );
 
-            for result in compiled_results {
+            for mut result in compiled_results {
+                // Collect diagnostics
+                for ts_diag in result.diagnostics.drain(..) {
+                    result_diagnostics.push(crate::ngtsc::core::Diagnostic {
+                        file: ts_diag.file.map(PathBuf::from),
+                        message: ts_diag.message_text.to_string(),
+                        code: ts_diag.code as usize,
+                        start: Some(ts_diag.start),
+                        length: Some(ts_diag.length),
+                    });
+                }
+
                 let initializer = result.initializer.clone().unwrap_or_default();
                 let hoisted_statements = result.statements.join("\n");
 
@@ -555,7 +584,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
             }
         }
 
-        Ok(())
+        Ok(result_diagnostics)
     }
 }
 

@@ -89,6 +89,9 @@ pub struct Reference<'a> {
 
     /// Cached name for when node is not available.
     name: String,
+
+    /// Span of the reference in the source file.
+    pub span: Option<oxc_span::Span>,
 }
 
 impl<'a> Reference<'a> {
@@ -115,6 +118,7 @@ impl<'a> Reference<'a> {
             identifiers,
             source_file: None,
             name,
+            span: None,
         }
     }
 
@@ -137,6 +141,33 @@ impl<'a> Reference<'a> {
             identifiers,
             source_file,
             name,
+            span: None,
+        }
+    }
+
+    /// Create a Reference from name, source file and span.
+    pub fn from_name_with_span(
+        name: impl Into<String>,
+        source_file: Option<PathBuf>,
+        span: oxc_span::Span,
+    ) -> Self {
+        let name = name.into();
+        let identifiers = if name.is_empty() {
+            vec![]
+        } else {
+            vec![name.clone()]
+        };
+
+        Self {
+            node: None,
+            best_guess_owning_module: None,
+            synthetic: false,
+            is_ambient: false,
+            alias: None,
+            identifiers,
+            source_file,
+            name,
+            span: Some(span),
         }
     }
 
@@ -162,6 +193,7 @@ impl<'a> Reference<'a> {
             identifiers,
             source_file: None,
             name,
+            span: None,
         }
     }
 
@@ -187,6 +219,7 @@ impl<'a> Reference<'a> {
             identifiers,
             source_file: None,
             name,
+            span: None,
         }
     }
 
@@ -259,6 +292,7 @@ impl<'a> Reference<'a> {
             identifiers: self.identifiers.clone(),
             source_file: self.source_file.clone(),
             name: self.name.clone(),
+            span: self.span,
         }
     }
 
@@ -274,6 +308,7 @@ impl<'a> Reference<'a> {
             identifiers: Vec::new(),
             source_file: self.source_file.clone(),
             name: self.name.clone(),
+            span: self.span,
         }
     }
 
@@ -296,6 +331,7 @@ impl<'a> Clone for Reference<'a> {
             identifiers: self.identifiers.clone(),
             source_file: self.source_file.clone(),
             name: self.name.clone(),
+            span: self.span,
         }
     }
 }

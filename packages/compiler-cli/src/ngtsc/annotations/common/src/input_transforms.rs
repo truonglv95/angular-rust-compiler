@@ -37,6 +37,7 @@ pub fn compile_input_transform_fields(inputs: &[InputMapping]) -> Vec<CompileRes
                 statements: Vec::new(),
                 type_expr: Some(transform.type_expr.clone()),
                 deferrable_imports: None,
+                diagnostics: Vec::new(),
             });
         }
     }
