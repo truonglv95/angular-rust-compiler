@@ -18,6 +18,7 @@ import { NgIfTest } from './src/components/ng-if-test/ng-if-test';
 import { EventBindingTest } from './src/components/event-binding-test/event-binding-test';
 import { PropertyBindingTest } from './src/components/property-binding-test/property-binding-test';
 import { TwoWayBindingTest } from './src/components/two-way-binding-test/two-way-binding-test';
+import { UnusedImportComponent } from './unused-import.component';
 import * as i0 from '@angular/core';
 const _c0 = () => ({ title: 'Explore the Docs', link: 'https://angular.dev' });
 const _c1 = () => ({ title: 'Learn with Tutorials', link: 'https://angular.dev/tutorials' });
@@ -388,6 +389,7 @@ export class App {
                 EventBindingTest,
                 PropertyBindingTest,
                 TwoWayBindingTest,
+                UnusedImportComponent,
               ],
               changeDetection: ChangeDetectionStrategy.OnPush,
               template:
@@ -421,5 +423,5 @@ export class App {
 })();
 (() => {
   (typeof ngDevMode === 'undefined' || ngDevMode) &&
-    i0.ɵsetClassDebugInfo(App, { className: 'App', filePath: 'src/app/app.ts', lineNumber: 39 });
+    i0.ɵsetClassDebugInfo(App, { className: 'App', filePath: 'src/app/app.ts', lineNumber: 41 });
 })();

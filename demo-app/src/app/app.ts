@@ -19,6 +19,7 @@ import { NgIfTest } from './src/components/ng-if-test/ng-if-test';
 import { EventBindingTest } from './src/components/event-binding-test/event-binding-test';
 import { PropertyBindingTest } from './src/components/property-binding-test/property-binding-test';
 import { TwoWayBindingTest } from './src/components/two-way-binding-test/two-way-binding-test';
+import { UnusedImportComponent } from './unused-import.component';
 
 @Component({
   selector: 'app-root',
@@ -31,6 +32,7 @@ import { TwoWayBindingTest } from './src/components/two-way-binding-test/two-way
     EventBindingTest,
     PropertyBindingTest,
     TwoWayBindingTest,
+    UnusedImportComponent,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
