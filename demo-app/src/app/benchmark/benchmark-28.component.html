@@ -1,0 +1,69 @@
+<div class="benchmark-component-28">
+  <header class="header" [class.active]="isActive" (click)="handleClick($event)">
+    <h1>{{ title }}</h1>
+    <span class="subtitle">{{ subtitle | uppercase }}</span>
+  </header>
+  
+  <nav class="navigation">
+    <ul>
+      @for (item of items; track item.id) {
+        <li [class.selected]="item.id === selectedId" (click)="select(item)">
+          <a [href]="item.url" [attr.data-id]="item.id">
+            {{ item.name }}
+          </a>
+        </li>
+      }
+    </ul>
+  </nav>
+  
+  <main class="content">
+    @if (isLoading) {
+      <div class="spinner" [style.width.px]="spinnerSize">
+        <span>Loading...</span>
+      </div>
+    } @else if (hasError) {
+      <div class="error" [class.critical]="isCritical">
+        <p>{{ errorMessage }}</p>
+        <button (click)="retry()">Retry</button>
+      </div>
+    } @else {
+      <section class="data-section">
+        @for (row of data; track row.id; let i = $index, first = $first, last = $last) {
+          <article 
+            class="data-row" 
+            [class.first]="first" 
+            [class.last]="last"
+            [class.even]="i % 2 === 0"
+            [attr.data-index]="i"
+            (mouseenter)="onHover(row)"
+            (mouseleave)="onLeave(row)">
+            <div class="row-header">
+              <img [src]="row.image" [alt]="row.title" />
+              <h3>{{ row.title }}</h3>
+            </div>
+            <div class="row-body">
+              <p>{{ row.description }}</p>
+              <span class="meta">{{ row.date | date:'short' }}</span>
+            </div>
+            <div class="row-actions">
+              <button [disabled]="row.locked" (click)="edit(row)">Edit</button>
+              <button [class.danger]="true" (click)="delete(row)">Delete</button>
+            </div>
+          </article>
+        }
+      </section>
+    }
+  </main>
+  
+  <aside class="sidebar">
+    <div class="widget" *ngFor="let widget of widgets">
+      <h4>{{ widget.title }}</h4>
+      <div [innerHTML]="widget.content"></div>
+    </div>
+  </aside>
+  
+  <footer class="footer" [style.backgroundColor]="footerColor">
+    <p>&copy; {{ currentYear }} - Component 28</p>
+    <a [routerLink]="['/home']" [queryParams]="{ref: 'component28'}">Home</a>
+  </footer>
+</div>
