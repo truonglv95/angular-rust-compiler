@@ -6,6 +6,7 @@ pub mod compilation;
 pub mod conversion;
 pub mod emit;
 pub mod ingest;
+pub mod ingest_helpers;
 mod ingest_test;
 pub mod instruction;
 pub mod phases;

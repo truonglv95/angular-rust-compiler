@@ -235,6 +235,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                         ),
                         deferrable_imports: None,
                         diagnostics: Vec::new(),
+                        additional_imports: Vec::new(),
                     }];
                     (results, pipe.name.clone(), pipe.source_file.clone())
                 }
@@ -263,6 +264,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                             type_desc: format!("i0.ɵɵFactoryDeclaration<{}, never>", inj.name),
                             deferrable_imports: None,
                             diagnostics: Vec::new(),
+                            additional_imports: Vec::new(),
                         },
                         crate::ngtsc::transform::src::api::CompileResult {
                             name: "ɵprov".to_string(),
@@ -271,6 +273,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                             type_desc: format!("i0.ɵɵInjectableDeclaration<{}>", inj.name),
                             deferrable_imports: None,
                             diagnostics: Vec::new(),
+                            additional_imports: Vec::new(),
                         },
                     ];
                     (results, inj.name.clone(), inj.source_file.clone())
@@ -424,6 +427,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                           fac_expr_arena,
                                           cmp_expr_arena,
                                           &result.name,
+                                          &result.additional_imports,
                                       );
 
                                       // Step 4: Codegen final JavaScript

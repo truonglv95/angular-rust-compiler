@@ -1782,7 +1782,7 @@ mod tests {
             ];
 
             let parser = create_parser(false);
-            for (_attr, key, value, key_is_var, _source_span, _key_span, _value_span) in cases {
+            for (attr, key, value, key_is_var, _source_span, _key_span, _value_span) in cases {
                 // Extract key and value from attr manually as TS helper `_parseTemplateBindings` does
                 // attr format: *KEY="VALUE"
                 let parts: Vec<&str> = attr.splitn(2, '=').collect();

@@ -81,6 +81,9 @@ pub fn run(job: &mut ComponentCompilationJob) {
     resolve_names::phase(job);
     resolve_contexts::phase(job);
 
+    // Remove $any() calls - they have no runtime effects
+    any_cast::delete_any_casts(job);
+
     // Added phases for correctness
     binding_specialization::specialize_bindings(job); // Converts BindingOp -> AttributeOp, PropertyOp, etc.
     attribute_extraction::extract_attributes(job);
@@ -103,6 +106,29 @@ pub fn run(job: &mut ComponentCompilationJob) {
     naming::name_functions_and_variables(job);
     generate_advance::phase(job);
     diagnostics::phase(job);
+    transform_two_way_binding_set::transform_two_way_binding_set(job);
+    reify::reify(job);
+    chaining::chain(job);
+}
+
+pub fn run_host(job: &mut crate::template::pipeline::src::compilation::HostBindingCompilationJob) {
+    binding_specialization::specialize_bindings(job);
+    attribute_extraction::extract_attributes(job);
+    const_collection::collect_element_consts(job);
+    resolve_names::phase(job);
+    resolve_contexts::phase(job);
+
+    // Remove $any() calls - they have no runtime effects
+    any_cast::delete_any_casts(job);
+
+    // Host bindings may have property bindings that need var counting
+    var_counting::phase(job);
+
+    naming::name_functions_and_variables(job);
+
+    // Two-way bindings for host are rare but possible if ngModel is on host
+    transform_two_way_binding_set::transform_two_way_binding_set(job);
+
     reify::reify(job);
     chaining::chain(job);
 }

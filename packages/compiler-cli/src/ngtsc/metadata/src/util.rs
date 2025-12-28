@@ -459,6 +459,53 @@ pub fn extract_directive_metadata<'a>(
                                     meta.queries = collected;
                                 }
                             }
+                            "host" => {
+                                if let Expression::ObjectExpression(obj) = &prop.value {
+                                    for host_prop in &obj.properties {
+                                        if let ObjectPropertyKind::ObjectProperty(p) = host_prop {
+                                            let key = match &p.key {
+                                                PropertyKey::StaticIdentifier(id) => {
+                                                    Some(id.name.to_string())
+                                                }
+                                                PropertyKey::StringLiteral(s) => {
+                                                    Some(s.value.to_string())
+                                                }
+                                                _ => None,
+                                            };
+                                            if let Some(key) = key {
+                                                if let Some(val) = extract_string_value(&p.value) {
+                                                    if key.starts_with('(') && key.ends_with(')') {
+                                                        meta.host.listeners.insert(
+                                                            key[1..key.len() - 1].to_string(),
+                                                            val,
+                                                        );
+                                                    } else if key.starts_with('[')
+                                                        && key.ends_with(']')
+                                                    {
+                                                        meta.host.properties.insert(
+                                                            key[1..key.len() - 1].to_string(),
+                                                            val,
+                                                        );
+                                                    } else if key == "class" {
+                                                        meta.host.special_attributes.class_attr =
+                                                            Some(val);
+                                                    } else if key == "style" {
+                                                        meta.host.special_attributes.style_attr =
+                                                            Some(val);
+                                                    } else {
+                                                        meta.host.attributes.insert(
+                                                            key,
+                                                            *angular_compiler::output::output_ast::literal(
+                                                                angular_compiler::output::output_ast::LiteralValue::String(val),
+                                                            ),
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -595,17 +642,37 @@ pub fn get_all_metadata<'a>(
 
         if let Some(decl) = declaration {
             if let Declaration::ClassDeclaration(class_decl) = decl {
+                let class_name = class_decl
+                    .id
+                    .as_ref()
+                    .map(|id| id.name.as_str())
+                    .unwrap_or("<anonymous>");
+                // println!("DEBUG: Metadata reader found class: {}", class_name);
                 let decorators = host.get_decorators_of_declaration(decl);
 
                 for decorator in decorators {
                     if decorator.name == "Component" || decorator.name == "Directive" {
+                        if class_name == "HostBindingTest" {
+                            println!(
+                                "DEBUG: Found Component/Directive decorator for HostBindingTest"
+                            );
+                        }
                         if let Some(metadata) = extract_directive_metadata(
                             class_decl,
                             &decorator,
                             decorator.name == "Component",
                             path,
                         ) {
+                            if class_name == "HostBindingTest" {
+                                println!(
+                                    "DEBUG: SUCCESSFULLY extracted metadata for HostBindingTest"
+                                );
+                            }
                             directives.push(metadata);
+                        } else {
+                            if class_name == "HostBindingTest" {
+                                println!("DEBUG: FAILED to extract metadata for HostBindingTest");
+                            }
                         }
                     } else if decorator.name == "Pipe" {
                         if let Some(metadata) = extract_pipe_metadata(class_decl, &decorator, path)

@@ -620,14 +620,15 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialComponentLinker
                 }
                 let _schema_registry = DummySchemaRegistry;
 
-                let binding_parser =
+                let mut binding_parser =
                     angular_compiler::template_parser::binding_parser::BindingParser::new(
                         &_parser,
                         &_schema_registry,
                         vec![],
                     );
 
-                let res = compile_component_from_metadata(&meta, constant_pool, &binding_parser);
+                let res =
+                    compile_component_from_metadata(&meta, constant_pool, &mut binding_parser);
                 res.expression
             }
             Err(e) => {

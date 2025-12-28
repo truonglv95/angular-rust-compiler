@@ -18,7 +18,10 @@ use crate::parse_util::{ParseError, ParseSourceSpan};
 use crate::render3::r3_identifiers::Identifiers as R3;
 use crate::render3::util::{type_with_parameters, R3CompiledExpression};
 use crate::shadow_css::ShadowCss;
-use crate::template_parser::binding_parser::BindingParser;
+use crate::template::pipeline::src::emit::emit_host_binding_function;
+use crate::template::pipeline::src::ingest::{ingest_host_binding, HostBindingInput};
+use crate::template::pipeline::src::phases::run_host;
+use crate::template_parser::binding_parser::{BindingParser, ParsedEvent, ParsedProperty};
 
 use super::api::{
     DeclarationListEmitMode, R3ComponentMetadata, R3DeferResolverFunctionMetadata,
@@ -56,7 +59,7 @@ fn external_expr(reference: crate::output::output_ast::ExternalReference) -> Exp
 pub fn compile_directive_from_metadata(
     meta: &R3DirectiveMetadata,
     constant_pool: &mut ConstantPool,
-    binding_parser: &BindingParser,
+    binding_parser: &mut BindingParser,
 ) -> R3CompiledExpression {
     let mut definition_map = base_directive_fields(meta, constant_pool, binding_parser);
     add_features(&mut definition_map, meta, None);
@@ -78,7 +81,7 @@ pub fn compile_directive_from_metadata(
 pub fn compile_component_from_metadata(
     meta: &R3ComponentMetadata,
     constant_pool: &mut ConstantPool,
-    binding_parser: &BindingParser,
+    binding_parser: &mut BindingParser,
 ) -> R3CompiledExpression {
     let mut definition_map = base_directive_fields(&meta.directive, constant_pool, binding_parser);
     add_features(&mut definition_map, &meta.directive, Some(meta));
@@ -268,7 +271,7 @@ fn create_selector_array(selector: &CssSelector) -> Expression {
 fn base_directive_fields(
     meta: &R3DirectiveMetadata,
     constant_pool: &mut ConstantPool,
-    _binding_parser: &BindingParser,
+    binding_parser: &mut BindingParser,
 ) -> DefinitionMap {
     let mut definition_map = DefinitionMap::new();
 
@@ -314,7 +317,24 @@ fn base_directive_fields(
     }
 
     // host bindings
-    // TODO: Implement createHostBindingsFunction
+    eprintln!(
+        "Compiling host bindings for {}: attrs={}, listeners={}, props={}",
+        meta.name,
+        meta.host.attributes.len(),
+        meta.host.listeners.len(),
+        meta.host.properties.len()
+    );
+    if let Some(host_bindings_fn) = create_host_bindings_function(
+        &meta.host,
+        &meta.type_source_span,
+        binding_parser,
+        constant_pool,
+        meta.selector.as_deref().unwrap_or(""),
+        &meta.name,
+        &mut definition_map,
+    ) {
+        definition_map.set("hostBindings", Some(host_bindings_fn));
+    }
 
     // inputs
     let inputs_map: IndexMap<String, InputBindingValue> = meta
@@ -714,6 +734,84 @@ pub fn verify_host_bindings(
     binding_parser.create_directive_host_event_asts(&bindings.listeners, source_span);
     binding_parser.create_bound_host_properties(&bindings.properties, source_span);
     binding_parser.errors.clone()
+}
+
+/// Create a host bindings function or return None if one is not necessary.
+/// Corresponds to createHostBindingsFunction in TypeScript compiler.ts
+fn create_host_bindings_function(
+    host_bindings_metadata: &super::api::R3HostMetadata,
+    type_source_span: &ParseSourceSpan,
+    binding_parser: &mut BindingParser,
+    constant_pool: &mut ConstantPool,
+    selector: &str,
+    name: &str,
+    definition_map: &mut DefinitionMap,
+) -> Option<Expression> {
+    // The parser for host bindings treats class and style attributes specially -- they are
+    // extracted into these separate fields. This is not the case for templates, so the compiler can
+    // actually already handle these special attributes internally. Therefore, we just drop them
+    // into the attributes map.
+    let mut attributes = host_bindings_metadata.attributes.clone();
+    if let Some(ref style_attr) = host_bindings_metadata.special_attributes.style_attr {
+        attributes.insert(
+            "style".to_string(),
+            literal(LiteralValue::String(style_attr.clone())),
+        );
+    }
+    if let Some(ref class_attr) = host_bindings_metadata.special_attributes.class_attr {
+        attributes.insert(
+            "class".to_string(),
+            literal(LiteralValue::String(class_attr.clone())),
+        );
+    }
+
+    // Create host job
+    let mut host_job = ingest_host_binding(
+        HostBindingInput {
+            component_name: name.to_string(),
+            component_selector: selector.to_string(),
+            properties: host_bindings_metadata.properties.clone(),
+            attributes,
+            events: host_bindings_metadata.listeners.clone(),
+        },
+        constant_pool.clone(), // ingest_host_binding takes ownership, we clone to preserve original
+    );
+
+    // Transform the host job through the pipeline phases
+    run_host(&mut host_job);
+
+    // Debug: Print host job after pipeline phases
+    eprintln!(
+        "DEBUG after run_host for {}: vars={:?}, update_ops_count={}",
+        name,
+        host_job.root.vars,
+        host_job.root.update.len()
+    );
+    for (i, op) in host_job.root.update.iter().enumerate() {
+        eprintln!("  update op[{}]: {:?}", i, op.kind());
+    }
+
+    // Set hostAttrs in definition map
+    if let Some(ref attrs) = host_job.root.attributes {
+        definition_map.set("hostAttrs", Some(attrs.clone()));
+    }
+
+    // Set hostVars in definition map - CRITICAL for class/style bindings
+    let host_vars = host_job.root.vars.unwrap_or(0);
+    eprintln!("DEBUG: Setting hostVars={} for {}", host_vars, name);
+    if host_vars > 0 {
+        definition_map.set(
+            "hostVars",
+            Some(Expression::Literal(LiteralExpr {
+                value: LiteralValue::Number(host_vars as f64),
+                type_: None,
+                source_span: None,
+            })),
+        );
+    }
+
+    // Emit the host binding function
+    emit_host_binding_function(&host_job)
 }
 
 /// Compiles the dependency resolver function for a defer block.

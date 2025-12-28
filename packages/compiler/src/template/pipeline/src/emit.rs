@@ -11,7 +11,7 @@ use crate::render3::view::api::{R3ComponentMetadata, R3TemplateDependencyMetadat
 use crate::render3::view::compiler::compile_styles;
 use crate::template::pipeline::ir;
 use crate::template::pipeline::src::compilation::{
-    CompilationJob, CompilationUnit, ComponentCompilationJob,
+    CompilationJob, CompilationUnit, ComponentCompilationJob, HostBindingCompilationJob,
 };
 use crate::template::pipeline::src::instruction as ng;
 
@@ -93,7 +93,26 @@ fn emit_view(job: &ComponentCompilationJob, unit: &dyn CompilationUnit) -> o::Ex
 pub fn emit_component(
     job: &ComponentCompilationJob,
     metadata: &R3ComponentMetadata,
+    host_job: Option<&HostBindingCompilationJob>,
 ) -> R3CompiledExpression {
+    println!(
+        "DEBUG: emit_component for {} - views: {}, mode: {:?}",
+        job.component_name,
+        job.views.len(),
+        job.mode
+    );
+    for (id, view) in &job.views {
+        println!(
+            "DEBUG: View {:?} has {} create ops, {} update ops",
+            id,
+            view.create.len(),
+            view.update.len()
+        );
+        for op in &view.create {
+            println!("DEBUG: Create Op: {:?}", op.kind());
+            // println!("DEBUG: Create Op Tag: {:?}", op.tag); // If tag exists
+        }
+    }
     let mut statements = vec![];
     statements.extend(job.pool.statements.clone());
 
@@ -168,50 +187,115 @@ pub fn emit_component(
             value: Box::new(*o::literal(vars as f64)),
             quoted: false,
         },
-        // consts - collected element attributes from const_collection phase
-        o::LiteralMapEntry {
-            key: "consts".into(),
+    ];
+
+    // hostBindings, hostVars, hostAttrs
+    if let Some(host_job) = host_job {
+        // hostBindings
+        if let Some(host_fn) = emit_host_binding_function(host_job) {
+            definition_entries.push(o::LiteralMapEntry {
+                key: "hostBindings".into(),
+                value: Box::new(host_fn),
+                quoted: false,
+            });
+        }
+
+        // hostVars
+        let host_vars = host_job.root.vars.unwrap_or(0);
+        if host_vars > 0 {
+            definition_entries.push(o::LiteralMapEntry {
+                key: "hostVars".into(),
+                value: Box::new(*o::literal(host_vars as f64)),
+                quoted: false,
+            });
+        }
+
+        // hostAttrs
+        if let Some(host_attrs) = &host_job.root.attributes {
+            definition_entries.push(o::LiteralMapEntry {
+                key: "hostAttrs".into(),
+                value: Box::new(host_attrs.clone()),
+                quoted: false,
+            });
+        }
+    }
+
+    // consts - collected element attributes from const_collection phase
+    definition_entries.push(o::LiteralMapEntry {
+        key: "consts".into(),
+        value: Box::new(o::Expression::LiteralArray(o::LiteralArrayExpr {
+            entries: job.consts.iter().cloned().collect(),
+            type_: None,
+            source_span: None,
+        })),
+        quoted: false,
+    });
+
+    definition_entries.push(o::LiteralMapEntry {
+        key: "template".into(),
+        value: Box::new(template_fn),
+        quoted: false,
+    });
+    definition_entries.push(o::LiteralMapEntry {
+        key: "standalone".into(),
+        value: Box::new(*o::literal(metadata.directive.is_standalone)),
+        quoted: false,
+    });
+
+    // styles - shim CSS with [_ngcontent-%COMP%] selectors when Emulated encapsulation
+    definition_entries.push(o::LiteralMapEntry {
+        key: "styles".into(),
+        value: Box::new({
+            // Shim styles for Emulated encapsulation (default)
+            let shimmed_styles = match metadata.encapsulation {
+                ViewEncapsulation::Emulated => {
+                    // Transform styles with [_ngcontent-%COMP%] and [_nghost-%COMP%] selectors
+                    compile_styles(&metadata.styles, "_ngcontent-%COMP%", "_nghost-%COMP%")
+                }
+                _ => metadata.styles.clone(),
+            };
+            o::Expression::LiteralArray(o::LiteralArrayExpr {
+                entries: shimmed_styles
+                    .iter()
+                    .map(|s| *o::literal(s.clone()))
+                    .collect(),
+                type_: None,
+                source_span: None,
+            })
+        }),
+        quoted: false,
+    });
+
+    // Optimize encapsulation: when no styles and encapsulation is Emulated, use None
+    let effective_encapsulation =
+        if metadata.styles.is_empty() && metadata.encapsulation == ViewEncapsulation::Emulated {
+            ViewEncapsulation::None
+        } else {
+            metadata.encapsulation
+        };
+
+    definition_entries.push(o::LiteralMapEntry {
+        key: "encapsulation".into(),
+        value: Box::new(*o::literal(match effective_encapsulation {
+            ViewEncapsulation::Emulated => 0.0,
+            ViewEncapsulation::None => 2.0,
+            ViewEncapsulation::ShadowDom => 3.0,
+            ViewEncapsulation::IsolatedShadowDom => 4.0,
+        })),
+        quoted: false,
+    });
+
+    if let Some(export_as) = &metadata.directive.export_as {
+        definition_entries.push(o::LiteralMapEntry {
+            key: "exportAs".into(),
             value: Box::new(o::Expression::LiteralArray(o::LiteralArrayExpr {
-                entries: job.consts.iter().cloned().collect(),
+                entries: export_as.iter().map(|s| *o::literal(s.clone())).collect(),
                 type_: None,
                 source_span: None,
             })),
             quoted: false,
-        },
-        o::LiteralMapEntry {
-            key: "template".into(),
-            value: Box::new(template_fn),
-            quoted: false,
-        },
-        o::LiteralMapEntry {
-            key: "standalone".into(),
-            value: Box::new(*o::literal(metadata.directive.is_standalone)),
-            quoted: false,
-        },
-        // styles - shim CSS with [_ngcontent-%COMP%] selectors when Emulated encapsulation
-        o::LiteralMapEntry {
-            key: "styles".into(),
-            value: Box::new({
-                // Shim styles for Emulated encapsulation (default)
-                let shimmed_styles = match metadata.encapsulation {
-                    ViewEncapsulation::Emulated => {
-                        // Transform styles with [_ngcontent-%COMP%] and [_nghost-%COMP%] selectors
-                        compile_styles(&metadata.styles, "_ngcontent-%COMP%", "_nghost-%COMP%")
-                    }
-                    _ => metadata.styles.clone(),
-                };
-                o::Expression::LiteralArray(o::LiteralArrayExpr {
-                    entries: shimmed_styles
-                        .iter()
-                        .map(|s| *o::literal(s.clone()))
-                        .collect(),
-                    type_: None,
-                    source_span: None,
-                })
-            }),
-            quoted: false,
-        },
-    ];
+        });
+    }
 
     // Add changeDetection if set (OnPush = 0)
     if let Some(ref change_detection) = metadata.change_detection {
@@ -300,31 +384,10 @@ pub fn emit_component(
         let dep_exprs: Vec<o::Expression> = metadata
             .declarations
             .iter()
-            .filter_map(|decl| {
-                match decl {
-                    R3TemplateDependencyMetadata::Directive(dir) => {
-                        // Extract variable name from ReadVarExpr
-                        if let Expression::ReadVar(ref read_var) = dir.type_ {
-                            Some(*o::variable(&read_var.name))
-                        } else {
-                            None
-                        }
-                    }
-                    R3TemplateDependencyMetadata::Pipe(pipe) => {
-                        if let Expression::ReadVar(ref read_var) = pipe.type_ {
-                            Some(*o::variable(&read_var.name))
-                        } else {
-                            None
-                        }
-                    }
-                    R3TemplateDependencyMetadata::NgModule(module) => {
-                        if let Expression::ReadVar(ref read_var) = module.type_ {
-                            Some(*o::variable(&read_var.name))
-                        } else {
-                            None
-                        }
-                    }
-                }
+            .map(|decl| match decl {
+                R3TemplateDependencyMetadata::Directive(dir) => dir.type_.clone(),
+                R3TemplateDependencyMetadata::Pipe(pipe) => pipe.type_.clone(),
+                R3TemplateDependencyMetadata::NgModule(module) => module.type_.clone(),
             })
             .collect();
 
@@ -365,18 +428,22 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                     let index = element_op.base.base.handle.get_slot().unwrap();
                     // Handle tag which might be Option<String>
                     let tag = element_op.base.tag.clone().unwrap_or("div".to_string());
+                    println!("DEBUG: Emit visiting ElementStart with tag '{}'", tag);
 
                     // Build args: slot, tag, [constsIndex]
-                    let mut args = vec![*o::literal(index as f64), *o::literal(tag)];
+                    let mut args = vec![*o::literal(index as f64), *o::literal(tag.clone())];
 
                     // Add consts index if element has attributes (event bindings, etc.)
                     if let Some(consts_index) = element_op.base.base.attributes {
                         args.push(*o::literal(consts_index.0 as f64));
                     }
 
+                    // FORCE domElementStart
+                    let instruction = R3::dom_element_start();
+
                     stmts.push(o::Statement::Expression(o::ExpressionStatement {
                         expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
-                            fn_: o::import_ref(R3::element_start()),
+                            fn_: o::import_ref(instruction),
                             args,
                             type_: None,
                             source_span: None,
@@ -671,7 +738,9 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                         // Add last string (NGTSC always includes it even if empty, except for textInterpolate(v))
                         let last_string =
                             interpolation.strings[interpolation.strings.len() - 1].clone();
-                        args.push(*o::literal(last_string));
+                        if !last_string.is_empty() {
+                            args.push(*o::literal(last_string));
+                        }
                         args
                     };
 
@@ -759,9 +828,16 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
 
                     // Create handler function
                     let handler_fn_name = listener_op.handler_fn_name.clone();
+                    let mut params = vec![];
+                    if listener_op.consumes_dollar_event {
+                        params.push(o::FnParam {
+                            name: "$event".to_string(),
+                            type_: None,
+                        });
+                    }
                     let handler_fn = o::Expression::Fn(o::FunctionExpr {
                         name: handler_fn_name,
-                        params: vec![], // Event listeners typically don't expose params
+                        params,
                         statements: handler_stmts,
                         type_: None,
                         source_span: None,
@@ -787,10 +863,210 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                     }));
                 }
             }
+            ir::OpKind::TwoWayListener => {
+                if let Some(listener_op) = op
+                    .as_any()
+                    .downcast_ref::<ir::ops::create::TwoWayListenerOp>()
+                {
+                    // Emit ɵɵtwoWayListener('eventName', function handlerFn($event) { return handler; })
+                    let event_name = listener_op.name.clone();
+
+                    // Build handler function body from handler_ops
+                    let handler_stmts = emit_ops(
+                        job,
+                        listener_op
+                            .handler_ops
+                            .iter()
+                            .map(|op| op.as_ref() as &dyn ir::Op)
+                            .collect(),
+                    );
+
+                    // Create handler function
+                    let handler_fn_name = listener_op.handler_fn_name.clone();
+                    let mut params = vec![];
+
+                    // Two-way listeners always consume $event
+                    params.push(o::FnParam {
+                        name: "$event".to_string(),
+                        type_: None,
+                    });
+
+                    let handler_fn = o::Expression::Fn(o::FunctionExpr {
+                        name: handler_fn_name,
+                        params,
+                        statements: handler_stmts,
+                        type_: None,
+                        source_span: None,
+                    });
+
+                    stmts.push(ng::two_way_listener(
+                        event_name, handler_fn, false, // default preventDefault to false
+                        None,
+                    ));
+                }
+            }
             _ => {
                 // Ignore other ops for now
             }
         }
     }
     stmts
+}
+
+/// Emits a host binding function from a host binding compilation job.
+/// Corresponds to emitHostBindingFunction in TypeScript emit.ts
+pub fn emit_host_binding_function(job: &HostBindingCompilationJob) -> Option<o::Expression> {
+    let fn_name = job
+        .root
+        .fn_name
+        .clone()
+        .expect("host binding function is unnamed");
+
+    use crate::template::pipeline::ir::ops::shared::StatementOp;
+
+    let mut create_stmts = vec![];
+    for op in &job.root.create {
+        if op.kind() == ir::OpKind::Statement {
+            if let Some(stmt_op) = op
+                .as_any()
+                .downcast_ref::<StatementOp<Box<dyn ir::CreateOp + Send + Sync>>>()
+            {
+                create_stmts.push(*stmt_op.statement.clone());
+            }
+        } else if op.kind() == ir::OpKind::Listener {
+            if let Some(listener_op) =
+                op.as_any()
+                    .downcast_ref::<crate::template::pipeline::ir::ops::create::ListenerOp>()
+            {
+                let event_name = listener_op.name.clone();
+
+                // Build handler function body
+                let mut handler_stmts = vec![];
+                for handler_op in &listener_op.handler_ops {
+                    if let Some(stmt_op) = handler_op
+                        .as_any()
+                        .downcast_ref::<StatementOp<Box<dyn ir::UpdateOp + Send + Sync>>>()
+                    {
+                        handler_stmts.push(*stmt_op.statement.clone());
+                    } else {
+                        // Fallback or panic if handler op is not a statement
+                        panic!(
+                            "Expected StatementOp in host listener handler, got {:?}",
+                            handler_op.kind()
+                        );
+                    }
+                }
+
+                // Create handler function
+                let handler_fn_name = listener_op.handler_fn_name.clone();
+                let mut params = vec![];
+                if listener_op.consumes_dollar_event {
+                    params.push(o::FnParam {
+                        name: "$event".to_string(),
+                        type_: None,
+                    });
+                }
+                let handler_fn = o::Expression::Fn(o::FunctionExpr {
+                    name: handler_fn_name,
+                    params,
+                    statements: handler_stmts,
+                    type_: None,
+                    source_span: None,
+                });
+
+                // Build args: eventName, handlerFn
+                let mut args = vec![*o::literal(event_name), handler_fn];
+
+                if let Some(ref event_target) = listener_op.event_target {
+                    args.push(*o::literal(event_target.clone()));
+                }
+
+                create_stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                    expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                        fn_: o::import_ref(R3::listener()),
+                        args,
+                        type_: None,
+                        source_span: None,
+                        pure: false,
+                    })),
+                    source_span: None,
+                }));
+            }
+        } else {
+            panic!(
+                "AssertionError: expected all create ops to have been compiled, but got {:?}",
+                op.kind()
+            );
+        }
+    }
+
+    let mut update_stmts = vec![];
+    for op in &job.root.update {
+        if op.kind() != ir::OpKind::Statement {
+            panic!(
+                "AssertionError: expected all update ops to have been compiled, but got {:?}",
+                op.kind()
+            );
+        }
+        if let Some(stmt_op) = op
+            .as_any()
+            .downcast_ref::<StatementOp<Box<dyn ir::UpdateOp + Send + Sync>>>()
+        {
+            update_stmts.push(*stmt_op.statement.clone());
+        }
+    }
+
+    if create_stmts.is_empty() && update_stmts.is_empty() {
+        return None;
+    }
+
+    // Generate rf block conditions
+    let mut body = vec![];
+
+    if !create_stmts.is_empty() {
+        body.push(o::Statement::IfStmt(o::IfStmt {
+            condition: Box::new(o::Expression::BinaryOp(o::BinaryOperatorExpr {
+                operator: o::BinaryOperator::BitwiseAnd,
+                lhs: Box::new(*o::variable("rf")),
+                rhs: Box::new(*o::literal(1.0)),
+                type_: None,
+                source_span: None,
+            })),
+            true_case: create_stmts,
+            false_case: vec![],
+            source_span: None,
+        }));
+    }
+
+    if !update_stmts.is_empty() {
+        body.push(o::Statement::IfStmt(o::IfStmt {
+            condition: Box::new(o::Expression::BinaryOp(o::BinaryOperatorExpr {
+                operator: o::BinaryOperator::BitwiseAnd,
+                lhs: Box::new(*o::variable("rf")),
+                rhs: Box::new(*o::literal(2.0)),
+                type_: None,
+                source_span: None,
+            })),
+            true_case: update_stmts,
+            false_case: vec![],
+            source_span: None,
+        }));
+    }
+
+    Some(o::Expression::Fn(o::FunctionExpr {
+        name: Some(fn_name),
+        params: vec![
+            o::FnParam {
+                name: "rf".to_string(),
+                type_: None,
+            },
+            o::FnParam {
+                name: "ctx".to_string(),
+                type_: None,
+            },
+        ],
+        statements: body,
+        type_: None,
+        source_span: None,
+    }))
 }

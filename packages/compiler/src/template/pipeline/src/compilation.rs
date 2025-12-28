@@ -5,11 +5,12 @@
 
 use crate::constant_pool::ConstantPool;
 use crate::core::ChangeDetectionStrategy;
+use crate::directive_matching::{CssSelector, SelectorMatcher};
 use crate::output::output_ast::Expression;
 use crate::parse_util::ParseError;
 use crate::render3::view::api::{R3ComponentDeferMetadata, R3TemplateDependencyMetadata};
 use crate::template::pipeline::ir;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// The kind of compilation job
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +39,8 @@ pub trait CompilationJob {
     fn component_name(&self) -> &str;
     /// Get the constant pool
     fn pool(&self) -> &ConstantPool;
+    /// Get the constant pool (mutable)
+    fn pool_mut(&mut self) -> &mut ConstantPool;
     /// Get the compatibility mode
     fn compatibility(&self) -> ir::CompatibilityMode;
     /// Get the compilation mode
@@ -50,9 +53,15 @@ pub trait CompilationJob {
     fn root(&self) -> &dyn CompilationUnit;
     /// Get all compilation units
     fn units(&self) -> Box<dyn Iterator<Item = &dyn CompilationUnit> + '_>;
+    /// Get all compilation units (mutable)
+    fn units_mut(&mut self) -> Box<dyn Iterator<Item = &mut dyn CompilationUnit> + '_>;
+    /// Get the root compilation unit (mutable)
+    fn root_mut(&mut self) -> &mut dyn CompilationUnit;
     /// Allocate a new XrefId
     /// Allocate a new XrefId
     fn allocate_xref_id(&mut self) -> ir::XrefId;
+    /// Get the root unit's xref ID
+    fn root_xref(&self) -> ir::XrefId;
     /// Get as Any
     fn as_any(&self) -> &dyn std::any::Any;
     /// Get as Any mut
@@ -93,6 +102,7 @@ pub struct ComponentCompilationJob {
 
     pub available_dependencies: Vec<R3TemplateDependencyMetadata>,
     pub used_dependencies: HashSet<usize>,
+    pub selector_matcher: SelectorMatcher<usize>,
     pub diagnostics: Vec<ParseError>,
 
     next_xref_id: ir::XrefId,
@@ -121,6 +131,8 @@ impl ComponentCompilationJob {
         // In Rust, we store it separately in the root field
         // If needed, we could use Rc<RefCell<ViewCompilationUnit>> to share ownership
 
+        let selector_matcher = Self::create_selector_matcher(&available_dependencies);
+
         ComponentCompilationJob {
             component_name,
             pool,
@@ -140,9 +152,32 @@ impl ComponentCompilationJob {
             consts_initializers: Vec::new(),
             available_dependencies,
             used_dependencies: HashSet::new(),
+            selector_matcher,
             diagnostics: Vec::new(),
             next_xref_id: ir::XrefId::new(1),
         }
+    }
+
+    fn create_selector_matcher(deps: &Vec<R3TemplateDependencyMetadata>) -> SelectorMatcher<usize> {
+        let mut matcher = SelectorMatcher::new();
+        println!("DEBUG: initialize SelectorMatcher with {} deps", deps.len());
+        for (i, dep) in deps.iter().enumerate() {
+            if let R3TemplateDependencyMetadata::Directive(dir) = dep {
+                println!("DEBUG: Dep {}: Directive selector '{}'", i, dir.selector);
+                match CssSelector::parse(&dir.selector) {
+                    Ok(selectors) => {
+                        for selector in selectors {
+                            println!("DEBUG:   Added parsed selector: {}", selector);
+                            matcher.add_selectable(selector, i);
+                        }
+                    }
+                    Err(e) => println!("DEBUG:   Failed to parse selector: {}", e),
+                }
+            } else {
+                println!("DEBUG: Dep {}: Not a directive", i);
+            }
+        }
+        matcher
     }
 
     /// Add a `ViewCompilationUnit` for a new embedded view to this compilation.
@@ -181,6 +216,12 @@ impl ComponentCompilationJob {
 }
 
 impl CompilationJob for ComponentCompilationJob {
+    fn pool_mut(&mut self) -> &mut ConstantPool {
+        &mut self.pool
+    }
+    fn root_xref(&self) -> ir::XrefId {
+        self.root.xref
+    }
     fn component_name(&self) -> &str {
         &self.component_name
     }
@@ -213,6 +254,20 @@ impl CompilationJob for ComponentCompilationJob {
         let root = &self.root as &dyn CompilationUnit;
         let views = self.views.values().map(|v| v as &dyn CompilationUnit);
         Box::new(std::iter::once(root).chain(views))
+    }
+
+    fn units_mut(&mut self) -> Box<dyn Iterator<Item = &mut dyn CompilationUnit> + '_> {
+        Box::new(
+            std::iter::once(&mut self.root as &mut dyn CompilationUnit).chain(
+                self.views
+                    .values_mut()
+                    .map(|v| v as &mut dyn CompilationUnit),
+            ),
+        )
+    }
+
+    fn root_mut(&mut self) -> &mut dyn CompilationUnit {
+        &mut self.root
     }
 
     fn allocate_xref_id(&mut self) -> ir::XrefId {
@@ -452,6 +507,12 @@ impl HostBindingCompilationJob {
 }
 
 impl CompilationJob for HostBindingCompilationJob {
+    fn pool_mut(&mut self) -> &mut ConstantPool {
+        &mut self.pool
+    }
+    fn root_xref(&self) -> ir::XrefId {
+        self.root.xref
+    }
     fn component_name(&self) -> &str {
         &self.component_name
     }
@@ -484,6 +545,14 @@ impl CompilationJob for HostBindingCompilationJob {
         // HostBinding (job.root) is a single unit
         let root = &self.root as &dyn CompilationUnit;
         Box::new(std::iter::once(root))
+    }
+
+    fn units_mut(&mut self) -> Box<dyn Iterator<Item = &mut dyn CompilationUnit> + '_> {
+        Box::new(std::iter::once(&mut self.root as &mut dyn CompilationUnit))
+    }
+
+    fn root_mut(&mut self) -> &mut dyn CompilationUnit {
+        &mut self.root
     }
 
     fn allocate_xref_id(&mut self) -> ir::XrefId {

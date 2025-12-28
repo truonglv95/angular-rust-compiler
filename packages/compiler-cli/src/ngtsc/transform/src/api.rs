@@ -179,6 +179,9 @@ pub struct CompileResult {
 
     /// Diagnostics produced during compilation.
     pub diagnostics: Vec<Diagnostic>,
+
+    /// Additional imports to be injected. Vector of (alias, module_path).
+    pub additional_imports: Vec<(String, String)>,
 }
 
 impl CompileResult {
@@ -190,6 +193,7 @@ impl CompileResult {
             type_desc: type_desc.into(),
             deferrable_imports: None,
             diagnostics: Vec::new(),
+            additional_imports: Vec::new(),
         }
     }
 }

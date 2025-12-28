@@ -167,28 +167,10 @@ impl ElementAttributes {
 pub fn collect_element_consts(job: &mut dyn CompilationJob) {
     // Collect all extracted attributes
     let mut all_element_attributes: HashMap<ir::XrefId, ElementAttributes> = HashMap::new();
-
-    // Collect ExtractedAttributeOps from all units
-    let component_job = unsafe {
-        let job_ptr = job as *mut dyn CompilationJob;
-        let job_ptr = job_ptr as *mut ComponentCompilationJob;
-        &mut *job_ptr
-    };
-
     let compatibility = job.compatibility();
 
-    // Collect ExtractedAttributeOps and remove them
-    let mut units_to_process: Vec<
-        *mut crate::template::pipeline::src::compilation::ViewCompilationUnit,
-    > = Vec::new();
-    units_to_process.push(&mut component_job.root as *mut _);
-    for (_, unit) in component_job.views.iter_mut() {
-        units_to_process.push(unit as *mut _);
-    }
-
-    // First pass: collect ExtractedAttributeOps
-    for unit_ptr in &units_to_process {
-        let unit = unsafe { &mut **unit_ptr };
+    // First pass: collect ExtractedAttributeOps and remove them from all units
+    for unit in job.units_mut() {
         let mut indices_to_remove: Vec<usize> = Vec::new();
 
         for (index, op) in unit.create().iter().enumerate() {
@@ -216,35 +198,27 @@ pub fn collect_element_consts(job: &mut dyn CompilationJob) {
         }
     }
 
-    // Serialize the extracted attributes into the const array
-    // Handle ComponentCompilationJob
+    // Serialize the extracted attributes into the const array or job root
     let job_kind = job.kind();
     if matches!(
         job_kind,
         CompilationJobKind::Tmpl | CompilationJobKind::Both
     ) {
-        let component_job = unsafe {
-            let job_ptr = job as *mut dyn CompilationJob;
-            let job_ptr = job_ptr as *mut ComponentCompilationJob;
-            &mut *job_ptr
-        };
-        // Process all units to assign attributes
-        process_component_job(component_job, &all_element_attributes);
-    } else {
-        // Handle HostBindingCompilationJob
-        let host_job = unsafe {
-            let job_ptr = job as *mut dyn CompilationJob;
-            let job_ptr = job_ptr as *mut HostBindingCompilationJob;
-            &mut *job_ptr
-        };
-
-        for (xref, attributes) in all_element_attributes.iter() {
-            if *xref != host_job.root.xref {
-                panic!("An attribute would be const collected into the host binding's template function, but is not associated with the root xref.");
-            }
-            let attr_array = serialize_attributes(attributes.clone());
-            if !attr_array.entries.is_empty() {
-                host_job.root.attributes = Some(Expression::LiteralArray(attr_array));
+        if let Some(component_job) = job.as_any_mut().downcast_mut::<ComponentCompilationJob>() {
+            // Process all units to assign attributes
+            process_component_job(component_job, &all_element_attributes);
+        }
+    } else if job_kind == CompilationJobKind::Host {
+        if let Some(host_job) = job.as_any_mut().downcast_mut::<HostBindingCompilationJob>() {
+            let root_xref = host_job.root.xref;
+            for (xref, attributes) in all_element_attributes.iter() {
+                if *xref != root_xref {
+                    panic!("An attribute would be const collected into the host binding's template function, but is not associated with the root xref.");
+                }
+                let attr_array = serialize_attributes(attributes.clone());
+                if !attr_array.entries.is_empty() {
+                    host_job.root.attributes = Some(Expression::LiteralArray(attr_array));
+                }
             }
         }
     }
@@ -609,43 +583,9 @@ fn serialize_attributes(attrs: ElementAttributes) -> LiteralArrayExpr {
             source_span: None,
         }));
 
-        // Sort bindings alphabetically for deterministic output and parity with NGTSC
-        // We need to clone to sort, or sort in place if mutable
-        // attrs was passed by value but we already moved collections out of it except bindings?
-        // attrs.bindings is a Vec<Expression>. We need to sort based on the source span of the literal.
-        let mut sorted_bindings = attrs.bindings;
-        sorted_bindings.sort_by(|a, b| {
-            let get_span = |expr: &Expression| -> Option<ParseSourceSpan> {
-                match expr {
-                    Expression::Literal(l) => l.source_span.clone(),
-                    _ => None,
-                }
-            };
-
-            let span_a = get_span(a);
-            let span_b = get_span(b);
-
-            match (span_a, span_b) {
-                (Some(sa), Some(sb)) => sa.start.offset.cmp(&sb.start.offset),
-                (Some(_), None) => std::cmp::Ordering::Less, // Spanned comes first? Or last?
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => {
-                    // Fallback to alphabetical for determinism if no span
-                    let get_str = |expr: &Expression| -> String {
-                        match expr {
-                            Expression::Literal(l) => match &l.value {
-                                LiteralValue::String(s) => s.clone(),
-                                _ => String::new(),
-                            },
-                            _ => String::new(),
-                        }
-                    };
-                    get_str(a).cmp(&get_str(b))
-                }
-            }
-        });
-
-        attr_array.extend(sorted_bindings);
+        // Preserve insertion order from attribute_extraction phase
+        // Listeners are extracted before properties to match NGTSC output
+        attr_array.extend(attrs.bindings);
     }
 
     // Add template marker and template

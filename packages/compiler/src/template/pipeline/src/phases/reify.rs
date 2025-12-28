@@ -2,41 +2,53 @@
 //!
 //! Corresponds to packages/compiler/src/template/pipeline/src/phases/reify.ts
 
+use crate::expression_parser::ast::ASTWithSource;
 use crate::output::output_ast as o;
 use crate::template::pipeline::ir;
+use crate::template::pipeline::ir::ops::shared::create_statement_op;
 use crate::template::pipeline::ir::ops::VariableOp;
 use crate::template::pipeline::ir::{CreateOp, UpdateOp};
-use crate::template::pipeline::src::compilation::{CompilationUnit, ComponentCompilationJob};
+use crate::template::pipeline::src::compilation::{
+    CompilationJob, CompilationUnit, ComponentCompilationJob, HostBindingCompilationJob,
+};
 use crate::template::pipeline::src::instruction as ng;
 
 use crate::template::pipeline::ir::handle::XrefId;
+use crate::template::pipeline::src::compilation::TemplateCompilationMode;
 use std::collections::HashMap;
 
-pub fn reify(job: &mut ComponentCompilationJob) {
+pub fn reify(job: &mut dyn CompilationJob) {
     let mut view_name_map = HashMap::new();
-    if let Some(name) = job.root.fn_name() {
-        view_name_map.insert(job.root.xref, name.to_string());
-    }
-    for (xref, unit) in &job.views {
+    for unit in job.units() {
         if let Some(name) = unit.fn_name() {
-            view_name_map.insert(*xref, name.to_string());
+            view_name_map.insert(unit.xref(), name.to_string());
         }
     }
 
-    reify_unit(&mut job.root, &view_name_map);
-    for unit in job.views.values_mut() {
-        reify_unit(unit, &view_name_map);
+    // Identify which compilation mode we are in
+    let compatibility = job.compatibility() == ir::CompatibilityMode::TemplateDefinitionBuilder;
+    let mode = job.mode();
+
+    for unit in job.units_mut() {
+        reify_unit(unit, &view_name_map, compatibility, mode);
     }
 }
 
-fn reify_unit(unit: &mut dyn CompilationUnit, view_name_map: &HashMap<XrefId, String>) {
-    reify_create_operations(unit, view_name_map);
+fn reify_unit(
+    unit: &mut dyn CompilationUnit,
+    view_name_map: &HashMap<XrefId, String>,
+    compatibility: bool,
+    mode: TemplateCompilationMode,
+) {
+    reify_create_operations(unit, view_name_map, compatibility, mode);
     reify_update_operations(unit);
 }
 
 fn reify_create_operations(
     unit: &mut dyn CompilationUnit,
     view_name_map: &HashMap<XrefId, String>,
+    _compatibility: bool,
+    mode: TemplateCompilationMode,
 ) {
     for op in unit.create_mut().iter_mut() {
         ir::transform_expressions_in_op(
@@ -180,13 +192,24 @@ fn reify_create_operations(
                             .local_refs_index
                             .map(|idx| idx.as_usize() as i32);
                         let tag = el_op.base.tag.clone().unwrap_or_default();
-                        let stmt = ng::element_start(
-                            slot as i32,
-                            tag,
-                            const_index,
-                            local_ref_index,
-                            el_op.base.base.start_source_span.clone(),
-                        );
+                        // Use domElementStart in DomOnly mode (no directive dependencies)
+                        let stmt = if mode == TemplateCompilationMode::DomOnly {
+                            ng::dom_element_start(
+                                slot as i32,
+                                tag,
+                                const_index,
+                                local_ref_index,
+                                el_op.base.base.start_source_span.clone(),
+                            )
+                        } else {
+                            ng::element_start(
+                                slot as i32,
+                                tag,
+                                const_index,
+                                local_ref_index,
+                                el_op.base.base.start_source_span.clone(),
+                            )
+                        };
                         Some(Box::new(ir::ops::shared::create_statement_op::<
                             Box<dyn CreateOp + Send + Sync>,
                         >(Box::new(stmt))))
@@ -222,7 +245,11 @@ fn reify_create_operations(
                 }
             }
             ir::OpKind::ElementEnd => {
-                let stmt = ng::element_end(op.source_span().cloned());
+                let stmt = if mode == TemplateCompilationMode::DomOnly {
+                    ng::dom_element_end(op.source_span().cloned())
+                } else {
+                    ng::element_end(op.source_span().cloned())
+                };
                 Some(Box::new(ir::ops::shared::create_statement_op::<
                     Box<dyn CreateOp + Send + Sync>,
                 >(Box::new(stmt))))
@@ -269,6 +296,7 @@ fn reify_create_operations(
                     None
                 }
             }
+
             ir::OpKind::Listener => {
                 if let Some(listener_op) = op
                     .as_any_mut()
@@ -283,17 +311,73 @@ fn reify_create_operations(
                             ir::VisitorContextFlag::NONE,
                         );
 
-                        // Handle StatementOp containing RestoreView expression
-                        // (VariableOp was optimized away but we need the DeclareVar)
-                        // Note: Previous logic to force assignment of restoreView result to 'ctx' has been removed
-                        // to match NGTSC parity where restoreView can be a standalone expression statement.
+                        // Handle VariableOp -> DeclareVarStmt conversion
+                        if handler_op.kind() == ir::OpKind::Variable {
+                            use crate::template::pipeline::ir::ops::shared::VariableOp;
+                            use crate::template::pipeline::ir::SemanticVariable;
+
+                            if let Some(var_op) = handler_op
+                                .as_any()
+                                .downcast_ref::<VariableOp<Box<dyn ir::UpdateOp + Send + Sync>>>()
+                            {
+                                let var_name = match &var_op.variable {
+                                    SemanticVariable::Identifier(ident_var) => {
+                                        ident_var.name.clone()
+                                    }
+                                    SemanticVariable::Context(ctx_var) => ctx_var.name.clone(),
+                                    SemanticVariable::Alias(_) => None,
+                                    SemanticVariable::SavedView(_) => None,
+                                };
+
+                                let reified_initializer = reify_ir_expression(
+                                    *var_op.initializer.clone(),
+                                    ir::VisitorContextFlag::NONE,
+                                );
+
+                                let stmt = if let Some(name) = var_name {
+                                    // Normal case: emit as DeclareVarStmt
+                                    o::Statement::DeclareVar(o::DeclareVarStmt {
+                                        name: name.clone(),
+                                        value: Some(Box::new(reified_initializer)),
+                                        type_: None,
+                                        modifiers: o::StmtModifier::Final,
+                                        source_span: None,
+                                    })
+                                } else {
+                                    // No variable name: emit as expression statement
+                                    // This matches NGTSC behavior for restoreView() calls
+                                    o::Statement::Expression(o::ExpressionStatement {
+                                        expr: Box::new(reified_initializer),
+                                        source_span: None,
+                                    })
+                                };
+
+                                let new_op: Box<dyn ir::UpdateOp + Send + Sync> =
+                                    Box::new(ir::ops::shared::create_statement_op::<
+                                        Box<dyn ir::UpdateOp + Send + Sync>,
+                                    >(Box::new(stmt)));
+                                *handler_op = new_op;
+                            }
+                        }
+                    }
+                }
+                None
+            }
+            ir::OpKind::TwoWayListener => {
+                if let Some(listener_op) = op
+                    .as_any_mut()
+                    .downcast_mut::<ir::ops::create::TwoWayListenerOp>()
+                {
+                    // Reify handler operations similar to reifyUpdateOperations in TS
+                    for handler_op in &mut listener_op.handler_ops {
+                        // First, transform IR expressions
+                        ir::transform_expressions_in_op(
+                            handler_op.as_mut(),
+                            &mut reify_ir_expression,
+                            ir::VisitorContextFlag::NONE,
+                        );
 
                         // Handle VariableOp -> DeclareVarStmt conversion
-                        // NOTE: We do NOT special-case restoreView here because in ngFor,
-                        // the return value of restoreView is used (e.g., restoreView().$implicit).
-                        // The variable optimization phase handles whether the variable is needed.
-
-                        // Also handle remaining VariableOp -> DeclareVarStmt conversion
                         if handler_op.kind() == ir::OpKind::Variable {
                             use crate::template::pipeline::ir::ops::shared::VariableOp;
                             use crate::template::pipeline::ir::SemanticVariable;
@@ -392,6 +476,24 @@ fn reify_update_operations(unit: &mut dyn CompilationUnit) {
                     None
                 }
             }
+            ir::OpKind::TwoWayProperty => {
+                if let Some(prop) = op
+                    .as_any()
+                    .downcast_ref::<ir::ops::update::TwoWayPropertyOp>()
+                {
+                    let stmt = ng::two_way_property(
+                        prop.name.clone(),
+                        prop.expression.clone(),
+                        prop.sanitizer.clone(),
+                        prop.source_span.clone(),
+                    );
+                    Some(Box::new(ir::ops::shared::create_statement_op::<
+                        Box<dyn UpdateOp + Send + Sync>,
+                    >(Box::new(stmt))))
+                } else {
+                    None
+                }
+            }
             ir::OpKind::Variable => {
                 use crate::template::pipeline::ir::ops::shared::VariableOp;
                 use crate::template::pipeline::ir::SemanticVariable;
@@ -457,6 +559,7 @@ fn reify_update_operations(unit: &mut dyn CompilationUnit) {
                     let expression = match &style_op.expression {
                         ir::ops::update::BindingExpression::Expression(expr) => {
                             // Reify the expression
+
                             reify_ir_expression(expr.clone(), ir::VisitorContextFlag::NONE)
                         }
                         ir::ops::update::BindingExpression::Interpolation(interp) => {
@@ -473,6 +576,35 @@ fn reify_update_operations(unit: &mut dyn CompilationUnit) {
                         expression,
                         style_op.unit.clone(),
                         Some(style_op.source_span.clone()),
+                    );
+                    Some(Box::new(ir::ops::shared::create_statement_op::<
+                        Box<dyn UpdateOp + Send + Sync>,
+                    >(Box::new(stmt))))
+                } else {
+                    None
+                }
+            }
+            ir::OpKind::Attribute => {
+                if let Some(attr) = op.as_any().downcast_ref::<ir::ops::update::AttributeOp>() {
+                    let expression = match &attr.expression {
+                        ir::ops::update::BindingExpression::Expression(expr) => {
+                            // Reify the expression
+                            reify_ir_expression(expr.clone(), ir::VisitorContextFlag::NONE)
+                        }
+                        ir::ops::update::BindingExpression::Interpolation(interp) => {
+                            // Convert interpolation to string for now - similar to StyleProp
+                            o::Expression::Literal(o::LiteralExpr {
+                                value: o::LiteralValue::String(interp.strings.join("")),
+                                type_: None,
+                                source_span: None,
+                            })
+                        }
+                    };
+                    let stmt = ng::attribute(
+                        attr.name.clone(),
+                        expression,
+                        attr.sanitizer.clone(),
+                        attr.source_span.clone(),
                     );
                     Some(Box::new(ir::ops::shared::create_statement_op::<
                         Box<dyn UpdateOp + Send + Sync>,

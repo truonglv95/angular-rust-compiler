@@ -25,37 +25,28 @@ struct RecTask {
     name: String,
 }
 
-pub fn name_functions_and_variables(job: &mut ComponentCompilationJob) {
+pub fn name_functions_and_variables(job: &mut dyn CompilationJob) {
     let mut state = NamingState { index: 0 };
-    let root_xref = job.root.xref;
+    let root_xref = job.root_xref();
 
     // Check compatibility mode (TemplateDefinitionBuilder)
-    let compatibility = job.compatibility == ir::CompatibilityMode::TemplateDefinitionBuilder;
+    let compatibility = job.compatibility() == ir::CompatibilityMode::TemplateDefinitionBuilder;
 
     // Determine base name
-    let _fn_suffix = job.fn_suffix().to_string();
-    let component_name = job.component_name.clone();
+    let component_name = job.component_name().to_string();
 
-    // Logic from naming.ts: ensure unique names for view units
-    // In Rust, we might need to access the pool.
-    // However, unit.fn_name might already be null.
-
-    // We start traversal from root.
-    // The baseName calculation happens inside addNamesToView in TS,
-    // but the first call passes `job.componentName`.
-
-    process_view(job, root_xref, component_name, &mut state, compatibility);
+    process_view_job(job, root_xref, component_name, &mut state, compatibility);
 }
 
 fn process_view_safe(
-    job: &mut ComponentCompilationJob,
+    job: &mut dyn CompilationJob,
     unit_xref: ir::XrefId,
     base_name: String,
     state: &mut NamingState,
     compatibility: bool,
 ) {
     let needs_name = {
-        let unit = get_view_mut(job, unit_xref);
+        let unit = get_unit_mut(job, unit_xref);
         unit.fn_name().is_none()
     };
 
@@ -64,7 +55,7 @@ fn process_view_safe(
     // Update base_name for root view in compatibility mode
     // effective_base_name is used for the *current* view's function name.
     let mut effective_base_name = base_name.clone();
-    if compatibility && unit_xref == job.root.xref && !base_name.ends_with("_Template") {
+    if compatibility && unit_xref == job.root().xref() && !base_name.ends_with("_Template") {
         effective_base_name.push_str("_Template");
     }
 
@@ -73,7 +64,7 @@ fn process_view_safe(
     // child_base_name is used as the prefix for *embedded* views.
     // For the root view, we want to use the original component name (e.g. "NgForTest") as the prefix,
     // NOT "NgForTest_Template", to avoid double suffixes like "NgForTest_Template_div_0_Template".
-    let query_root = job.root.xref;
+    let query_root = job.root_xref();
     let child_base_name = if compatibility && unit_xref == query_root {
         // Use original base name (e.g. "NgForTest")
         base_name.as_str()
@@ -96,10 +87,10 @@ fn process_view_safe(
         // Use listener_base_name as the candidate for function name
         let candidate = sanitize_identifier(&listener_base_name);
         // Need pool access.
-        let unique_name = job.pool.unique_name(candidate, false);
+        let unique_name = job.pool_mut().unique_name(candidate, false);
 
         // Re-acquire unit
-        let unit = get_view_mut(job, unit_xref);
+        let unit = get_unit_mut(job, unit_xref);
         unit.set_fn_name(unique_name);
     }
 
@@ -114,20 +105,20 @@ fn process_view_safe(
         std::collections::HashMap::new();
 
     let total_ops = {
-        let unit = get_view_mut(job, unit_xref);
-        unit.create.len() + unit.update.len()
+        let unit = get_unit_mut(job, unit_xref);
+        unit.create().len() + unit.update().len()
     };
 
     for i in 0..total_ops {
         let mut tasks = Vec::new();
         {
-            let unit = get_view_mut(job, unit_xref);
-            let create_len = unit.create.len();
+            let unit = get_unit_mut(job, unit_xref);
+            let create_len = unit.create().len();
             let is_create = i < create_len;
             let idx = if is_create { i } else { i - create_len };
 
             if is_create {
-                if let Some(op) = unit.create.get_mut(idx) {
+                if let Some(op) = unit.create_mut().get_mut(idx) {
                     process_op_with_var_names(
                         &mut **op,
                         listener_base_name.as_str(),
@@ -141,7 +132,7 @@ fn process_view_safe(
                     );
                 }
             } else {
-                if let Some(op) = unit.update.get_mut(idx) {
+                if let Some(op) = unit.update_mut().get_mut(idx) {
                     process_op_with_var_names(
                         &mut **op,
                         listener_base_name.as_str(),
@@ -166,13 +157,13 @@ fn process_view_safe(
     // 3. Second pass: propagate variable names into ReadVariableExpr within the current view
     // This happens after all variables (local and children) have been named/visited.
     {
-        let unit = get_view_mut(job, unit_xref);
+        let unit = get_unit_mut(job, unit_xref);
 
-        for op in unit.create.iter_mut() {
+        for op in unit.create_mut().iter_mut() {
             apply_names_to_op_recursive(op.as_mut(), &var_names);
         }
 
-        for op in unit.update.iter_mut() {
+        for op in unit.update_mut().iter_mut() {
             apply_names_to_op_recursive(op.as_mut(), &var_names);
         }
     }
@@ -626,8 +617,8 @@ fn process_op_with_var_names(
 }
 
 // Map the original function name to this new Safe implementation
-fn process_view(
-    job: &mut ComponentCompilationJob,
+fn process_view_job(
+    job: &mut dyn CompilationJob,
     unit_xref: ir::XrefId,
     base_name: String,
     state: &mut NamingState,
@@ -636,11 +627,16 @@ fn process_view(
     process_view_safe(job, unit_xref, base_name, state, compatibility);
 }
 
-fn get_view_mut(job: &mut ComponentCompilationJob, xref: ir::XrefId) -> &mut ViewCompilationUnit {
-    if xref == job.root.xref {
-        &mut job.root
+fn get_unit_mut(job: &mut dyn CompilationJob, xref: ir::XrefId) -> &mut dyn CompilationUnit {
+    if xref == job.root_xref() {
+        job.root_mut()
     } else {
-        job.views.get_mut(&xref).expect("View not found")
+        // This is only possible for ComponentCompilationJob
+        let component_job = job
+            .as_any_mut()
+            .downcast_mut::<ComponentCompilationJob>()
+            .expect("Only ComponentCompilationJob supports multiple units");
+        component_job.views.get_mut(&xref).expect("View not found")
     }
 }
 

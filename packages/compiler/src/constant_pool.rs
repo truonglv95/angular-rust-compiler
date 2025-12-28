@@ -53,6 +53,7 @@ impl GenericKeyFn {
     }
 }
 
+#[derive(Clone)]
 pub struct ConstantPool {
     pub statements: Vec<o::Statement>,
     literals: HashMap<String, FixupExpression>,

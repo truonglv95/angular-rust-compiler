@@ -45,6 +45,9 @@ use crate::render3::view::compiler::{
     verify_host_bindings, ParsedHostBindings,
 };
 use crate::render3::view::template::{make_binding_parser, parse_template, ParseTemplateOptions};
+use crate::template::pipeline::src::compilation::{
+    CompilationJob, CompilationJobKind, CompilationUnit,
+};
 
 pub struct CompilerFacadeImpl {
     jit_evaluator: JitEvaluator,
@@ -249,10 +252,10 @@ impl CompilerFacade for CompilerFacadeImpl {
         facade: R3DirectiveMetadataFacade,
     ) -> Result<serde_json::Value, String> {
         let mut constant_pool = ConstantPool::new(false);
-        let binding_parser = make_binding_parser(false);
+        let mut binding_parser = make_binding_parser(false);
 
         let meta = convert_directive_facade_to_metadata(facade);
-        let res = compile_directive_from_metadata(&meta, &mut constant_pool, &binding_parser);
+        let res = compile_directive_from_metadata(&meta, &mut constant_pool, &mut binding_parser);
         self.jit_expression(
             res.expression,
             angular_core_env,
@@ -268,10 +271,10 @@ impl CompilerFacade for CompilerFacadeImpl {
         declaration: R3DeclareDirectiveFacade,
     ) -> Result<serde_json::Value, String> {
         let mut constant_pool = ConstantPool::new(false);
-        let binding_parser = make_binding_parser(false);
+        let mut binding_parser = make_binding_parser(false);
 
         let meta = convert_declare_directive_facade_to_metadata(declaration);
-        let res = compile_directive_from_metadata(&meta, &mut constant_pool, &binding_parser);
+        let res = compile_directive_from_metadata(&meta, &mut constant_pool, &mut binding_parser);
         self.jit_expression(
             res.expression,
             angular_core_env,
@@ -287,10 +290,10 @@ impl CompilerFacade for CompilerFacadeImpl {
         facade: R3ComponentMetadataFacade,
     ) -> Result<serde_json::Value, String> {
         let mut constant_pool = ConstantPool::new(false);
-        let binding_parser = make_binding_parser(false);
+        let mut binding_parser = make_binding_parser(false);
 
         let meta = convert_component_facade_to_metadata(facade, source_map_url.clone());
-        let res = compile_component_from_metadata(&meta, &mut constant_pool, &binding_parser);
+        let res = compile_component_from_metadata(&meta, &mut constant_pool, &mut binding_parser);
         self.jit_expression(
             res.expression,
             angular_core_env,
@@ -306,11 +309,11 @@ impl CompilerFacade for CompilerFacadeImpl {
         declaration: R3DeclareComponentFacade,
     ) -> Result<serde_json::Value, String> {
         let mut constant_pool = ConstantPool::new(false);
-        let binding_parser = make_binding_parser(false);
+        let mut binding_parser = make_binding_parser(false);
 
         let meta =
             convert_declare_component_facade_to_metadata(declaration, source_map_url.clone());
-        let res = compile_component_from_metadata(&meta, &mut constant_pool, &binding_parser);
+        let res = compile_component_from_metadata(&meta, &mut constant_pool, &mut binding_parser);
         self.jit_expression(
             res.expression,
             angular_core_env,

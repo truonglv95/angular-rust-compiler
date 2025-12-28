@@ -271,6 +271,7 @@ impl DecoratorHandler<DirectiveHandlerData, DirectiveHandlerData, DirectiveSymbo
             type_desc: "DirectiveDef".to_string(),
             deferrable_imports: None,
             diagnostics: Vec::new(),
+            additional_imports: Vec::new(),
         }]
     }
 }
@@ -296,6 +297,7 @@ impl DirectiveDecoratorHandler {
             type_desc: "FactoryDef".to_string(),
             deferrable_imports: None,
             diagnostics: Vec::new(),
+            additional_imports: Vec::new(),
         };
 
         // ɵdir
@@ -359,6 +361,7 @@ impl DirectiveDecoratorHandler {
             type_desc: "DirectiveDef".to_string(),
             deferrable_imports: None,
             diagnostics: Vec::new(),
+            additional_imports: Vec::new(),
         };
 
         vec![fac_result, dir_result]

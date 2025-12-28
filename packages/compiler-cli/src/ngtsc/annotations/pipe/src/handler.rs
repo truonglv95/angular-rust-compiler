@@ -94,6 +94,7 @@ impl PipeDecoratorHandler {
             ),
             deferrable_imports: None,
             diagnostics: Vec::new(),
+            additional_imports: Vec::new(),
         }
     }
 }

@@ -162,7 +162,57 @@ impl PartialDirectiveLinker2 {
             let mut special_attributes =
                 angular_compiler::render3::view::api::R3HostSpecialAttributes::default();
 
+            // Handle nested "listeners" object (from ɵɵngDeclareDirective format)
+            if host_obj.has("listeners") {
+                if let Ok(listeners_obj) = host_obj.get_object("listeners") {
+                    for (event_name, handler) in listeners_obj.to_map() {
+                        let handler_ast = AstValue::new(handler.clone(), meta_obj.host);
+                        if handler_ast.is_string() {
+                            listeners.insert(event_name.clone(), handler_ast.get_string()?);
+                        }
+                    }
+                }
+            }
+
+            // Handle nested "properties" object (from ɵɵngDeclareDirective format)
+            if host_obj.has("properties") {
+                if let Ok(properties_obj) = host_obj.get_object("properties") {
+                    for (prop_name, binding) in properties_obj.to_map() {
+                        let binding_ast = AstValue::new(binding.clone(), meta_obj.host);
+                        if binding_ast.is_string() {
+                            properties.insert(prop_name.clone(), binding_ast.get_string()?);
+                        }
+                    }
+                }
+            }
+
+            // Handle nested "attributes" object (from ɵɵngDeclareDirective format)
+            if host_obj.has("attributes") {
+                if let Ok(attributes_obj) = host_obj.get_object("attributes") {
+                    for (attr_name, attr_value) in attributes_obj.to_map() {
+                        let attr_ast = AstValue::new(attr_value.clone(), meta_obj.host);
+                        if attr_ast.is_string() {
+                            let val_str = attr_ast.get_string()?;
+                            attributes.insert(
+                                attr_name.clone(),
+                                o::Expression::Literal(o::LiteralExpr {
+                                    value: o::LiteralValue::String(val_str),
+                                    type_: None,
+                                    source_span: None,
+                                }),
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Also handle flat format: host: { "(event)": "handler", "[prop]": "binding" }
             for (key, val) in host_obj.to_map() {
+                // Skip nested objects we already handled
+                if key == "listeners" || key == "properties" || key == "attributes" {
+                    continue;
+                }
+
                 let val_ast = AstValue::new(val.clone(), meta_obj.host);
                 if val_ast.is_string() {
                     let val_str = val_ast.get_string()?;
@@ -212,9 +262,18 @@ impl PartialDirectiveLinker2 {
             lifecycle: R3LifecycleMetadata::default(),
             inputs,
             outputs,
-            uses_inheritance: false,
+            uses_inheritance: meta_obj.get_bool("usesInheritance").unwrap_or(false),
             export_as: None,
-            providers: None,
+            providers: if meta_obj.has("providers") {
+                let providers_node = meta_obj.get_value("providers")?.node;
+                let providers_str = meta_obj.host.print_node(&providers_node);
+                Some(o::Expression::RawCode(o::RawCodeExpr {
+                    code: providers_str,
+                    source_span: None,
+                }))
+            } else {
+                None
+            },
             is_standalone: meta_obj.get_bool("isStandalone").unwrap_or(false),
             is_signal: meta_obj.get_bool("isSignal").unwrap_or(false),
             host_directives: None,
@@ -310,14 +369,15 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialDirectiveLinker
                 }
                 let schema_registry = DummySchemaRegistry;
 
-                let binding_parser =
+                let mut binding_parser =
                     angular_compiler::template_parser::binding_parser::BindingParser::new(
                         &parser,
                         &schema_registry,
                         vec![],
                     );
 
-                let res = compile_directive_from_metadata(&meta, constant_pool, &binding_parser);
+                let res =
+                    compile_directive_from_metadata(&meta, constant_pool, &mut binding_parser);
                 res.expression
             }
             Err(e) => o::Expression::Literal(o::LiteralExpr {

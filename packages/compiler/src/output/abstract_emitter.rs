@@ -357,8 +357,15 @@ impl o::ExpressionVisitor for AbstractEmitterVisitor {
         expr: &o::InvokeFunctionExpr,
         context: &mut dyn std::any::Any,
     ) -> Box<dyn std::any::Any> {
+        // Wrap function expressions that need parentheses due to operator precedence:
+        // - ArrowFn and Fn: (function(){})() or (()=>{})()
+        // - BinaryOp: (a || b)() - critical for inherited factory caching pattern
+        // - Conditional: (a ? b : c)()
         match &*expr.fn_ {
-            o::Expression::ArrowFn(_) | o::Expression::Fn(_) => {
+            o::Expression::ArrowFn(_)
+            | o::Expression::Fn(_)
+            | o::Expression::BinaryOp(_)
+            | o::Expression::Conditional(_) => {
                 {
                     let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
                     ctx.print(Some(expr), "(", false);

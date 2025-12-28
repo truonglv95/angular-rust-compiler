@@ -57,6 +57,8 @@ pub struct ElementOpBase {
     pub tag: Option<String>,
     /// Namespace
     pub namespace: Namespace,
+    /// Whether this element has matched directives
+    pub has_directives: bool,
 }
 
 /// Logical operation representing the start of an element in the creation IR.
@@ -91,6 +93,7 @@ impl ElementStartOp {
                 },
                 tag: Some(tag),
                 namespace,
+                has_directives: false,
             },
             i18n_placeholder,
         }
@@ -127,7 +130,13 @@ impl ConsumesSlotOpTrait for ElementStartOp {
     }
 
     fn num_slots_used(&self) -> usize {
-        1
+        // After lift_local_refs phase, local_refs is cleared and moved to local_refs_index
+        // So we need to check local_refs_index instead of local_refs
+        if self.base.base.local_refs_index.is_some() || !self.base.base.local_refs.is_empty() {
+            2
+        } else {
+            1
+        }
     }
 
     fn xref(&self) -> XrefId {
@@ -174,7 +183,13 @@ impl ConsumesSlotOpTrait for ElementOp {
     }
 
     fn num_slots_used(&self) -> usize {
-        1
+        // After lift_local_refs phase, local_refs is cleared and moved to local_refs_index
+        // So we need to check local_refs_index instead of local_refs
+        if self.base.base.local_refs_index.is_some() || !self.base.base.local_refs.is_empty() {
+            2
+        } else {
+            1
+        }
     }
 
     fn xref(&self) -> XrefId {
@@ -224,6 +239,7 @@ impl TemplateOp {
                 },
                 tag,
                 namespace,
+                has_directives: false,
             },
             template_kind,
             decls: None,
@@ -323,15 +339,18 @@ pub fn create_element_start_op(
     i18n_placeholder: Option<TagPlaceholder>,
     start_source_span: ParseSourceSpan,
     whole_source_span: ParseSourceSpan,
+    has_directives: bool,
 ) -> Box<dyn CreateOp + Send + Sync> {
-    Box::new(ElementStartOp::new(
+    let mut op = ElementStartOp::new(
         tag,
         xref,
         namespace,
         i18n_placeholder,
         start_source_span,
         whole_source_span,
-    ))
+    );
+    op.base.has_directives = has_directives;
+    Box::new(op)
 }
 
 pub fn create_template_op(
@@ -370,6 +389,7 @@ pub fn create_element_op(
     i18n_placeholder: Option<TagPlaceholder>,
     start_source_span: ParseSourceSpan,
     whole_source_span: ParseSourceSpan,
+    has_directives: bool,
 ) -> Box<dyn CreateOp + Send + Sync> {
     Box::new(ElementOp {
         base: ElementOpBase {
@@ -385,6 +405,7 @@ pub fn create_element_op(
             },
             tag: Some(tag),
             namespace,
+            has_directives,
         },
         i18n_placeholder,
     })
@@ -937,6 +958,7 @@ impl RepeaterCreateOp {
                 },
                 tag,
                 namespace: Namespace::HTML,
+                has_directives: false,
             },
             decls: None,
             vars: None,
@@ -1046,6 +1068,7 @@ impl ConditionalCreateOp {
                 },
                 tag,
                 namespace,
+                has_directives: false,
             },
             template_kind,
             decls: None,
@@ -1136,6 +1159,7 @@ impl ConditionalBranchCreateOp {
                 },
                 tag,
                 namespace,
+                has_directives: false,
             },
             template_kind,
             decls: None,
@@ -1320,6 +1344,7 @@ impl ListenerOp {
         event_target: Option<String>,
         host_listener: bool,
         source_span: ParseSourceSpan,
+        consumes_dollar_event: bool,
     ) -> Self {
         ListenerOp {
             target,
@@ -1329,7 +1354,7 @@ impl ListenerOp {
             name,
             handler_ops,
             handler_fn_name: None,
-            consumes_dollar_event: false,
+            consumes_dollar_event,
             is_legacy_animation_listener: legacy_animation_phase.is_some(),
             legacy_animation_phase,
             event_target,
@@ -1460,6 +1485,7 @@ pub fn create_listener_op(
     event_target: Option<String>,
     host_listener: bool,
     source_span: ParseSourceSpan,
+    consumes_dollar_event: bool,
 ) -> Box<dyn CreateOp + Send + Sync> {
     Box::new(ListenerOp::new(
         target,
@@ -1471,6 +1497,7 @@ pub fn create_listener_op(
         event_target,
         host_listener,
         source_span,
+        consumes_dollar_event,
     ))
 }
 

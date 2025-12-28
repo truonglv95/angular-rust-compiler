@@ -1955,6 +1955,66 @@ pub fn transform_expressions_in_op(
                     transform_expressions_in_expression(op.expression.clone(), transform, flags);
             }
         }
+        OpKind::StyleProp => {
+            if let Some(op) = op
+                .as_any_mut()
+                .downcast_mut::<crate::template::pipeline::ir::ops::update::StylePropOp>()
+            {
+                match &mut op.expression {
+                     crate::template::pipeline::ir::ops::update::BindingExpression::Expression(expr) => {
+                         *expr = transform_expressions_in_expression(expr.clone(), transform, flags);
+                     }
+                     crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(interp) => {
+                         for expr in &mut interp.expressions {
+                             *expr = transform_expressions_in_expression(expr.clone(), transform, flags);
+                         }
+                     }
+                 }
+            }
+        }
+        OpKind::ClassProp => {
+            if let Some(op) = op
+                .as_any_mut()
+                .downcast_mut::<crate::template::pipeline::ir::ops::update::ClassPropOp>()
+            {
+                op.expression =
+                    transform_expressions_in_expression(op.expression.clone(), transform, flags);
+            }
+        }
+        OpKind::StyleMap => {
+            if let Some(op) = op
+                .as_any_mut()
+                .downcast_mut::<crate::template::pipeline::ir::ops::update::StyleMapOp>()
+            {
+                match &mut op.expression {
+                     crate::template::pipeline::ir::ops::update::BindingExpression::Expression(expr) => {
+                         *expr = transform_expressions_in_expression(expr.clone(), transform, flags);
+                     }
+                     crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(interp) => {
+                         for expr in &mut interp.expressions {
+                             *expr = transform_expressions_in_expression(expr.clone(), transform, flags);
+                         }
+                     }
+                 }
+            }
+        }
+        OpKind::ClassMap => {
+            if let Some(op) = op
+                .as_any_mut()
+                .downcast_mut::<crate::template::pipeline::ir::ops::update::ClassMapOp>()
+            {
+                match &mut op.expression {
+                     crate::template::pipeline::ir::ops::update::BindingExpression::Expression(expr) => {
+                         *expr = transform_expressions_in_expression(expr.clone(), transform, flags);
+                     }
+                     crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(interp) => {
+                         for expr in &mut interp.expressions {
+                             *expr = transform_expressions_in_expression(expr.clone(), transform, flags);
+                         }
+                     }
+                 }
+            }
+        }
         OpKind::InterpolateText => {
             if let Some(op) =
                 op.as_any_mut()
@@ -1976,9 +2036,6 @@ pub fn transform_expressions_in_op(
                 .as_any_mut()
                 .downcast_mut::<StatementOp<Box<dyn CreateOp + Send + Sync>>>()
             {
-                println!(
-                    "DEBUG transform_expressions_in_op: StatementOp CreateOp downcast success"
-                );
                 // CreateOp StatementOp - transform statement expressions
                 transform_expressions_in_statement(&mut op.statement, transform, flags);
             }
@@ -1987,9 +2044,6 @@ pub fn transform_expressions_in_op(
                 .as_any_mut()
                 .downcast_mut::<StatementOp<Box<dyn UpdateOp + Send + Sync>>>()
             {
-                println!(
-                    "DEBUG transform_expressions_in_op: StatementOp UpdateOp downcast success"
-                );
                 // UpdateOp StatementOp - transform statement expressions
                 transform_expressions_in_statement(&mut op.statement, transform, flags);
             }
@@ -2073,7 +2127,6 @@ pub fn transform_expressions_in_op(
                 .as_any_mut()
                 .downcast_mut::<VariableOp<Box<dyn CreateOp + Send + Sync>>>()
             {
-                println!("DEBUG transform_expressions_in_op: VariableOp CreateOp downcast success");
                 op.initializer = Box::new(transform_expressions_in_expression(
                     *op.initializer.clone(),
                     transform,
@@ -2085,14 +2138,12 @@ pub fn transform_expressions_in_op(
                 .as_any_mut()
                 .downcast_mut::<VariableOp<Box<dyn UpdateOp + Send + Sync>>>()
             {
-                println!("DEBUG transform_expressions_in_op: VariableOp UpdateOp downcast success");
                 op.initializer = Box::new(transform_expressions_in_expression(
                     *op.initializer.clone(),
                     transform,
                     flags,
                 ));
             } else {
-                println!("DEBUG transform_expressions_in_op: VariableOp downcast FAILED for op kind={:?}", op.kind());
             }
         }
 

@@ -52,6 +52,7 @@ fn process_unit(unit: &mut crate::template::pipeline::src::compilation::ViewComp
             namespace: crate::template::pipeline::ir::enums::Namespace,
             base: crate::template::pipeline::ir::ops::create::ElementOrContainerOpBase,
             i18n_placeholder: Option<crate::i18n::i18n_ast::TagPlaceholder>,
+            has_directives: bool,
         },
         Container {
             base: crate::template::pipeline::ir::ops::create::ElementOrContainerOpBase,
@@ -96,6 +97,7 @@ fn process_unit(unit: &mut crate::template::pipeline::src::compilation::ViewComp
                                     namespace: elem_start.base.namespace,
                                     base: elem_start.base.base.clone(),
                                     i18n_placeholder: elem_start.i18n_placeholder.clone(),
+                                    has_directives: elem_start.base.has_directives,
                                 }
                             }
                             OpKind::ContainerStart => {
@@ -151,11 +153,13 @@ fn process_unit(unit: &mut crate::template::pipeline::src::compilation::ViewComp
                 namespace,
                 base,
                 i18n_placeholder,
+                has_directives,
             } => Box::new(ElementOp {
                 base: ElementOpBase {
                     base: base.clone(),
                     tag: tag.clone(),
                     namespace: *namespace,
+                    has_directives: *has_directives,
                 },
                 i18n_placeholder: i18n_placeholder.clone(),
             }) as Box<dyn ir::CreateOp + Send + Sync>,

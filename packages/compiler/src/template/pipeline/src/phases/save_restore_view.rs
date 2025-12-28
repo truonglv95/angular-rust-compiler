@@ -91,40 +91,51 @@ fn process_unit(
     let boxed_variable_op: Box<dyn ir::CreateOp + Send + Sync> = Box::new(variable_op);
     unit.create_mut().prepend(vec![boxed_variable_op]);
 
-    // Now collect indices of ops that need restore view (AFTER prepend, so indices are stable)
     // Note: indices are shifted by 1 due to prepend
-    let mut ops_needing_restore_view_indices: Vec<usize> = Vec::new();
+    let mut listener_indices: Vec<usize> = Vec::new();
+    let mut any_listener_needs_restore_view = false;
 
+    // First pass: collect all listener indices and check if ANY needs restoreView
     for (idx, op) in unit.create_mut().iter_mut().enumerate() {
         match op.kind() {
             OpKind::Listener
             | OpKind::TwoWayListener
             | OpKind::Animation
             | OpKind::AnimationListener => {
-                // NGTSC always wraps listeners with restoreView/resetView pattern,
-                // regardless of whether they are in root or embedded views.
-                // This ensures consistent behavior and proper view context handling.
+                listener_indices.push(idx);
 
-                ops_needing_restore_view_indices.push(idx);
+                // NGTSC logic:
+                // 1. Embedded views ALWAYS need restoreView (unit !== job.root)
+                // 2. Root views ONLY need restoreView if handler contains ReferenceExpr or ContextLetReferenceExpr
+                if !is_root {
+                    // Embedded view - always needs restoreView
+                    any_listener_needs_restore_view = true;
+                } else if check_needs_restore_view(op) {
+                    // Root view - only needs restoreView for reference expressions
+                    any_listener_needs_restore_view = true;
+                }
             }
             _ => {}
         }
     }
 
-    // Second pass: apply changes using indices
-    let component_job_ptr = component_job as *mut ComponentCompilationJob;
-    let unit_ptr = unit as *mut crate::template::pipeline::src::compilation::ViewCompilationUnit;
+    // Second pass: if ANY listener needs restoreView, apply to ALL listeners in this view
+    if any_listener_needs_restore_view {
+        let component_job_ptr = component_job as *mut ComponentCompilationJob;
+        let unit_ptr =
+            unit as *mut crate::template::pipeline::src::compilation::ViewCompilationUnit;
 
-    for idx in ops_needing_restore_view_indices {
-        unsafe {
-            let unit_ref = &mut *unit_ptr;
-            if let Some(op) = unit_ref.create_mut().get_mut(idx) {
-                add_save_restore_view_operation_to_listener(
-                    unit_ptr,
-                    op,
-                    component_job_ptr,
-                    saved_view_xref,
-                );
+        for idx in listener_indices {
+            unsafe {
+                let unit_ref = &mut *unit_ptr;
+                if let Some(op) = unit_ref.create_mut().get_mut(idx) {
+                    add_save_restore_view_operation_to_listener(
+                        unit_ptr,
+                        op,
+                        component_job_ptr,
+                        saved_view_xref,
+                    );
+                }
             }
         }
     }

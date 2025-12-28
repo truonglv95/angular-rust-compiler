@@ -25,7 +25,7 @@ use crate::template::pipeline::src::util::attributes::is_aria_attribute;
 /// Looks up an element in the given map by xref ID.
 fn lookup_element<'a>(
     elements: &'a std::collections::HashMap<ir::XrefId, usize>,
-    unit: &'a mut crate::template::pipeline::src::compilation::ViewCompilationUnit,
+    unit: &'a mut dyn CompilationUnit,
     xref: ir::XrefId,
 ) -> &'a mut ElementOrContainerOpBase {
     let index = elements
@@ -71,28 +71,12 @@ fn lookup_element<'a>(
 }
 
 pub fn specialize_bindings(job: &mut dyn CompilationJob) {
-    let component_job = unsafe {
-        let job_ptr = job as *mut dyn CompilationJob;
-        let job_ptr = job_ptr as *mut ComponentCompilationJob;
-        &mut *job_ptr
-    };
-
     // Build map of elements - collect indices for all element/container ops
     let mut elements_map: std::collections::HashMap<ir::XrefId, usize> =
         std::collections::HashMap::new();
 
-    // Collect from root unit
-    for (index, op) in component_job.root.create().iter().enumerate() {
-        match op.kind() {
-            OpKind::ElementStart | OpKind::Element | OpKind::ContainerStart | OpKind::Container => {
-                elements_map.insert(op.xref(), index);
-            }
-            _ => {}
-        }
-    }
-
-    // Collect from all view units
-    for (_, unit) in component_job.views.iter() {
+    // Collect from all units
+    for unit in job.units() {
         for (index, op) in unit.create().iter().enumerate() {
             match op.kind() {
                 OpKind::ElementStart
@@ -106,18 +90,25 @@ pub fn specialize_bindings(job: &mut dyn CompilationJob) {
         }
     }
 
-    // Process root unit
-    process_unit(&mut component_job.root, job, &elements_map);
+    // Get mode and kind to avoid borrow conflicts
+    let mode = job.mode();
+    let kind = job.kind();
 
-    // Process all view units
-    for (_, unit) in component_job.views.iter_mut() {
-        process_unit(unit, job, &elements_map);
+    println!(
+        "DEBUG binding_specialization: job kind={:?}, mode={:?}",
+        kind, mode
+    );
+
+    // Process all units
+    for unit in job.units_mut() {
+        process_unit(unit, mode, kind, &elements_map);
     }
 }
 
 fn process_unit(
-    unit: &mut crate::template::pipeline::src::compilation::ViewCompilationUnit,
-    job: &dyn CompilationJob,
+    unit: &mut dyn CompilationUnit,
+    mode: TemplateCompilationMode,
+    kind: CompilationJobKind,
     elements_map: &std::collections::HashMap<ir::XrefId, usize>,
 ) {
     // Collect BindingOps to replace
@@ -130,10 +121,19 @@ fn process_unit(
                 let op_ptr = op.as_ref() as *const dyn ir::UpdateOp;
                 let binding_op_ptr = op_ptr as *const BindingOp;
                 let binding_op = &*binding_op_ptr;
+                println!(
+                    "DEBUG binding_specialization: found binding '{}' kind={:?}",
+                    binding_op.name, binding_op.binding_kind
+                );
                 ops_to_replace.push((index, binding_op.clone()));
             }
         }
     }
+
+    println!(
+        "DEBUG binding_specialization: ops_to_replace count={}",
+        ops_to_replace.len()
+    );
 
     // Second pass: replace ops (iterate in reverse to maintain indices)
     for (index, binding_op) in ops_to_replace.iter().rev() {
@@ -166,6 +166,7 @@ fn process_unit(
                     // Convert to AttributeOp
                     let (namespace_opt, name) = split_ns_name(&binding_op.name, false)
                         .unwrap_or((None, binding_op.name.clone()));
+
                     Some(create_attribute_op(
                         binding_op.target,
                         namespace_opt,
@@ -197,54 +198,89 @@ fn process_unit(
                 ))
             }
             BindingKind::Property | BindingKind::LegacyAnimation => {
-                // Convert property binding to appropriate op
-                if job.mode() == TemplateCompilationMode::DomOnly
-                    && is_aria_attribute(&binding_op.name)
-                {
-                    // Convert ARIA property to attribute in DomOnly mode
-                    Some(create_attribute_op(
-                        binding_op.target,
-                        None, // namespace
-                        binding_op.name.clone(),
-                        binding_op.expression.clone(),
-                        binding_op.security_context.clone(),
-                        false, // is_text_attribute
-                        binding_op.is_structural_template_attribute,
-                        binding_op.template_kind,
-                        binding_op.i18n_message.clone(),
-                        binding_op.source_span.clone(),
-                    ))
-                } else if job.kind() == CompilationJobKind::Host {
-                    // For host bindings, create PropertyOp (DomPropertyOp doesn't exist, use PropertyOp)
-                    Some(create_property_op(
-                        binding_op.target,
-                        binding_op.name.clone(),
-                        binding_op.expression.clone(),
-                        binding_op.binding_kind,
-                        binding_op.security_context.clone(),
-                        binding_op.is_structural_template_attribute,
-                        binding_op.template_kind,
-                        binding_op.i18n_context,
-                        binding_op.i18n_message.clone(),
-                        binding_op.source_span.clone(),
-                    ))
-                } else if binding_op.name == "field" {
-                    // Convert to ControlOp
-                    Some(create_control_op(binding_op))
+                if binding_op.name.starts_with("style.") {
+                    let style_prop_name = binding_op.name[6..].to_string();
+                    Some(
+                        crate::template::pipeline::ir::ops::update::create_style_prop_op(
+                            binding_op.target,
+                            style_prop_name,
+                            binding_op.expression.clone(),
+                            binding_op.unit.clone(),
+                            binding_op.source_span.clone(),
+                        ),
+                    )
+                } else if binding_op.name.starts_with("class.") {
+                    let class_prop_name = binding_op.name[6..].to_string();
+                    // ClassPropOp expects Expression, convert Interpolation if needed
+                    let expression = match &binding_op.expression {
+                        crate::template::pipeline::ir::ops::update::BindingExpression::Expression(expr) => expr.clone(),
+                        crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(interp) => {
+                            // Fallback for interpolation in class binding (should be rare for class.prop)
+                             crate::output::output_ast::Expression::Literal(crate::output::output_ast::LiteralExpr {
+                                value: crate::output::output_ast::LiteralValue::String(interp.strings.join("")),
+                                type_: None,
+                                source_span: None,
+                            })
+                        }
+                    };
+                    Some(
+                        crate::template::pipeline::ir::ops::update::create_class_prop_op(
+                            binding_op.target,
+                            class_prop_name,
+                            expression,
+                            binding_op.source_span.clone(),
+                        ),
+                    )
                 } else {
-                    // Convert to PropertyOp
-                    Some(create_property_op(
-                        binding_op.target,
-                        binding_op.name.clone(),
-                        binding_op.expression.clone(),
-                        binding_op.binding_kind,
-                        binding_op.security_context.clone(),
-                        binding_op.is_structural_template_attribute,
-                        binding_op.template_kind,
-                        binding_op.i18n_context,
-                        binding_op.i18n_message.clone(),
-                        binding_op.source_span.clone(),
-                    ))
+                    // Convert property binding to appropriate op
+                    if mode == TemplateCompilationMode::DomOnly
+                        && is_aria_attribute(&binding_op.name)
+                    {
+                        // Convert ARIA property to attribute in DomOnly mode
+                        Some(create_attribute_op(
+                            binding_op.target,
+                            None, // namespace
+                            binding_op.name.clone(),
+                            binding_op.expression.clone(),
+                            binding_op.security_context.clone(),
+                            false, // is_text_attribute
+                            binding_op.is_structural_template_attribute,
+                            binding_op.template_kind,
+                            binding_op.i18n_message.clone(),
+                            binding_op.source_span.clone(),
+                        ))
+                    } else if kind == CompilationJobKind::Host {
+                        // For host bindings, create PropertyOp (DomPropertyOp doesn't exist, use PropertyOp)
+                        Some(create_property_op(
+                            binding_op.target,
+                            binding_op.name.clone(),
+                            binding_op.expression.clone(),
+                            binding_op.binding_kind,
+                            binding_op.security_context.clone(),
+                            binding_op.is_structural_template_attribute,
+                            binding_op.template_kind,
+                            binding_op.i18n_context,
+                            binding_op.i18n_message.clone(),
+                            binding_op.source_span.clone(),
+                        ))
+                    } else if binding_op.name == "field" {
+                        // Convert to ControlOp
+                        Some(create_control_op(binding_op))
+                    } else {
+                        // Convert to PropertyOp
+                        Some(create_property_op(
+                            binding_op.target,
+                            binding_op.name.clone(),
+                            binding_op.expression.clone(),
+                            binding_op.binding_kind,
+                            binding_op.security_context.clone(),
+                            binding_op.is_structural_template_attribute,
+                            binding_op.template_kind,
+                            binding_op.i18n_context,
+                            binding_op.i18n_message.clone(),
+                            binding_op.source_span.clone(),
+                        ))
+                    }
                 }
             }
             BindingKind::TwoWayProperty => {

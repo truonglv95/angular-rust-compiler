@@ -25,6 +25,8 @@ use crate::template::pipeline::src::compilation::{
 pub fn phase(job: &mut dyn CompilationJob) {
     let job_kind = job.kind();
 
+    use crate::template::pipeline::src::compilation::HostBindingCompilationJob;
+
     if matches!(
         job_kind,
         CompilationJobKind::Tmpl | CompilationJobKind::Both
@@ -47,13 +49,18 @@ pub fn phase(job: &mut dyn CompilationJob) {
                 process_lexical_scope(unit, unit_xref);
             }
         }
+    } else if matches!(job_kind, CompilationJobKind::Host) {
+        let host_job = unsafe {
+            let job_ptr = job as *mut dyn CompilationJob;
+            let job_ptr = job_ptr as *mut HostBindingCompilationJob;
+            &mut *job_ptr
+        };
+        let root_xref = host_job.root.xref();
+        process_lexical_scope(&mut host_job.root, root_xref);
     }
 }
 
-fn process_lexical_scope(
-    unit: &mut crate::template::pipeline::src::compilation::ViewCompilationUnit,
-    root_xref: ir::XrefId,
-) {
+fn process_lexical_scope(unit: &mut dyn CompilationUnit, root_xref: ir::XrefId) {
     // Track the expressions used to access all available contexts within the current view, by the
     // view `ir.XrefId`.
     let mut scope: std::collections::HashMap<ir::XrefId, Expression> =
@@ -180,8 +187,6 @@ fn transform_context_exprs_in_op(
                 let view_xref = ctx_expr.view;
                 if let Some(replacement) = scope.get(&view_xref) {
                     return replacement.clone();
-                } else {
-                    return expr;
                 }
             }
             expr

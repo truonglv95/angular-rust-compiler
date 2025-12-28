@@ -18,40 +18,21 @@ use crate::template::pipeline::src::compilation::{
 /// Counts the number of variable slots used within each view, and stores that on the view itself, as
 /// well as propagates it to the `ir.TemplateOp` for embedded views.
 pub fn phase(job: &mut dyn CompilationJob) {
-    let job_kind = job.kind();
+    let compatibility = job.compatibility();
 
-    // First, count the vars used in each view, and update the view-level counter.
-    if matches!(
-        job_kind,
-        CompilationJobKind::Tmpl | CompilationJobKind::Both
-    ) {
-        let component_job = unsafe {
-            let job_ptr = job as *mut dyn CompilationJob;
-            let job_ptr = job_ptr as *mut ComponentCompilationJob;
-            &mut *job_ptr
-        };
+    // First, count the vars used in each unit, and update the unit-level counter.
+    for unit in job.units_mut() {
+        process_unit_with_compatibility(unit, compatibility);
+    }
 
-        // Process root unit first
-        {
-            let compatibility = component_job.compatibility();
-            process_unit_with_compatibility(&mut component_job.root, compatibility);
-        }
-
-        // Process all view units
-        {
-            let compatibility = component_job.compatibility();
-            for (_, unit) in component_job.views.iter_mut() {
-                process_unit_with_compatibility(unit, compatibility);
-            }
-        }
-
-        // Propagate var counts to TemplateOp for embedded views
+    // Propagate var counts to TemplateOp for embedded views (only for ComponentCompilationJob)
+    if let Some(component_job) = job.as_any_mut().downcast_mut::<ComponentCompilationJob>() {
         propagate_var_counts_to_embedded_views(component_job);
     }
 }
 
 fn process_unit_with_compatibility(
-    unit: &mut crate::template::pipeline::src::compilation::ViewCompilationUnit,
+    unit: &mut dyn CompilationUnit,
     compatibility: CompatibilityMode,
 ) {
     use crate::template::pipeline::src::compilation::CompilationUnit;
@@ -66,7 +47,13 @@ fn process_unit_with_compatibility(
 
     for op in unit.update().iter() {
         if check_consumes_vars_trait_update(op) {
-            var_count += vars_used_by_op_update(op);
+            let vars_used = vars_used_by_op_update(op);
+            println!(
+                "DEBUG var_counting: op kind={:?} uses {} vars",
+                op.kind(),
+                vars_used
+            );
+            var_count += vars_used;
         }
     }
 

@@ -69,6 +69,23 @@ pub fn element_start(
     )
 }
 
+pub fn dom_element_start(
+    slot: i32,
+    tag: String,
+    const_index: Option<i32>,
+    local_ref_index: Option<i32>,
+    source_span: ParseSourceSpan,
+) -> o::Statement {
+    element_or_container_base(
+        Identifiers::dom_element_start(),
+        slot,
+        Some(tag),
+        const_index,
+        local_ref_index,
+        source_span,
+    )
+}
+
 pub fn element(
     slot: i32,
     tag: String,
@@ -88,6 +105,10 @@ pub fn element(
 
 pub fn element_end(source_span: Option<ParseSourceSpan>) -> o::Statement {
     call(Identifiers::element_end(), vec![], source_span)
+}
+
+pub fn dom_element_end(source_span: Option<ParseSourceSpan>) -> o::Statement {
+    call(Identifiers::dom_element_end(), vec![], source_span)
 }
 
 pub fn text(
@@ -133,12 +154,53 @@ pub fn property(
     call(Identifiers::property(), args, Some(source_span))
 }
 
+pub fn attribute(
+    name: String,
+    expression: o::Expression,
+    sanitizer: Option<o::Expression>,
+    source_span: ParseSourceSpan,
+) -> o::Statement {
+    let mut args = vec![*o::literal(name)];
+    args.push(expression);
+    if let Some(san) = sanitizer {
+        args.push(san);
+    }
+    call(Identifiers::attribute(), args, Some(source_span))
+}
+
 pub fn disable_bindings() -> o::Statement {
     call(Identifiers::disable_bindings(), vec![], None)
 }
 
 pub fn enable_bindings() -> o::Statement {
     call(Identifiers::enable_bindings(), vec![], None)
+}
+
+pub fn two_way_listener(
+    name: String,
+    handler: o::Expression,
+    preventDefault: bool,
+    source_span: Option<ParseSourceSpan>,
+) -> o::Statement {
+    let mut args = vec![*o::literal(name), handler];
+    if preventDefault {
+        args.push(*o::literal(false));
+    }
+    call(Identifiers::two_way_listener(), args, source_span)
+}
+
+pub fn two_way_property(
+    name: String,
+    expression: o::Expression,
+    sanitizer: Option<o::Expression>,
+    source_span: ParseSourceSpan,
+) -> o::Statement {
+    let mut args = vec![*o::literal(name)];
+    args.push(expression);
+    if let Some(san) = sanitizer {
+        args.push(san);
+    }
+    call(Identifiers::two_way_property(), args, Some(source_span))
 }
 
 /// Creates a two-way binding set instruction expression.

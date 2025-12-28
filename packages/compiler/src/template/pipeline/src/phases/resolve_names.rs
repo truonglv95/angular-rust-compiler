@@ -69,11 +69,23 @@ pub fn phase(job: &mut dyn CompilationJob) {
                 process_lexical_scope(unit, root_xref, None);
             }
         }
+    } else if matches!(job_kind, CompilationJobKind::Host) {
+        // Process lexical scope for host bindings
+        use crate::template::pipeline::src::compilation::HostBindingCompilationJob;
+        let host_job = unsafe {
+            let job_ptr = job as *mut dyn CompilationJob;
+            let job_ptr = job_ptr as *mut HostBindingCompilationJob;
+            &mut *job_ptr
+        };
+
+        // Host bindings don't have nested views or saved views
+        let root_xref = host_job.root.xref();
+        process_lexical_scope(&mut host_job.root, root_xref, None);
     }
 }
 
 fn process_lexical_scope(
-    unit: &mut crate::template::pipeline::src::compilation::ViewCompilationUnit,
+    unit: &mut dyn CompilationUnit,
     root_xref: ir::XrefId,
     saved_view: Option<SavedView>,
 ) {
@@ -89,11 +101,6 @@ fn process_lexical_scope(
         std::collections::HashMap::new();
 
     let mut current_saved_view = saved_view;
-
-    println!(
-        "DEBUG resolve_names: process_lexical_scope START for unit_xref={:?}",
-        unit.xref()
-    );
 
     // First, step through the operations list and:
     // 1) build up the `scope` mapping
@@ -154,16 +161,7 @@ fn process_lexical_scope(
                             if let ir::SemanticVariable::SavedView(saved_view_var) =
                                 &variable_op.variable
                             {
-                                println!("DEBUG resolve_names: Found SavedView in create ops - view={:?}, variable_xref={:?}", saved_view_var.view, variable_op.xref);
-
                                 // Debug: show all op kinds in this view
-                                println!(
-                                    "DEBUG resolve_names: Ops in view={:?}:",
-                                    saved_view_var.view
-                                );
-                                for (idx, debug_op) in unit.create().iter().enumerate() {
-                                    println!("  [{}] kind={:?}", idx, debug_op.kind());
-                                }
 
                                 current_saved_view = Some(SavedView {
                                     view: saved_view_var.view,
@@ -264,7 +262,7 @@ fn process_lexical_scope(
             OpKind::Listener | OpKind::AnimationListener | OpKind::TwoWayListener => {
                 // Listener functions have separate variable declarations, so process them as a separate
                 // lexical scope.
-                println!("DEBUG resolve_names: Processing listener at view_xref={:?}, current_saved_view={:?}", unit_xref, current_saved_view);
+
                 process_listener_scope_recursive(
                     op,
                     root_xref,
@@ -341,6 +339,13 @@ fn transform_lexical_reads_in_op(
                         name: None,
                         source_span: lexical_read.source_span.clone(),
                     });
+                } else if is_listener && lexical_read.name == "$event" {
+                    // Explicitly handle $event in listeners
+                    return Expression::ReadVar(crate::output::output_ast::ReadVarExpr {
+                        name: "$event".to_string(),
+                        type_: None,
+                        source_span: lexical_read.source_span.clone(),
+                    });
                 } else if let Some(entry) = scope.get(&lexical_read.name) {
                     // This was a defined variable in the current scope.
                     // If we are in a listener, and the variable is a Context variable,
@@ -369,10 +374,7 @@ fn transform_lexical_reads_in_op(
                     });
                 } else {
                     // Reading from the component context.
-                    println!(
-                        "DEBUG resolve_names: resolve LexicalRead({}) to root_xref={:?}",
-                        lexical_read.name, root_xref
-                    );
+
                     return Expression::ReadProp(crate::output::output_ast::ReadPropExpr {
                         receiver: Box::new(Expression::Context(ContextExpr {
                             view: root_xref,
@@ -388,15 +390,10 @@ fn transform_lexical_reads_in_op(
                 // parent creation list. We expect to find that we captured the `savedView` previously, and
                 // that it matches the expected view to be restored.
                 if let EitherXrefIdOrExpression::XrefId(restore_view_xref) = &restore_view.view {
-                    println!(
-                        "DEBUG resolve_names: RestoreView with XrefId={:?}, saved_view={:?}",
-                        restore_view_xref, saved_view
-                    );
                     if let Some(saved) = saved_view {
                         // RestoreViewExpr now contains saved_view_xref (the variable xref)
                         // instead of unit_xref (the view xref), so we match by variable
                         if saved.variable == *restore_view_xref {
-                            println!("DEBUG resolve_names: Matched by variable! Replacing with ReadVariable xref={:?}", saved.variable);
                             return Expression::RestoreView(ir::expression::RestoreViewExpr {
                                 view: EitherXrefIdOrExpression::Expression(Box::new(
                                     Expression::ReadVariable(ReadVariableExpr {
@@ -409,22 +406,14 @@ fn transform_lexical_reads_in_op(
                                 source_span: restore_view.source_span.clone(),
                             });
                         } else {
-                            println!(
-                                "DEBUG resolve_names: SavedView.variable={:?} != RestoreView.xref={:?}",
-                                saved.variable, restore_view_xref
-                            );
                         }
                     } else {
-                        println!("DEBUG resolve_names: saved_view is None!");
                     }
                     panic!(
                         "AssertionError: no saved view {:?} from current view",
                         restore_view_xref
                     );
                 } else {
-                    println!(
-                        "DEBUG resolve_names: RestoreView already has Expression (not XrefId)"
-                    );
                 }
             }
             expr
@@ -441,10 +430,6 @@ fn process_listener_scope_recursive(
     scope: &std::collections::HashMap<String, ScopeEntry>,
     local_definitions: &std::collections::HashMap<String, ScopeEntry>,
 ) {
-    println!(
-        "DEBUG resolve_names: process_listener_scope_recursive - view_xref={:?}, saved_view={:?}",
-        view_xref, saved_view
-    );
     match op.kind() {
         OpKind::Listener | OpKind::TwoWayListener | OpKind::AnimationListener => {
             unsafe {

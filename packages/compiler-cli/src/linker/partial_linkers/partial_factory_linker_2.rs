@@ -53,83 +53,109 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialFactoryLinker2 
         // Extract target
         let target = if meta_obj.has("target") {
             // target is often an enum access like i0.ɵɵFactoryTarget.Injectable
-            // We need to resolve this.
-            // Ideally we might want to check the numeric value if possible, or string.
-            // But partial declaration usually sends the enum member access.
-            // If we can't resolve it easily, we might default to Injectable or check known patterns.
-            // For now let's assume it's Injectable (2) if complex, or try to read number.
-            match meta_obj.get_number("target") {
-                Ok(val) => match val as u32 {
+            // First try to read as number
+            if let Ok(val) = meta_obj.get_number("target") {
+                match val as u32 {
                     0 => FactoryTarget::Directive,
                     1 => FactoryTarget::Component,
                     2 => FactoryTarget::Injectable,
                     3 => FactoryTarget::Pipe,
                     4 => FactoryTarget::NgModule,
                     _ => FactoryTarget::Injectable,
-                },
-                Err(_) => FactoryTarget::Injectable, // Default/Fallback
+                }
+            } else if let Ok(target_val) = meta_obj.get_value("target") {
+                // Try to parse from expression string like "i0.ɵɵFactoryTarget.Directive"
+                let target_str = meta_obj.host.print_node(&target_val.node);
+                if target_str.contains("Directive") {
+                    FactoryTarget::Directive
+                } else if target_str.contains("Component") {
+                    FactoryTarget::Component
+                } else if target_str.contains("Pipe") {
+                    FactoryTarget::Pipe
+                } else if target_str.contains("NgModule") {
+                    FactoryTarget::NgModule
+                } else {
+                    // Default to Injectable if unknown
+                    FactoryTarget::Injectable
+                }
+            } else {
+                FactoryTarget::Injectable
             }
         } else {
             FactoryTarget::Injectable
         };
 
         // Extract dependencies
+        // deps can be:
+        // - absent: None -> use inherited factory (getInheritedFactory)
+        // - null: None -> use inherited factory (getInheritedFactory)
+        // - array: Some(Valid(deps)) -> inject deps
         let deps = if meta_obj.has("deps") {
-            if let Ok(deps_arr) = meta_obj.get_array("deps") {
-                let mut parsed_deps = Vec::new();
-                for dep_entry in deps_arr {
-                    if let Ok(dep_obj) = dep_entry.get_object() {
-                        // Each dep is { token: SomeToken, optional?: bool, self?: bool, ... }
-                        let token = if dep_obj.has("token") {
-                            if let Ok(token_val) = dep_obj.get_value("token") {
-                                let token_str = meta_obj.host.print_node(&token_val.node);
-                                // Use RawCodeExpr to preserve the token exactly as written
-                                // (e.g., "i0.NgZone" should not be treated as a single identifier)
-                                Some(o::Expression::RawCode(o::RawCodeExpr {
-                                    code: token_str,
-                                    source_span: None,
-                                }))
+            // Check if deps is null (inherited deps)
+            if let Ok(deps_val) = meta_obj.get_value("deps") {
+                let deps_str = meta_obj.host.print_node(&deps_val.node);
+                if deps_str == "null" {
+                    // deps: null means inherit from base class
+                    None
+                } else if let Ok(deps_arr) = meta_obj.get_array("deps") {
+                    let mut parsed_deps = Vec::new();
+                    for dep_entry in deps_arr {
+                        if let Ok(dep_obj) = dep_entry.get_object() {
+                            // Each dep is { token: SomeToken, optional?: bool, self?: bool, ... }
+                            let token = if dep_obj.has("token") {
+                                if let Ok(token_val) = dep_obj.get_value("token") {
+                                    let token_str = meta_obj.host.print_node(&token_val.node);
+                                    // Use RawCodeExpr to preserve the token exactly as written
+                                    // (e.g., "i0.NgZone" should not be treated as a single identifier)
+                                    Some(o::Expression::RawCode(o::RawCodeExpr {
+                                        code: token_str,
+                                        source_span: None,
+                                    }))
+                                } else {
+                                    None
+                                }
                             } else {
                                 None
-                            }
-                        } else {
-                            None
-                        };
+                            };
 
-                        let optional = dep_obj.get_bool("optional").unwrap_or(false);
-                        let self_ = dep_obj.get_bool("self").unwrap_or(false);
-                        let skip_self = dep_obj.get_bool("skipSelf").unwrap_or(false);
-                        let host = dep_obj.get_bool("host").unwrap_or(false);
+                            let optional = dep_obj.get_bool("optional").unwrap_or(false);
+                            let self_ = dep_obj.get_bool("self").unwrap_or(false);
+                            let skip_self = dep_obj.get_bool("skipSelf").unwrap_or(false);
+                            let host = dep_obj.get_bool("host").unwrap_or(false);
 
-                        // Check for attribute injection
-                        let attribute_name_type = if dep_obj.has("attribute") {
-                            if let Ok(attr_val) = dep_obj.get_value("attribute") {
-                                let attr_str = meta_obj.host.print_node(&attr_val.node);
-                                Some(o::Expression::Literal(o::LiteralExpr {
-                                    value: o::LiteralValue::String(attr_str),
-                                    type_: None,
-                                    source_span: None,
-                                }))
+                            // Check for attribute injection
+                            let attribute_name_type = if dep_obj.has("attribute") {
+                                if let Ok(attr_val) = dep_obj.get_value("attribute") {
+                                    let attr_str = meta_obj.host.print_node(&attr_val.node);
+                                    Some(o::Expression::Literal(o::LiteralExpr {
+                                        value: o::LiteralValue::String(attr_str),
+                                        type_: None,
+                                        source_span: None,
+                                    }))
+                                } else {
+                                    None
+                                }
                             } else {
                                 None
-                            }
-                        } else {
-                            None
-                        };
+                            };
 
-                        parsed_deps.push(R3DependencyMetadata {
-                            token,
-                            attribute_name_type,
-                            host,
-                            optional,
-                            self_,
-                            skip_self,
-                        });
+                            parsed_deps.push(R3DependencyMetadata {
+                                token,
+                                attribute_name_type,
+                                host,
+                                optional,
+                                self_,
+                                skip_self,
+                            });
+                        }
                     }
+                    Some(DepsOrInvalid::Valid(parsed_deps))
+                } else {
+                    // deps exists but is not an array and not null
+                    Some(DepsOrInvalid::Valid(vec![]))
                 }
-                Some(DepsOrInvalid::Valid(parsed_deps))
             } else {
-                Some(DepsOrInvalid::Valid(vec![]))
+                None
             }
         } else {
             None

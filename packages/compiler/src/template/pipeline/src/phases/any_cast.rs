@@ -285,6 +285,35 @@ fn transform_expressions_in_create_op(
         let op_ptr = op.as_mut() as *mut dyn crate::template::pipeline::ir::operations::CreateOp;
 
         match op.kind() {
+            OpKind::Listener | OpKind::TwoWayListener | OpKind::AnimationListener => {
+                use crate::template::pipeline::ir::ops::create::{
+                    AnimationListenerOp, ListenerOp, TwoWayListenerOp,
+                };
+                match op.kind() {
+                    OpKind::Listener => {
+                        let listener_op_ptr = op_ptr as *mut ListenerOp;
+                        let listener_op = &mut *listener_op_ptr;
+                        for handler_op in listener_op.handler_ops.iter_mut() {
+                            transform_expressions_in_op(handler_op, transform, flags);
+                        }
+                    }
+                    OpKind::TwoWayListener => {
+                        let two_way_op_ptr = op_ptr as *mut TwoWayListenerOp;
+                        let two_way_op = &mut *two_way_op_ptr;
+                        for handler_op in two_way_op.handler_ops.iter_mut() {
+                            transform_expressions_in_op(handler_op, transform, flags);
+                        }
+                    }
+                    OpKind::AnimationListener => {
+                        let anim_op_ptr = op_ptr as *mut AnimationListenerOp;
+                        let anim_op = &mut *anim_op_ptr;
+                        for handler_op in anim_op.handler_ops.iter_mut() {
+                            transform_expressions_in_op(handler_op, transform, flags);
+                        }
+                    }
+                    _ => {}
+                }
+            }
             OpKind::RepeaterCreate => {
                 let repeater_create_op_ptr = op_ptr as *mut RepeaterCreateOp;
                 let repeater_create_op = &mut *repeater_create_op_ptr;
@@ -425,12 +454,24 @@ fn remove_anys(e: Expression, _flags: VisitorContextFlag) -> Expression {
                 if invoke.args.len() != 1 {
                     panic!("The $any builtin function expects exactly one argument.");
                 }
-                // Return the argument
+                // Return the argument - the caller will recursively transform it
+                return invoke.args[0].clone();
+            }
+        }
+
+        // Also check if fn is a ReadProp with name '$any' (e.g., ctx.$any(...))
+        if let Expression::ReadProp(read_prop) = invoke.fn_.as_ref() {
+            if read_prop.name == "$any" {
+                // Check that there's exactly one argument
+                if invoke.args.len() != 1 {
+                    panic!("The $any builtin function expects exactly one argument.");
+                }
+                // Return the argument - the caller will recursively transform it
                 return invoke.args[0].clone();
             }
         }
     }
 
-    // Otherwise, transform nested expressions
-    transform_expressions_in_expression(e, &mut remove_anys, VisitorContextFlag::NONE)
+    // Return the expression unchanged - the caller handles recursive traversal
+    e
 }

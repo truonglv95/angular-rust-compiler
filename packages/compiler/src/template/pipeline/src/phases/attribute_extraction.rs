@@ -16,7 +16,7 @@ use crate::template::pipeline::ir::ops::update::{
     TwoWayPropertyOp,
 };
 use crate::template::pipeline::src::compilation::{
-    CompilationJob, CompilationJobKind, ComponentCompilationJob, ViewCompilationUnit,
+    CompilationJob, CompilationJobKind, CompilationUnit, ComponentCompilationJob,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -24,26 +24,16 @@ use std::collections::{HashMap, HashSet};
 /// In cases where no instruction needs to be generated for the attribute or binding, it is removed.
 pub fn extract_attributes(job: &mut dyn CompilationJob) {
     let compatibility = job.compatibility();
-    let component_job = job
-        .as_any_mut()
-        .downcast_mut::<ComponentCompilationJob>()
-        .expect("extract_attributes only supports ComponentCompilationJob");
+    let kind = job.kind();
 
-    // Process root unit
-    process_unit(
-        &mut component_job.root,
-        compatibility,
-        CompilationJobKind::Tmpl,
-    );
-
-    // Process all view units
-    for (_, unit) in component_job.views.iter_mut() {
-        process_unit(unit, compatibility, CompilationJobKind::Tmpl);
+    // Process all units
+    for unit in job.units_mut() {
+        process_unit(unit, compatibility, kind);
     }
 }
 
 fn process_unit(
-    unit: &mut ViewCompilationUnit,
+    unit: &mut dyn CompilationUnit,
     compatibility: ir::CompatibilityMode,
     job_kind: CompilationJobKind,
 ) {
@@ -52,12 +42,12 @@ fn process_unit(
         HashMap::new();
 
     // Temporarily take update list to avoid borrow conflicts
-    let mut update_list = std::mem::replace(&mut unit.update, ir::OpList::new());
+    let mut update_list = std::mem::replace(unit.update_mut(), ir::OpList::new());
     let mut update_ops_to_remove = HashSet::new();
 
     // Identify which XrefIds belong to templates
     let mut template_xrefs = HashSet::new();
-    let create_list = std::mem::replace(&mut unit.create, ir::OpList::new());
+    let create_list = std::mem::replace(unit.create_mut(), ir::OpList::new());
     for op in create_list.iter() {
         if op.kind() == OpKind::Template {
             if let Some(xref) = get_xref_from_create_op(op.as_ref()) {
@@ -66,7 +56,54 @@ fn process_unit(
         }
     }
 
-    // Process update ops
+    // Process create ops FIRST to extract listeners before properties
+    // NGTSC outputs listeners before properties in the consts bindings section
+    for op_ref in create_list.iter() {
+        if job_kind == CompilationJobKind::Host {
+            continue;
+        }
+
+        // Extract regular event listeners (e.g., (click)="handler()")
+        if let Some(listener_op) = op_ref.as_any().downcast_ref::<ListenerOp>() {
+            if !listener_op.is_legacy_animation_listener {
+                let extracted_attr_op = create_extracted_attribute_op(
+                    listener_op.target,
+                    BindingKind::Property,
+                    None,
+                    listener_op.name.clone(),
+                    None,
+                    None,
+                    None,
+                    vec![SecurityContext::NONE],
+                    listener_op.source_span().cloned(),
+                );
+                extracted_attributes
+                    .entry(listener_op.target)
+                    .or_default()
+                    .push(extracted_attr_op);
+            }
+        }
+        // Extract two-way listener bindings
+        if let Some(twoway_listener) = op_ref.as_any().downcast_ref::<TwoWayListenerOp>() {
+            let extracted_attr_op = create_extracted_attribute_op(
+                twoway_listener.target,
+                BindingKind::Property,
+                None,
+                twoway_listener.name.clone(),
+                None,
+                None,
+                None,
+                vec![SecurityContext::NONE],
+                twoway_listener.source_span().cloned(),
+            );
+            extracted_attributes
+                .entry(twoway_listener.target)
+                .or_default()
+                .push(extracted_attr_op);
+        }
+    }
+
+    // Process update ops - extract properties AFTER listeners
     for (index, op_ref) in update_list.iter().enumerate() {
         if let Some(attr_op) = op_ref.as_any().downcast_ref::<AttributeOp>() {
             // Skip if expression is an interpolation
@@ -155,7 +192,8 @@ fn process_unit(
                 update_ops_to_remove.insert(index);
             }
         } else if let Some(prop_op) = op_ref.as_any().downcast_ref::<PropertyOp>() {
-            if prop_op.binding_kind != BindingKind::LegacyAnimation
+            if job_kind != CompilationJobKind::Host
+                && prop_op.binding_kind != BindingKind::LegacyAnimation
                 && prop_op.binding_kind != BindingKind::Animation
             {
                 let binding_kind =
@@ -184,64 +222,40 @@ fn process_unit(
                     .push(extracted_attr_op);
             }
         } else if let Some(control_op) = op_ref.as_any().downcast_ref::<ControlOp>() {
-            let extracted_attr_op = create_extracted_attribute_op(
-                control_op.target,
-                BindingKind::Property,
-                None,
-                "field".to_string(),
-                None,
-                None,
-                None,
-                control_op.security_context.clone(),
-                control_op.source_span().cloned(),
-            );
-            extracted_attributes
-                .entry(control_op.target)
-                .or_default()
-                .push(extracted_attr_op);
-        } else if let Some(twoway_op) = op_ref.as_any().downcast_ref::<TwoWayPropertyOp>() {
-            let extracted_attr_op = create_extracted_attribute_op(
-                twoway_op.target,
-                BindingKind::TwoWayProperty,
-                None,
-                twoway_op.name.clone(),
-                None,
-                None,
-                None,
-                twoway_op.security_context.clone(),
-                twoway_op.source_span().cloned(),
-            );
-            extracted_attributes
-                .entry(twoway_op.target)
-                .or_default()
-                .push(extracted_attr_op);
-        } else if let Some(listener_op) = op_ref.as_any().downcast_ref::<ListenerOp>() {
-            if !listener_op.is_legacy_animation_listener {
+            if job_kind != CompilationJobKind::Host {
                 let extracted_attr_op = create_extracted_attribute_op(
-                    listener_op.target,
+                    control_op.target,
                     BindingKind::Property,
                     None,
-                    listener_op.name.clone(),
+                    "field".to_string(),
                     None,
                     None,
                     None,
-                    vec![SecurityContext::NONE],
-                    listener_op.source_span().cloned(),
+                    control_op.security_context.clone(),
+                    control_op.source_span().cloned(),
                 );
-
-                if job_kind == CompilationJobKind::Host {
-                    if compatibility != ir::CompatibilityMode::TemplateDefinitionBuilder {
-                        extracted_attributes
-                            .entry(listener_op.target)
-                            .or_default()
-                            .push(extracted_attr_op);
-                    }
-                } else {
-                    extracted_attributes
-                        .entry(listener_op.target)
-                        .or_default()
-                        .push(extracted_attr_op);
-                }
+                extracted_attributes
+                    .entry(control_op.target)
+                    .or_default()
+                    .push(extracted_attr_op);
+            }
+        } else if let Some(twoway_op) = op_ref.as_any().downcast_ref::<TwoWayPropertyOp>() {
+            if job_kind != CompilationJobKind::Host {
+                let extracted_attr_op = create_extracted_attribute_op(
+                    twoway_op.target,
+                    BindingKind::TwoWayProperty,
+                    None,
+                    twoway_op.name.clone(),
+                    None,
+                    None,
+                    None,
+                    twoway_op.security_context.clone(),
+                    twoway_op.source_span().cloned(),
+                );
+                extracted_attributes
+                    .entry(twoway_op.target)
+                    .or_default()
+                    .push(extracted_attr_op);
             }
         } else if compatibility == ir::CompatibilityMode::TemplateDefinitionBuilder {
             if let Some(style_op) = op_ref.as_any().downcast_ref::<StylePropOp>() {
@@ -288,48 +302,6 @@ fn process_unit(
         }
     }
 
-    // Now collect from create ops
-    for op_ref in create_list.iter() {
-        // Extract regular event listeners (e.g., (click)="handler()")
-        if let Some(listener_op) = op_ref.as_any().downcast_ref::<ListenerOp>() {
-            if !listener_op.is_legacy_animation_listener {
-                let extracted_attr_op = create_extracted_attribute_op(
-                    listener_op.target,
-                    BindingKind::Property,
-                    None,
-                    listener_op.name.clone(),
-                    None,
-                    None,
-                    None,
-                    vec![SecurityContext::NONE],
-                    listener_op.source_span().cloned(),
-                );
-                extracted_attributes
-                    .entry(listener_op.target)
-                    .or_default()
-                    .push(extracted_attr_op);
-            }
-        }
-        // Extract two-way listener bindings
-        if let Some(twoway_listener) = op_ref.as_any().downcast_ref::<TwoWayListenerOp>() {
-            let extracted_attr_op = create_extracted_attribute_op(
-                twoway_listener.target,
-                BindingKind::Property,
-                None,
-                twoway_listener.name.clone(),
-                None,
-                None,
-                None,
-                vec![SecurityContext::NONE],
-                twoway_listener.source_span().cloned(),
-            );
-            extracted_attributes
-                .entry(twoway_listener.target)
-                .or_default()
-                .push(extracted_attr_op);
-        }
-    }
-
     // Remove processed update ops
     for index in (0..update_list.len()).rev() {
         if update_ops_to_remove.contains(&index) {
@@ -338,7 +310,7 @@ fn process_unit(
     }
 
     // Put back update_list
-    unit.update = update_list;
+    *unit.update_mut() = update_list;
 
     // Now insert extracted attributes into create list
     let mut final_create = ir::OpList::new();
@@ -364,7 +336,7 @@ fn process_unit(
         }
     }
 
-    unit.create = final_create;
+    *unit.create_mut() = final_create;
 }
 
 // Helper to get xref from op

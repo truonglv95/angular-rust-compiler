@@ -9,6 +9,7 @@ use crate::output::abstract_emitter::{
 use crate::output::output_ast as o;
 use crate::output::output_ast::ExpressionTrait;
 use std::any::Any;
+use std::collections::HashMap;
 
 /// Template object polyfill for tagged templates
 #[allow(dead_code)]
@@ -21,47 +22,33 @@ const SINGLE_QUOTE_ESCAPE_STRING_RE: &str = r"'|\\|\n|\r|\$";
 /// Abstract JavaScript emitter visitor
 pub struct AbstractJsEmitterVisitor {
     base: AbstractEmitterVisitor,
+    imports: HashMap<String, String>,
 }
 
 impl AbstractJsEmitterVisitor {
     pub fn new() -> Self {
         AbstractJsEmitterVisitor {
             base: AbstractEmitterVisitor::new(false),
+            imports: HashMap::new(),
         }
     }
 
-    // TODO: Implement JavaScript-specific visitor methods:
-    // - visit_wrapped_node_expr (should throw error)
-    // - visit_declare_var_stmt (use 'var' keyword)
-    // - visit_tagged_template_literal_expr
-    // - visit_template_literal_expr
-    // - visit_template_literal_element_expr
-    // - visit_function_expr
-    // - visit_arrow_function_expr
-    // - visit_declare_function_stmt
-    // - visit_localized_string
-    // etc.
-
-    pub fn visit_params(&self, params: &[o::FnParam], ctx: &mut EmitterVisitorContext) {
-        for (i, param) in params.iter().enumerate() {
-            if i > 0 {
-                ctx.print(None, ", ", false);
-            }
-            let param_name = escape_identifier(&param.name, false, false);
-            ctx.print(None, &param_name, false);
+    pub fn with_imports(imports: HashMap<String, String>) -> Self {
+        AbstractJsEmitterVisitor {
+            base: AbstractEmitterVisitor::new(false),
+            imports,
         }
     }
 
-    pub fn visit_all_statements(
-        &mut self,
-        statements: &[o::Statement],
-        ctx: &mut EmitterVisitorContext,
-    ) {
-        let context: &mut dyn Any = ctx;
-        for statement in statements {
-            statement.visit_statement(self, context);
+    pub fn visit_all_statements(&mut self, stmts: &[o::Statement], ctx: &mut dyn Any) {
+        for stmt in stmts {
+            stmt.visit_statement(self, ctx);
         }
     }
+
+    // ... (rest of impl)
+
+    // ...
 }
 
 impl o::ExpressionVisitor for AbstractJsEmitterVisitor {
@@ -72,6 +59,7 @@ impl o::ExpressionVisitor for AbstractJsEmitterVisitor {
     ) -> Box<dyn Any> {
         self.base.visit_raw_code_expr(expr, context)
     }
+
     fn visit_read_var_expr(
         &mut self,
         expr: &o::ReadVarExpr,
@@ -136,8 +124,15 @@ impl o::ExpressionVisitor for AbstractJsEmitterVisitor {
         expr: &o::InvokeFunctionExpr,
         context: &mut dyn Any,
     ) -> Box<dyn Any> {
+        // Wrap function expressions that need parentheses due to operator precedence:
+        // - ArrowFn and Fn: (function(){})() or (()=>{})()
+        // - BinaryOp: (a || b)() - critical for inherited factory caching pattern
+        // - Conditional: (a ? b : c)()
         match &*expr.fn_ {
-            o::Expression::ArrowFn(_) | o::Expression::Fn(_) => {
+            o::Expression::ArrowFn(_)
+            | o::Expression::Fn(_)
+            | o::Expression::BinaryOp(_)
+            | o::Expression::Conditional(_) => {
                 {
                     let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
                     ctx.print(Some(expr), "(", false);
@@ -271,10 +266,14 @@ impl o::ExpressionVisitor for AbstractJsEmitterVisitor {
     ) -> Box<dyn Any> {
         let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
         let ref_expr = &expr.value;
-        // Handle common Angular imports aliasing
+
+        // Handle common Angular imports aliasing and configured imports
         if let Some(module_name) = &ref_expr.module_name {
             if module_name == "@angular/core" {
                 ctx.print(Some(expr), "i0.", false);
+            } else if let Some(alias) = self.imports.get(module_name) {
+                ctx.print(Some(expr), alias, false);
+                ctx.print(Some(expr), ".", false);
             } else {
                 ctx.print(Some(expr), module_name, false);
                 ctx.print(Some(expr), ".", false);

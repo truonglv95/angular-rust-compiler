@@ -206,6 +206,8 @@ pub struct DirectiveMeta<'a> {
     /// The primary decorator associated with this directive.
     /// This is a direct reference to the OXC AST decorator node.
     pub decorator: Option<&'a oxc_ast::Decorator<'a>>,
+    /// Host bindings extracted from the decorator.
+    pub host: angular_compiler::render3::view::api::R3HostMetadata,
     /// Additional directives applied to the directive host.
     pub host_directives: Option<Vec<HostDirectiveMeta<'a>>>,
     /// Whether the directive should be assumed to export providers if imported as a standalone type.
@@ -281,6 +283,7 @@ impl<'a> Default for DirectiveMeta<'a> {
             deferred_imports: None,
             schemas: None,
             decorator: None,
+            host: angular_compiler::render3::view::api::R3HostMetadata::default(),
             host_directives: None,
             assumed_to_export_providers: false,
             is_explicitly_deferred: false,
@@ -313,6 +316,7 @@ impl<'a> Clone for DirectiveMeta<'a> {
             deferred_imports: self.deferred_imports.clone(),
             schemas: self.schemas.clone(),
             decorator: self.decorator, // Copy the reference
+            host: self.host.clone(),
             host_directives: self.host_directives.clone(),
             assumed_to_export_providers: self.assumed_to_export_providers,
             is_explicitly_deferred: self.is_explicitly_deferred,

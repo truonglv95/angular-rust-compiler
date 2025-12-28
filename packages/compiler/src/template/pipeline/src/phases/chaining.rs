@@ -7,9 +7,10 @@ use crate::output::output_ast::{Expression, ExternalReference, Statement};
 use crate::render3::r3_identifiers::Identifiers;
 use crate::template::pipeline::ir;
 use crate::template::pipeline::ir::enums::OpKind;
+use crate::template::pipeline::ir::ops::shared::create_statement_op;
 use crate::template::pipeline::ir::ops::shared::StatementOp;
 use crate::template::pipeline::src::compilation::{
-    CompilationJob, CompilationUnit, ComponentCompilationJob,
+    CompilationJob, CompilationUnit, HostBindingCompilationJob,
 };
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -92,22 +93,11 @@ struct Chain {
 /// Post-process a reified view compilation and convert sequential calls to chainable instructions
 /// into chain calls.
 pub fn chain(job: &mut dyn CompilationJob) {
-    let component_job = unsafe {
-        let job_ptr = job as *mut dyn CompilationJob;
-        let job_ptr = job_ptr as *mut ComponentCompilationJob;
-        &mut *job_ptr
-    };
-
     let chain_compat = build_chain_compatibility_map();
 
-    // Process root unit
-    chain_operations_in_list_create(&mut component_job.root.create_mut(), &chain_compat);
-    chain_operations_in_list_update(&mut component_job.root.update_mut(), &chain_compat);
-
-    // Process all view units
-    for (_, unit) in component_job.views.iter_mut() {
-        chain_operations_in_list_create(&mut unit.create_mut(), &chain_compat);
-        chain_operations_in_list_update(&mut unit.update_mut(), &chain_compat);
+    for unit in job.units_mut() {
+        chain_operations_in_list_create(unit.create_mut(), &chain_compat);
+        chain_operations_in_list_update(unit.update_mut(), &chain_compat);
     }
 }
 

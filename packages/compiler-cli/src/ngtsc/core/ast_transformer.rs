@@ -19,12 +19,24 @@ pub fn transform_component_ast<'a>(
     fac_expr_str: &'a str,
     def_expr_str: &'a str,
     def_name: &str,
+    additional_imports: &[(String, String)],
 ) {
     // 1. Remove Angular decorators from the class
     remove_angular_decorators(program);
 
-    // 2. Ensure namespace import exists (must be before hoisted statements)
-    ensure_angular_core_import(allocator, program);
+    // 2. Ensure namespace imports exist (must be before hoisted statements)
+    // Always add @angular/core as i0
+    let mut imports = additional_imports.to_vec();
+    // Check if i0 is already in additional_imports to avoid dups?
+    // ensure_imports handles duplicate check against AST, but here we might merge lists.
+    // simpler to just append. ensure_imports assumes unique alias I think, or just checks AST.
+    // ensure_imports iterates.
+    // We'll just push it.
+    if !imports.iter().any(|(alias, _)| alias == "i0") {
+        imports.push(("i0".to_string(), "@angular/core".to_string()));
+    }
+
+    ensure_imports(allocator, program, &imports);
 
     // 3. Add hoisted statements to program body (after all imports)
     add_hoisted_statements(allocator, program, hoisted_statements);
@@ -282,6 +294,7 @@ fn create_static_property<'a>(
                         // 1. The PropertyDefinition is in the arena, not in parse_result's stack
                         // 2. The lifetime is correct (both are 'a)
                         // 3. We're just moving the Box pointer, not the data
+                        println!("DEBUG: create_static_property SUCCESS for {}", prop_name);
                         unsafe {
                             // Extract the PropertyDefinition by converting the reference to a raw pointer
                             // and then back to a Box. This is safe because the data is in the arena.
@@ -293,61 +306,86 @@ fn create_static_property<'a>(
                 }
             }
         }
+    } else {
+        println!(
+            "DEBUG: create_static_property PARSE ERRORS for {}: {:?}",
+            prop_name, parse_result.errors
+        );
+        // Print the template for debugging
+        println!("DEBUG: Failed template: {}", template);
     }
+    println!(
+        "DEBUG: create_static_property returning None for {}",
+        prop_name
+    );
     None
+}
+
+/// Ensure required imports exist
+fn ensure_imports<'a>(
+    allocator: &'a Allocator,
+    program: &mut Program<'a>,
+    imports: &[(String, String)],
+) {
+    let ast = AstBuilder::new(allocator);
+
+    for (alias, module_path) in imports {
+        // Check if namespace import already exists
+        let has_import = program.body.iter().any(|stmt| {
+            if let Statement::ImportDeclaration(import) = stmt {
+                if import.source.value.as_str() == module_path {
+                    if let Some(specifiers) = &import.specifiers {
+                        return specifiers.iter().any(|s| {
+                            matches!(s, ImportDeclarationSpecifier::ImportNamespaceSpecifier(ns) 
+                                if ns.local.name.as_str() == alias)
+                        });
+                    }
+                }
+            }
+            false
+        });
+
+        if !has_import {
+            // Create: import * as alias from 'module_path';
+            let binding = ast.binding_identifier(SPAN, ast.atom(alias));
+            let namespace_specifier = ast.import_namespace_specifier(SPAN, binding);
+
+            let source = ast.string_literal(SPAN, ast.atom(module_path), None);
+
+            let import_decl = ast.module_declaration_import_declaration(
+                SPAN,
+                Some(
+                    ast.vec1(ImportDeclarationSpecifier::ImportNamespaceSpecifier(
+                        ast.alloc(namespace_specifier),
+                    )),
+                ),
+                source,
+                None,
+                None::<oxc_allocator::Box<'_, WithClause<'_>>>,
+                ImportOrExportKind::Value,
+            );
+
+            // Insert after the last import statement
+            let last_import_index = program
+                .body
+                .iter()
+                .rposition(|stmt| matches!(stmt, Statement::ImportDeclaration(_)))
+                .map(|idx| idx + 1)
+                .unwrap_or(0);
+
+            let stmt = Statement::from(import_decl);
+            program.body.insert(last_import_index, stmt);
+        }
+    }
 }
 
 /// Ensure import * as i0 from '@angular/core' exists
 fn ensure_angular_core_import<'a>(allocator: &'a Allocator, program: &mut Program<'a>) {
-    let ast = AstBuilder::new(allocator);
-
-    // Check if i0 namespace import already exists
-    let has_i0_import = program.body.iter().any(|stmt| {
-        if let Statement::ImportDeclaration(import) = stmt {
-            if import.source.value.as_str() == "@angular/core" {
-                if let Some(specifiers) = &import.specifiers {
-                    return specifiers.iter().any(|s| {
-                        matches!(s, ImportDeclarationSpecifier::ImportNamespaceSpecifier(ns) 
-                            if ns.local.name.as_str() == "i0")
-                    });
-                }
-            }
-        }
-        false
-    });
-
-    if !has_i0_import {
-        // Create: import * as i0 from '@angular/core';
-        let i0_binding = ast.binding_identifier(SPAN, ast.atom("i0"));
-        let namespace_specifier = ast.import_namespace_specifier(SPAN, i0_binding);
-
-        let source = ast.string_literal(SPAN, ast.atom("@angular/core"), None);
-
-        // module_declaration_import_declaration(span, specifiers, source, phase, with_clause, import_kind)
-        let import_decl = ast.module_declaration_import_declaration(
-            SPAN,
-            Some(
-                ast.vec1(ImportDeclarationSpecifier::ImportNamespaceSpecifier(
-                    ast.alloc(namespace_specifier),
-                )),
-            ),
-            source,
-            None,                                           // phase
-            None::<oxc_allocator::Box<'_, WithClause<'_>>>, // with clause
-            ImportOrExportKind::Value,
-        );
-
-        // Insert after the last import statement
-        let last_import_index = program
-            .body
-            .iter()
-            .rposition(|stmt| matches!(stmt, Statement::ImportDeclaration(_)))
-            .map(|idx| idx + 1)
-            .unwrap_or(0);
-
-        let stmt = Statement::from(import_decl);
-        program.body.insert(last_import_index, stmt);
-    }
+    ensure_imports(
+        allocator,
+        program,
+        &[("i0".to_string(), "@angular/core".to_string())],
+    );
 }
 
 #[cfg(test)]

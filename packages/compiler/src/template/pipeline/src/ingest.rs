@@ -5,14 +5,16 @@
 
 use crate::constant_pool::ConstantPool;
 use crate::core::ChangeDetectionStrategy;
-use crate::expression_parser::ast::{ParsedEvent, ParsedProperty, AST as ExprAST};
+use crate::expression_parser::ast::AST as ExprAST;
 use crate::i18n::i18n_ast::{I18nMeta, Node as I18nNode};
 use crate::ml_parser::tags::split_ns_name;
 use crate::output::output_ast::Expression;
 use crate::parse_util::ParseSourceSpan;
 use crate::render3::r3_ast as t;
 use crate::render3::view::api::R3ComponentDeferMetadata;
+use crate::template_parser::binding_parser::{ParsedEvent, ParsedProperty};
 // Note: DomElementSchemaRegistry is created per-call in ingest_element_bindings
+use crate::directive_matching::CssSelector;
 use crate::render3::view::api::R3TemplateDependencyMetadata;
 use crate::template::pipeline::ir;
 use crate::template::pipeline::src::compilation::{
@@ -226,19 +228,23 @@ fn ingest_nodes_internal(
     }
 }
 
-/// Host binding input structure
+use crate::expression_parser::parser::Parser;
+use crate::parse_util::{ParseError, ParseLocation, ParseSourceFile};
+use crate::schema::dom_element_schema_registry::DomElementSchemaRegistry;
+use crate::schema::element_schema_registry::ElementSchemaRegistry;
+use crate::template_parser::binding_parser::BindingParser;
+
 pub struct HostBindingInput {
     pub component_name: String,
     pub component_selector: String,
-    pub properties: Option<Vec<ParsedProperty>>,
+    pub properties: std::collections::HashMap<String, String>,
     pub attributes: std::collections::HashMap<String, Expression>,
-    pub events: Option<Vec<ParsedEvent>>,
+    pub events: std::collections::HashMap<String, String>,
 }
 
 /// Process a host binding AST and convert it into a `HostBindingCompilationJob` in the intermediate representation.
 pub fn ingest_host_binding(
     input: HostBindingInput,
-    _binding_parser: &crate::template_parser::binding_parser::BindingParser,
     constant_pool: ConstantPool,
 ) -> HostBindingCompilationJob {
     let mut job = HostBindingCompilationJob::new(
@@ -248,58 +254,92 @@ pub fn ingest_host_binding(
         TemplateCompilationMode::DomOnly,
     );
 
+    // Setup partial binding parser for host bindings
+    let expr_parser = Parser::new();
+    let schema_registry = DomElementSchemaRegistry::new();
+    let errors = Vec::new();
+    let mut binding_parser = BindingParser::new(&expr_parser, &schema_registry, errors);
+
+    let dummy_file = ParseSourceFile::new("".to_string(), "".to_string());
+    let dummy_loc = ParseLocation::new(dummy_file, 0, 0, 0);
+    let dummy_span = ParseSourceSpan::new(dummy_loc.clone(), dummy_loc);
+
     // Process properties
-    if let Some(properties) = input.properties {
-        for property in properties {
-            // Determine binding kind from property
-            let mut binding_kind = ir::BindingKind::Property;
-            let mut property_name = property.name.clone();
+    let mut parsed_properties: Vec<ParsedProperty> = Vec::new();
+    for (name, expr) in input.properties {
+        binding_parser.parse_property_binding(
+            &name,
+            &expr,
+            true,  // is_host
+            false, // is_part_of_assignment_binding
+            dummy_span.clone(),
+            0,    // absolute_offset
+            None, // value_span
+            &mut vec![],
+            &mut parsed_properties,
+            dummy_span.clone(),
+        );
+    }
 
-            // Handle attr.* prefix
-            if property_name.starts_with("attr.") {
-                property_name = property_name[5..].to_string();
-                binding_kind = ir::BindingKind::Attribute;
-            }
+    for property in parsed_properties {
+        // Determine binding kind from property
+        let mut binding_kind = ir::BindingKind::Property;
+        let mut property_name = property.name.clone();
 
-            // Handle animation bindings based on property_type
-            if property.property_type
-                == crate::expression_parser::ast::ParsedPropertyType::Animation
-            {
-                binding_kind = ir::BindingKind::Animation;
-            }
-            // Note: LegacyAnimation would need special handling if needed
-
-            // Calculate security contexts
-            use crate::schema::dom_element_schema_registry::DomElementSchemaRegistry;
-            use crate::schema::element_schema_registry::ElementSchemaRegistry;
-            let dom_schema = DomElementSchemaRegistry::new();
-            let security_contexts: Vec<_> = vec![dom_schema.security_context(
-                &input.component_selector,
-                &property_name,
-                binding_kind == ir::BindingKind::Attribute,
-            )];
-
-            ingest_dom_property(&mut job, property, binding_kind, security_contexts);
+        // Handle attr.* prefix
+        if property_name.starts_with("attr.") {
+            property_name = property_name[5..].to_string();
+            binding_kind = ir::BindingKind::Attribute;
         }
+
+        // Handle animation bindings
+        if property.is_animation {
+            binding_kind = ir::BindingKind::Animation;
+        } else if property.is_legacy_animation {
+            binding_kind = ir::BindingKind::LegacyAnimation;
+        }
+
+        // Calculate security contexts
+        let security_contexts: Vec<_> = vec![schema_registry.security_context(
+            &input.component_selector,
+            &property_name,
+            binding_kind == ir::BindingKind::Attribute,
+        )];
+
+        super::ingest_helpers::ingest_dom_property(
+            &mut job,
+            property,
+            binding_kind,
+            security_contexts,
+        );
     }
 
     // Process attributes
     for (name, expr) in input.attributes {
         // Calculate security contexts for host attribute
-        use crate::schema::dom_element_schema_registry::DomElementSchemaRegistry;
-        use crate::schema::element_schema_registry::ElementSchemaRegistry;
-        let dom_schema = DomElementSchemaRegistry::new();
         let security_contexts: Vec<_> =
-            vec![dom_schema.security_context(&input.component_selector, &name, true)];
+            vec![schema_registry.security_context(&input.component_selector, &name, true)];
 
-        ingest_host_attribute(&mut job, name, expr, security_contexts);
+        super::ingest_helpers::ingest_host_attribute(&mut job, name, expr, security_contexts);
     }
 
     // Process events
-    if let Some(events) = input.events {
-        for event in events {
-            ingest_host_event(&mut job, event);
-        }
+    let mut parsed_events: Vec<ParsedEvent> = Vec::new();
+    for (name, expr) in input.events {
+        binding_parser.parse_event(
+            &name,
+            &expr,
+            false, // is_assignment_event
+            dummy_span.clone(),
+            dummy_span.clone(), // handler_span
+            &mut vec![],
+            &mut parsed_events,
+            None, // key_span
+        );
+    }
+
+    for event in parsed_events {
+        super::ingest_helpers::ingest_host_event(&mut job, event);
     }
 
     job
@@ -330,68 +370,57 @@ fn maybe_record_directive_usage(
     inputs: &Vec<t::BoundAttribute>,
     outputs: &Vec<t::BoundEvent>,
     template_attrs: &Vec<t::TemplateAttr>,
-) {
-    use crate::render3::view::api::R3TemplateDependencyMetadata;
+) -> bool {
+    // Construct selector for current element
+    let mut element_selector = CssSelector::new();
+    element_selector.set_element(tag_name);
 
-    for (i, dep) in job.available_dependencies.iter().enumerate() {
-        if let R3TemplateDependencyMetadata::Directive(dir) = dep {
-            let selector = &dir.selector;
+    // Add attributes
+    for attr in attributes {
+        element_selector.add_attribute(&attr.name, &attr.value);
+    }
 
-            // Simple selector matching:
-            // 1. Tag match (e.g. "my-comp")
-            if selector == tag_name {
-                job.used_dependencies.insert(i);
-                continue;
-            }
+    // Add inputs as attributes (Angular matching rule: bindings are also attributes)
+    for input in inputs {
+        element_selector.add_attribute(&input.name, "");
+    }
 
-            // 2. Attribute match
-            // Handle multiple attribute selectors like [ngFor][ngForOf]
-            let mut selectors = Vec::new();
-            let mut current = selector.as_str();
-            while current.starts_with('[') {
-                if let Some(end) = current.find(']') {
-                    selectors.push(&current[1..end]);
-                    current = &current[end + 1..];
-                } else {
-                    break;
-                }
-            }
+    // Add outputs as attributes
+    for output in outputs {
+        element_selector.add_attribute(&output.name, "");
+    }
 
-            if selectors.is_empty() {
-                // Not an attribute selector, or already checked tag match
-                continue;
-            }
-
-            // Check if ALL attribute selectors match
-            let all_match = selectors.iter().all(|&attr_to_match| {
-                // Check attributes (static)
-                if attributes.iter().any(|a| a.name == attr_to_match) {
-                    return true;
-                }
-                // Check inputs (bindings)
-                if inputs.iter().any(|a| a.name == attr_to_match) {
-                    return true;
-                }
-                // Check outputs (events)
-                if outputs.iter().any(|e| e.name == attr_to_match) {
-                    return true;
-                }
-                // Check template_attrs (structural)
-                for attr in template_attrs {
-                    match attr {
-                        t::TemplateAttr::Text(a) if a.name == attr_to_match => return true,
-                        t::TemplateAttr::Bound(a) if a.name == attr_to_match => return true,
-                        _ => {}
-                    }
-                }
-                false
-            });
-
-            if all_match {
-                job.used_dependencies.insert(i);
-            }
+    // Add template attrs
+    for attr in template_attrs {
+        match attr {
+            t::TemplateAttr::Text(a) => element_selector.add_attribute(&a.name, &a.value),
+            t::TemplateAttr::Bound(a) => element_selector.add_attribute(&a.name, ""),
+            _ => {}
         }
     }
+
+    // Match against available dependencies
+    let mut matched_indices = Vec::new();
+
+    // Debug logging
+    println!(
+        "DEBUG: ingest checking element {} with attributes {:?}",
+        tag_name, element_selector
+    );
+
+    job.selector_matcher
+        .match_selector(&element_selector, |_, &dep_index| {
+            println!("DEBUG: MATCHED directive index {}", dep_index);
+            matched_indices.push(dep_index);
+        });
+
+    let has_directives = !matched_indices.is_empty();
+
+    for idx in matched_indices {
+        job.used_dependencies.insert(idx);
+    }
+
+    has_directives
 }
 
 /// Ingest an element AST from the template into the given `ViewCompilationUnit`.
@@ -421,6 +450,16 @@ fn ingest_element(unit_xref: ir::XrefId, element: t::Element, job: &mut Componen
         _ => None,
     };
 
+    // Record directive usage first
+    let has_directives = maybe_record_directive_usage(
+        job,
+        &element_name,
+        &element.attributes,
+        &element.inputs,
+        &element.outputs,
+        &vec![],
+    );
+
     // Create element start op
     let start_op = ir::ops::create::create_element_start_op(
         element_name.clone(),
@@ -429,18 +468,9 @@ fn ingest_element(unit_xref: ir::XrefId, element: t::Element, job: &mut Componen
         i18n_placeholder.clone(),
         element.start_source_span.clone(),
         element.source_span.clone(),
+        has_directives,
     );
     push_create_op(job, unit_xref, start_op);
-
-    // Record directive usage
-    maybe_record_directive_usage(
-        job,
-        &element_name,
-        &element.attributes,
-        &element.inputs,
-        &element.outputs,
-        &vec![],
-    );
 
     // Ingest element bindings, events, and references
     ingest_element_bindings(unit_xref, id, &element, job);
@@ -2114,11 +2144,26 @@ fn ingest_element_events(
     // TODO: Extract actual handle from ElementStartOp
     let target_slot = SlotHandle::with_slot(0);
 
+    // Identify outputs that are part of a two-way binding
+    let mut two_way_outputs = std::collections::HashSet::new();
+    for input in &element.inputs {
+        if input.type_ == crate::expression_parser::ast::BindingType::TwoWay {
+            two_way_outputs.insert(format!("{}Change", input.name));
+        }
+    }
+
     for output in &element.outputs {
         let handler_ops =
             make_listener_handler_ops(&output.handler, &output.handler_span, unit_xref, job);
 
-        match output.type_ {
+        let output_type =
+            if output.type_ == ParsedEventType::Regular && two_way_outputs.contains(&output.name) {
+                ParsedEventType::TwoWay
+            } else {
+                output.type_
+            };
+
+        match output_type {
             ParsedEventType::Animation => {
                 // Determine animation kind based on event name
                 // Animation events ending with 'enter' are ENTER, others are LEAVE
@@ -2143,6 +2188,7 @@ fn ingest_element_events(
                 push_create_op(job, unit_xref, animation_listener_op);
             }
             ParsedEventType::Regular => {
+                let consumes_dollar_event = uses_dollar_event(&output.handler);
                 let listener_op = create_listener_op(
                     element_xref,
                     target_slot.clone(),
@@ -2153,12 +2199,15 @@ fn ingest_element_events(
                     output.target.clone(), // event_target
                     false,                 // host_listener
                     output.source_span.clone(),
+                    consumes_dollar_event,
                 );
                 push_create_op(job, unit_xref, listener_op);
             }
             ParsedEventType::TwoWay => {
-                // TwoWay events use create_two_way_listener_op
-                let two_way_handler_ops = make_listener_handler_ops(
+                // TwoWay events need special handling: wrap the handler expression with TwoWayBindingSetExpr
+                // so that transform_two_way_binding_set phase can transform it to:
+                // twoWayBindingSet(target, $event) || (target = $event)
+                let two_way_handler_ops = make_two_way_listener_handler_ops(
                     &output.handler,
                     &output.handler_span,
                     unit_xref,
@@ -2176,6 +2225,7 @@ fn ingest_element_events(
             }
             ParsedEventType::LegacyAnimation => {
                 // LegacyAnimation events use phase instead of target
+                let consumes_dollar_event = uses_dollar_event(&output.handler);
                 let listener_op = create_listener_op(
                     element_xref,
                     target_slot.clone(),
@@ -2186,10 +2236,88 @@ fn ingest_element_events(
                     None,                  // event_target (null for LegacyAnimation)
                     false,                 // host_listener
                     output.source_span.clone(),
+                    consumes_dollar_event,
                 );
                 push_create_op(job, unit_xref, listener_op);
             }
         }
+    }
+}
+
+pub fn uses_dollar_event(ast: &crate::expression_parser::ast::AST) -> bool {
+    use crate::expression_parser::ast::AST;
+    match ast {
+        AST::PropertyRead(prop) => {
+            if prop.name == "$event" {
+                if let AST::ImplicitReceiver(_) = *prop.receiver {
+                    return true;
+                }
+            }
+            uses_dollar_event(&prop.receiver)
+        }
+        AST::SafePropertyRead(read) => {
+            if read.name == "$event" {
+                if let AST::ImplicitReceiver(_) = *read.receiver {
+                    return true;
+                }
+            }
+            uses_dollar_event(&read.receiver)
+        }
+        AST::KeyedRead(keyed) => {
+            uses_dollar_event(&keyed.receiver) || uses_dollar_event(&keyed.key)
+        }
+        AST::SafeKeyedRead(read) => {
+            uses_dollar_event(&read.receiver) || uses_dollar_event(&read.key)
+        }
+
+        AST::Binary(bin) => uses_dollar_event(&bin.left) || uses_dollar_event(&bin.right),
+        AST::Chain(chain) => chain.expressions.iter().any(|e| uses_dollar_event(e)),
+        AST::Conditional(cond) => {
+            uses_dollar_event(&cond.condition)
+                || uses_dollar_event(&cond.true_exp)
+                || uses_dollar_event(&cond.false_exp)
+        }
+        AST::Call(call) => {
+            uses_dollar_event(&call.receiver) || call.args.iter().any(|a| uses_dollar_event(a))
+        }
+        AST::SafeCall(call) => {
+            uses_dollar_event(&call.receiver) || call.args.iter().any(|a| uses_dollar_event(a))
+        }
+        AST::ImplicitReceiver(_)
+        | AST::ThisReceiver(_)
+        | AST::EmptyExpr(_)
+        | AST::LiteralPrimitive(_)
+        | AST::RegularExpressionLiteral(_) => false,
+
+        AST::Interpolation(interp) => interp.expressions.iter().any(|e| uses_dollar_event(e)),
+        AST::KeyedWrite(write) => {
+            uses_dollar_event(&write.receiver)
+                || uses_dollar_event(&write.key)
+                || uses_dollar_event(&write.value)
+        }
+        AST::LiteralArray(arr) => arr.expressions.iter().any(|e| uses_dollar_event(e)),
+        AST::LiteralMap(map) => map.values.iter().any(|e| uses_dollar_event(e)),
+        AST::NonNullAssert(assert) => uses_dollar_event(&assert.expression),
+        AST::BindingPipe(pipe) => {
+            uses_dollar_event(&pipe.exp) || pipe.args.iter().any(|a| uses_dollar_event(a))
+        }
+        AST::PrefixNot(not) => uses_dollar_event(&not.expression),
+        AST::PropertyWrite(write) => {
+            uses_dollar_event(&write.receiver) || uses_dollar_event(&write.value)
+        }
+        AST::TypeofExpression(typeof_expr) => uses_dollar_event(&typeof_expr.expression),
+        AST::Unary(unary) => uses_dollar_event(&unary.expr),
+        AST::VoidExpression(void_expr) => uses_dollar_event(&void_expr.expression),
+        AST::TemplateLiteral(tmpl) => tmpl.expressions.iter().any(|e| uses_dollar_event(e)),
+        AST::TaggedTemplateLiteral(tmpl) => {
+            uses_dollar_event(&tmpl.tag)
+                || tmpl
+                    .template
+                    .expressions
+                    .iter()
+                    .any(|e| uses_dollar_event(e))
+        }
+        AST::ParenthesizedExpression(paren) => uses_dollar_event(&paren.expression),
     }
 }
 
@@ -2269,6 +2397,111 @@ fn make_listener_handler_ops(
     handler_ops
 }
 
+/// Helper function to convert event handler AST into UpdateOps for two-way bindings
+/// This wraps the handler expression with TwoWayBindingSetExpr(target, $event)
+/// so that transform_two_way_binding_set phase can transform it properly.
+fn make_two_way_listener_handler_ops(
+    handler: &crate::expression_parser::ast::AST,
+    handler_span: &ParseSourceSpan,
+    unit_xref: ir::XrefId,
+    job: &mut ComponentCompilationJob,
+) -> crate::template::pipeline::ir::operations::OpList<
+    Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
+> {
+    use crate::expression_parser::ast::AST;
+    use crate::output::output_ast::{
+        Expression, ExpressionStatement, ReadVarExpr, ReturnStatement, Statement,
+    };
+    use crate::template::pipeline::ir::expression::TwoWayBindingSetExpr;
+    use crate::template::pipeline::ir::operations::OpList;
+    use crate::template::pipeline::ir::ops::shared::create_statement_op;
+
+    let mut handler_ops: OpList<
+        Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
+    > = OpList::new();
+
+    // Unwrap AST - AST doesn't have ASTWithSource wrapper in Rust
+    let handler_ast: &AST = handler;
+
+    // Handle Chain expressions - split into multiple statements
+    let handler_exprs: Vec<&AST> = match handler_ast {
+        AST::Chain(chain) => {
+            // chain.expressions is Vec<Box<AST>>, so we need to dereference
+            chain.expressions.iter().map(|expr| expr.as_ref()).collect()
+        }
+        _ => vec![handler_ast],
+    };
+
+    if handler_exprs.is_empty() {
+        panic!("Expected listener to have non-empty expression list");
+    }
+
+    // Convert expressions
+    let mut expressions: Vec<Expression> = handler_exprs
+        .iter()
+        .map(|expr| {
+            crate::template::pipeline::src::conversion::convert_ast(
+                expr,
+                job,
+                unit_xref,
+                Some(handler_span),
+            )
+        })
+        .collect();
+
+    // The last expression is the target for two-way binding
+    let target_expr = expressions.pop().unwrap();
+
+    // Create $event variable reference
+    let event_var = Expression::ReadVar(ReadVarExpr {
+        name: "$event".to_string(),
+        type_: None,
+        source_span: None,
+    });
+
+    // Wrap with TwoWayBindingSetExpr: this will be transformed by transform_two_way_binding_set phase
+    // into: twoWayBindingSet(target, $event) || (target = $event)
+    let two_way_set_expr = Expression::TwoWayBindingSet(TwoWayBindingSetExpr::new(
+        Box::new(target_expr),
+        Box::new(event_var.clone()),
+    ));
+
+    // Add statements for intermediate expressions
+    for expr in expressions {
+        let expr_stmt = ExpressionStatement {
+            expr: Box::new(expr),
+            source_span: Some(handler_span.clone()),
+        };
+        let stmt = Statement::Expression(expr_stmt);
+        let stmt_op = create_statement_op::<
+            Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
+        >(Box::new(stmt));
+        handler_ops.push(Box::new(stmt_op));
+    }
+
+    // Add statement for TwoWayBindingSetExpr
+    let set_stmt = ExpressionStatement {
+        expr: Box::new(two_way_set_expr),
+        source_span: Some(handler_span.clone()),
+    };
+    let stmt = Statement::Expression(set_stmt);
+    let stmt_op = create_statement_op::<
+        Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
+    >(Box::new(stmt));
+    handler_ops.push(Box::new(stmt_op));
+
+    // Add return statement with $event
+    let return_stmt_val = ReturnStatement {
+        value: Box::new(event_var),
+        source_span: Some(handler_span.clone()),
+    };
+    let stmt = Statement::Return(return_stmt_val);
+    let stmt_op = create_statement_op::<
+        Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
+    >(Box::new(stmt));
+    handler_ops.push(Box::new(stmt_op));
+    handler_ops
+}
 /// Helper function to convert event handler AST into UpdateOps for host bindings
 fn make_host_listener_handler_ops(
     handler: &crate::expression_parser::ast::AST,
@@ -2411,6 +2644,7 @@ fn ingest_template_events(
             let handler_ops =
                 make_listener_handler_ops(&output.handler, &output.handler_span, unit_xref, job);
 
+            let consumes_dollar_event = uses_dollar_event(&output.handler);
             let listener_op = create_listener_op(
                 template_xref,
                 target_slot.clone(),
@@ -2421,6 +2655,7 @@ fn ingest_template_events(
                 output.target.clone(),
                 false,
                 output.source_span.clone(),
+                consumes_dollar_event,
             );
             push_create_op(job, unit_xref, listener_op);
         }
@@ -2767,63 +3002,8 @@ fn ingest_template_bindings(
     }
 }
 
-/// Ingest a DOM property binding for host bindings
-fn ingest_dom_property(
-    job: &mut HostBindingCompilationJob,
-    property: ParsedProperty,
-    binding_kind: ir::BindingKind,
-    security_contexts: Vec<crate::core::SecurityContext>,
-) {
-    let unit_xref = job.root.xref;
-    use crate::expression_parser::ast::AST as ExprAST;
-    use crate::template::pipeline::ir::ops::update::{create_binding_op, BindingExpression};
-    use crate::template::pipeline::src::conversion::convert_ast;
-
-    // Convert expression - handle interpolation if present
-    let expression = match property.expression.as_ref() {
-        ExprAST::Interpolation(interp) => {
-            // Convert interpolation to IR Interpolation
-            let exprs: Vec<Expression> = interp
-                .expressions
-                .iter()
-                .map(|expr| {
-                    let span = property.source_span.clone();
-                    convert_ast(expr, job, unit_xref, Some(&span))
-                })
-                .collect();
-
-            // Create Interpolation expression
-            use crate::template::pipeline::ir::ops::update::Interpolation;
-            BindingExpression::Interpolation(Interpolation {
-                strings: interp.strings.clone(),
-                expressions: exprs,
-                i18n_placeholders: vec![], // Host bindings don't have i18n placeholders
-            })
-        }
-        ast => {
-            // Convert regular AST to Expression
-            let span = property.source_span.clone();
-            BindingExpression::Expression(convert_ast(ast, job, unit_xref, Some(&span)))
-        }
-    };
-
-    // Create binding op - push to update list
-    let binding_op = create_binding_op(
-        job.root.xref,
-        binding_kind,
-        property.name,
-        expression,
-        None, // unit - ParsedProperty doesn't have unit field
-        security_contexts,
-        false, // is_text_attr
-        false, // is_structural_template_attribute
-        None,  // template_kind
-        None,  // i18n_message - host bindings don't handle i18n
-        property.source_span,
-    );
-
-    job.root.update.push(binding_op);
-}
+// ingest_dom_property is now in ingest_helpers.rs
+// This duplicate implementation has been removed - use ingest_helpers::ingest_dom_property instead
 
 /// Ingest a host attribute binding
 fn ingest_host_attribute(
@@ -2861,103 +3041,5 @@ fn ingest_host_attribute(
     job.root.update.push(binding_op);
 }
 
-/// Ingest a host event binding
-fn ingest_host_event(job: &mut HostBindingCompilationJob, event: ParsedEvent) {
-    let unit_xref = job.root.xref;
-    use crate::expression_parser::ast::ParsedEventType;
-    use crate::output::output_ast::{ReturnStatement, Statement};
-    use crate::template::pipeline::ir::handle::SlotHandle;
-    use crate::template::pipeline::ir::ops::shared::create_statement_op;
-    use crate::template::pipeline::src::conversion::convert_ast;
-
-    // Create handler ops - simplified version for host events
-    // Use the same approach as make_listener_handler_ops
-    use crate::template::pipeline::ir::operations::OpList;
-    let mut handler_ops: OpList<
-        Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
-    > = OpList::new();
-    let handler_expr = convert_ast(&event.handler, job, unit_xref, Some(&event.handler_span));
-    let return_stmt = ReturnStatement {
-        value: Box::new(handler_expr),
-        source_span: Some(event.handler_span.clone()),
-    };
-    let stmt = Statement::Return(return_stmt);
-    let stmt_op = create_statement_op::<
-        Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
-    >(Box::new(stmt));
-    // Box the StatementOp - it implements UpdateOp so can be coerced to trait object
-    handler_ops.push(Box::new(stmt_op)
-        as Box<
-            dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync,
-        >);
-
-    match event.event_type {
-        ParsedEventType::Animation => {
-            // Determine animation kind based on event name
-            let animation_kind = if event.name.ends_with("enter") {
-                ir::enums::AnimationKind::Enter
-            } else {
-                ir::enums::AnimationKind::Leave
-            };
-
-            // Create animation listener op
-            let animation_listener_op = ir::ops::create::create_animation_listener_op(
-                job.root.xref,
-                SlotHandle::default(),
-                event.name,
-                None, // tag - host listeners don't have tags
-                handler_ops,
-                animation_kind,
-                event.target_or_phase.clone(), // event_target
-                true,                          // host_listener
-                event.source_span,
-            );
-            job.root.create.push(animation_listener_op);
-        }
-        ParsedEventType::Regular => {
-            // Create regular listener op
-            let listener_op = ir::ops::create::create_listener_op(
-                job.root.xref,
-                SlotHandle::default(),
-                event.name,
-                None, // tag
-                handler_ops,
-                None,                          // legacy_animation_phase
-                event.target_or_phase.clone(), // event_target
-                true,                          // host_listener
-                event.source_span,
-            );
-            job.root.create.push(listener_op);
-        }
-        ParsedEventType::TwoWay => {
-            // TwoWay events use create_two_way_listener_op
-            let two_way_handler_ops =
-                make_host_listener_handler_ops(&event.handler, &event.handler_span, unit_xref, job);
-            let two_way_listener_op = ir::ops::create::create_two_way_listener_op(
-                job.root.xref,
-                SlotHandle::default(),
-                event.name,
-                None, // tag
-                two_way_handler_ops,
-                event.source_span,
-            );
-            job.root.create.push(two_way_listener_op);
-        }
-        ParsedEventType::LegacyAnimation => {
-            // LegacyAnimation events use phase instead of target
-            // For LegacyAnimation, target_or_phase contains the phase
-            let listener_op = ir::ops::create::create_listener_op(
-                job.root.xref,
-                SlotHandle::default(),
-                event.name,
-                None, // tag
-                handler_ops,
-                event.target_or_phase.clone(), // legacy_animation_phase (phase is stored in target_or_phase for LegacyAnimation)
-                None,                          // event_target (null for LegacyAnimation)
-                true,                          // host_listener
-                event.source_span,
-            );
-            job.root.create.push(listener_op);
-        }
-    }
-}
+// ingest_host_event is now in ingest_helpers.rs
+// This duplicate implementation has been removed - use ingest_helpers::ingest_host_event instead
