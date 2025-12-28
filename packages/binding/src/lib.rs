@@ -149,6 +149,21 @@ impl FileSystem for CapturingFileSystem {
     }
 }
 
+#[napi(object)]
+pub struct Diagnostic {
+    pub file: Option<String>,
+    pub message: String,
+    pub code: u32,
+    pub start: Option<u32>,
+    pub length: Option<u32>,
+}
+
+#[napi(object)]
+pub struct CompileResult {
+    pub code: String,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 #[napi]
 pub struct Compiler {}
 
@@ -160,7 +175,7 @@ impl Compiler {
     }
 
     #[napi]
-    pub fn compile(&self, filename: String, _content: String) -> String {
+    pub fn compile(&self, filename: String, _content: String) -> CompileResult {
         // 1. Setup Capturing FileSystem (delegates reads to disk so imports work!)
         let fs = CapturingFileSystem::new();
 
@@ -188,12 +203,32 @@ impl Compiler {
         // 4. Compile
         // load_ng_structure needs a valid path to tsconfig usually, or just root.
         // We'll pass the dirname of the file as project root or just "/"
+        let mut diagnostics = Vec::new();
         if let Err(e) = program.load_ng_structure(Path::new("/")) {
-            return format!("/* Error loading: {} */", e);
+            return CompileResult {
+                code: format!("/* Error loading: {} */", e),
+                diagnostics: vec![],
+            };
         }
 
-        if let Err(e) = program.emit() {
-            return format!("/* Error emitting: {} */", e);
+        match program.emit() {
+            Ok(emit_diagnostics) => {
+                for diag in emit_diagnostics {
+                    diagnostics.push(Diagnostic {
+                        file: diag.file.map(|p| p.to_string_lossy().to_string()),
+                        message: diag.message,
+                        code: diag.code as u32,
+                        start: diag.start.map(|s| s as u32),
+                        length: diag.length.map(|l| l as u32),
+                    });
+                }
+            }
+            Err(e) => {
+                return CompileResult {
+                    code: format!("/* Error emitting: {} */", e),
+                    diagnostics: vec![],
+                };
+            }
         }
 
         // 5. Retrieve output from Memory
@@ -201,17 +236,18 @@ impl Compiler {
         let output_path_str = abs_filename_str.replace(".ts", ".js");
         let output_path = AbsoluteFsPath::from(Path::new(&output_path_str));
 
-        match fs.read_file(&output_path) {
+        let code = match fs.read_file(&output_path) {
             Ok(js_content) => js_content,
             Err(_) => {
                 format!("/* Output not found in memory for {} */", output_path_str)
             }
-        }
+        };
+
+        CompileResult { code, diagnostics }
     }
 
     #[napi]
     pub fn link_file(&self, filename: String, source_code: String) -> String {
-        println!("[Rust Linker] Linking: {}", filename);
         // Delegate to linker in compiler-cli
         // We need to enable feature napi-bindings for this to be available
         use angular_compiler_cli::linker::napi::link_file;

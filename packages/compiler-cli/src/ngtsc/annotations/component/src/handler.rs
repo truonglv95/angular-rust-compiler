@@ -477,7 +477,6 @@ impl DecoratorHandler<DirectiveMetadata<'static>, DirectiveMetadata<'static>, ()
             .as_ref()
             .map(|id| id.name.as_str())
             .unwrap_or("<anonymous>");
-        // println!("DEBUG: detect visiting class {}", class_name);
 
         let reflection_host = TypeScriptReflectionHost::new();
         // unsafe transmute because ClassDeclaration is same as Declaration for our purposes here
@@ -490,7 +489,6 @@ impl DecoratorHandler<DirectiveMetadata<'static>, DirectiveMetadata<'static>, ()
                 if let Some(metadata) =
                     extract_directive_metadata(node, &decorator, true, std::path::Path::new(""))
                 {
-                    println!("DEBUG: Component detected for {}", class_name);
                     // Clear the decorator reference to avoid lifetime issues
                     let owned_metadata = match metadata {
                         DecoratorMetadata::Directive(mut d) => {
@@ -508,7 +506,6 @@ impl DecoratorHandler<DirectiveMetadata<'static>, DirectiveMetadata<'static>, ()
                         metadata: static_metadata,
                     });
                 } else {
-                    println!("DEBUG: FAILED to extract metadata for {}", class_name);
                 }
             }
         }
@@ -548,12 +545,9 @@ impl ComponentDecoratorHandler {
         let dir = match analysis {
             DecoratorMetadata::Directive(d) if d.t2.is_component => d,
             _ => {
-                println!("DEBUG: compile_ivy - NOT a component");
                 return vec![];
             }
         };
-
-        println!("DEBUG: compile_ivy START for component: {}", dir.t2.name);
 
         // Manually construct R3Reference since From isn't implemented
         let type_expr = angular_compiler::output::output_ast::Expression::ReadVar(
@@ -591,11 +585,6 @@ impl ComponentDecoratorHandler {
         let (nodes, ng_content_selectors, preserve_whitespaces, styles) = if let Some(ast) =
             comp_meta.template_ast.as_ref()
         {
-            println!(
-                "DEBUG: compile_ivy for {} - template_ast has {} nodes",
-                dir.t2.name,
-                ast.len()
-            );
             let options = Render3ParseOptions {
                 collect_comment_nodes: false,
                 ..Default::default()
@@ -604,18 +593,8 @@ impl ComponentDecoratorHandler {
             // Apply whitespace visitor
             let mut visitor = WhitespaceVisitor::new(true, None, false);
             let processed_nodes = visit_all_with_siblings_nodes(&mut visitor, ast);
-            println!(
-                "DEBUG: compile_ivy for {} - after whitespace visitor: {} nodes",
-                dir.t2.name,
-                processed_nodes.len()
-            );
 
             let result = html_ast_to_render3_ast(&processed_nodes, &mut binding_parser, &options);
-            println!(
-                "DEBUG: compile_ivy for {} - after R3 transform: {} nodes",
-                dir.t2.name,
-                result.nodes.len()
-            );
             (
                 result.nodes,
                 result.ng_content_selectors,
@@ -673,12 +652,9 @@ impl ComponentDecoratorHandler {
                 if let Some(known_metadata) =
                     get_known_dependency_metadata(&import_name, Some(&local_import_expr))
                 {
-                    println!("DEBUG: Known dependency found for '{}'", import_name);
-
                     let mut result = vec![known_metadata];
 
                     if import_name == "FormsModule" {
-                        println!("DEBUG: Adding Form directives for FormsModule");
                         let forms_directives = vec![
                             ("ɵNgNoValidate", "form:not([ngNoForm]):not([ngNativeValidate])", vec![], vec![]),
                             ("NgSelectOption", "option", vec!["ngValue", "value"], vec![]),
@@ -718,10 +694,6 @@ impl ComponentDecoratorHandler {
                             }));
                         }
                     } else if import_name == "CommonModule" || import_name == "BrowserModule" {
-                        println!(
-                            "DEBUG: Adding Common directives and pipes for {}",
-                            import_name
-                        );
                         let common_deps = vec![
                             "NgIf",
                             "NgForOf",
@@ -769,10 +741,6 @@ impl ComponentDecoratorHandler {
                         declarations_map.insert(key, meta);
                     }
                 } else {
-                    println!(
-                        "DEBUG: Unknown dependency '{}', falling back to ReadVar",
-                        import_name
-                    );
                     let meta = angular_compiler::render3::view::api::R3TemplateDependencyMetadata::Directive(angular_compiler::render3::view::api::R3DirectiveDependencyMetadata {
                         selector: "".to_string(),
                         type_: local_import_expr,
@@ -788,7 +756,7 @@ impl ComponentDecoratorHandler {
             }
         }
 
-        let r3_metadata = R3ComponentMetadata {
+        let mut r3_metadata = R3ComponentMetadata {
             directive: R3DirectiveMetadata {
                 name: dir.t2.name.clone(),
                 type_: type_ref,
@@ -921,14 +889,35 @@ impl ComponentDecoratorHandler {
         );
         phases::run(&mut job);
 
+        // Filter declarations based on used_dependencies from the job
+        // This optimization removes unused directives and pipes that were brute-force added (e.g. from FormsModule)
+        if !job.available_dependencies.is_empty() {
+            let used_indices = &job.used_dependencies;
+
+            // 2. Filter
+            let mut filtered_declarations = Vec::new();
+            for (i, decl) in r3_metadata.declarations.iter().enumerate() {
+                let is_used = used_indices.contains(&i);
+                let is_module = matches!(decl, R3TemplateDependencyMetadata::NgModule(_));
+
+                // NGTSC behavior: Keep if it's a module OR if it's explicitly used.
+                // Unused directives/pipes are dropped.
+                // Also keep directives with empty selectors (metadata resolution failed), assuming they might be used.
+                let is_unknown = if let R3TemplateDependencyMetadata::Directive(d) = decl {
+                    d.selector.is_empty()
+                } else {
+                    false
+                };
+
+                if is_module || is_used || is_unknown {
+                    filtered_declarations.push(decl.clone());
+                }
+            }
+            r3_metadata.declarations = filtered_declarations;
+        }
+
         // 3. Handle Host Bindings if present
         let mut host_job = None;
-        eprintln!(
-            "DEBUG: Host props: {}, attrs: {}, listeners: {}",
-            dir.host.properties.len(),
-            dir.host.attributes.len(),
-            dir.host.listeners.len()
-        );
         if !dir.host.listeners.is_empty()
             || !dir.host.properties.is_empty()
             || !dir.host.attributes.is_empty()
@@ -1129,7 +1118,6 @@ mod tests {
         assert!(result.initializer.is_some());
 
         let initializer = result.initializer.as_ref().unwrap();
-        println!("DEBUG: Initializer: {}", initializer);
         // Check for key Ivy definition parts
         assert!(initializer.contains("defineComponent"));
         assert!(initializer.contains("selectors: [['test-comp']]"));

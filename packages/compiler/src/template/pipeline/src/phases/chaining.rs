@@ -126,7 +126,6 @@ fn chain_operations_impl_create(
     let mut updates: HashMap<usize, Expression> = HashMap::new();
 
     for (index, op) in op_list.iter().enumerate() {
-        println!("Op[{}]: Kind={:?}", index, op.kind());
         if op.kind() == OpKind::Text {
             if let Some(text_op) = op.as_any().downcast_ref::<ir::ops::create::TextOp>() {
                 if text_op.handle.get_slot().is_none() {
@@ -312,13 +311,7 @@ fn chain_operations_impl_update(
 
                 indices_to_remove.push(index);
                 updates.insert(chain_state.op_index, chain_state.expression.clone());
-                println!("Extended chain for {:?}", instruction_key.1);
             } else {
-                println!(
-                    "Broken chain. Expected {:?} but got {:?}",
-                    compatible_key.as_ref().map(|k| &k.1),
-                    instruction_key.1
-                );
                 chain = Some(Chain {
                     op_index: index,
                     expression: Expression::InvokeFn(invoke_expr.clone()),

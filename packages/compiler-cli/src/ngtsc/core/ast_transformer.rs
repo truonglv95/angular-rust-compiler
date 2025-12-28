@@ -179,10 +179,6 @@ fn add_static_properties_to_class<'a>(
     def_expr_str: &'a str,
     def_name: &str,
 ) {
-    println!(
-        "DEBUG: add_static_properties_to_class for {}",
-        component_name
-    );
     // Find the class declaration and add static properties
     for stmt in program.body.iter_mut() {
         match stmt {
@@ -208,9 +204,7 @@ fn add_static_properties_to_class<'a>(
 
             Statement::ClassDeclaration(class) => {
                 if let Some(class_id) = &class.id {
-                    println!("DEBUG: Found class {}", class_id.name);
                     if class_id.name.as_str() == component_name {
-                        println!("DEBUG: Match found for {}", component_name);
                         add_properties_to_class_body(
                             allocator,
                             class,
@@ -294,7 +288,6 @@ fn create_static_property<'a>(
                         // 1. The PropertyDefinition is in the arena, not in parse_result's stack
                         // 2. The lifetime is correct (both are 'a)
                         // 3. We're just moving the Box pointer, not the data
-                        println!("DEBUG: create_static_property SUCCESS for {}", prop_name);
                         unsafe {
                             // Extract the PropertyDefinition by converting the reference to a raw pointer
                             // and then back to a Box. This is safe because the data is in the arena.
@@ -306,18 +299,7 @@ fn create_static_property<'a>(
                 }
             }
         }
-    } else {
-        println!(
-            "DEBUG: create_static_property PARSE ERRORS for {}: {:?}",
-            prop_name, parse_result.errors
-        );
-        // Print the template for debugging
-        println!("DEBUG: Failed template: {}", template);
     }
-    println!(
-        "DEBUG: create_static_property returning None for {}",
-        prop_name
-    );
     None
 }
 

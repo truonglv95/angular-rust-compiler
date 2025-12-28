@@ -317,13 +317,6 @@ fn base_directive_fields(
     }
 
     // host bindings
-    eprintln!(
-        "Compiling host bindings for {}: attrs={}, listeners={}, props={}",
-        meta.name,
-        meta.host.attributes.len(),
-        meta.host.listeners.len(),
-        meta.host.properties.len()
-    );
     if let Some(host_bindings_fn) = create_host_bindings_function(
         &meta.host,
         &meta.type_source_span,
@@ -780,17 +773,6 @@ fn create_host_bindings_function(
     // Transform the host job through the pipeline phases
     run_host(&mut host_job);
 
-    // Debug: Print host job after pipeline phases
-    eprintln!(
-        "DEBUG after run_host for {}: vars={:?}, update_ops_count={}",
-        name,
-        host_job.root.vars,
-        host_job.root.update.len()
-    );
-    for (i, op) in host_job.root.update.iter().enumerate() {
-        eprintln!("  update op[{}]: {:?}", i, op.kind());
-    }
-
     // Set hostAttrs in definition map
     if let Some(ref attrs) = host_job.root.attributes {
         definition_map.set("hostAttrs", Some(attrs.clone()));
@@ -798,7 +780,6 @@ fn create_host_bindings_function(
 
     // Set hostVars in definition map - CRITICAL for class/style bindings
     let host_vars = host_job.root.vars.unwrap_or(0);
-    eprintln!("DEBUG: Setting hostVars={} for {}", host_vars, name);
     if host_vars > 0 {
         definition_map.set(
             "hostVars",

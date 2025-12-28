@@ -90,14 +90,8 @@ pub fn specialize_bindings(job: &mut dyn CompilationJob) {
         }
     }
 
-    // Get mode and kind to avoid borrow conflicts
     let mode = job.mode();
     let kind = job.kind();
-
-    println!(
-        "DEBUG binding_specialization: job kind={:?}, mode={:?}",
-        kind, mode
-    );
 
     // Process all units
     for unit in job.units_mut() {
@@ -121,19 +115,10 @@ fn process_unit(
                 let op_ptr = op.as_ref() as *const dyn ir::UpdateOp;
                 let binding_op_ptr = op_ptr as *const BindingOp;
                 let binding_op = &*binding_op_ptr;
-                println!(
-                    "DEBUG binding_specialization: found binding '{}' kind={:?}",
-                    binding_op.name, binding_op.binding_kind
-                );
                 ops_to_replace.push((index, binding_op.clone()));
             }
         }
     }
-
-    println!(
-        "DEBUG binding_specialization: ops_to_replace count={}",
-        ops_to_replace.len()
-    );
 
     // Second pass: replace ops (iterate in reverse to maintain indices)
     for (index, binding_op) in ops_to_replace.iter().rev() {

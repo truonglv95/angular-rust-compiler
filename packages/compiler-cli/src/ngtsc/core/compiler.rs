@@ -54,12 +54,10 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
         for file in root_names {
             let path = PathBuf::from(file);
             let abs_path = AbsoluteFsPath::from(&path);
-            println!("DEBUG: analyze_async processing file: {:?}", abs_path);
 
             let content = match self.fs.read_file(&abs_path) {
                 Ok(c) => c,
                 Err(e) => {
-                    println!("DEBUG: Failed to read file {:?}: {}", abs_path, e);
                     return Err(format!(
                         "File not found or unreadable: {:?} ({})",
                         abs_path, e
@@ -79,11 +77,6 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                 return Err(format!("Failed to parse {:?}", path));
             } else {
                 let mut directives = metadata_reader.get_directive_metadata(&ret.program, &path);
-                println!(
-                    "Analyzed {:?} with OXC. Found {} directives.",
-                    path,
-                    directives.len()
-                );
 
                 // Parse templates for components that have inline templates
                 for directive in &mut directives {
@@ -102,13 +95,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                     self.fs.resolve(&[&component_dir, template_url]);
                                 match self.fs.read_file(&template_path) {
                                     Ok(content) => Some(content),
-                                    Err(e) => {
-                                        println!(
-                                            "Failed to read template file at {:?}: {}",
-                                            template_path, e
-                                        );
-                                        None
-                                    }
+                                    Err(_) => None,
                                 }
                             } else {
                                 None
@@ -118,24 +105,10 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                         };
 
                         if let Some(template) = template_str {
-                            println!(
-                                "DEBUG: analyze_async - parsing template for {}: '{}'",
-                                dir.t2.name, template
-                            );
                             let parser = HtmlParser::new(get_html_tag_definition_wrapper);
                             let parse_result = parser.parse(&template, "template.html", None);
 
-                            println!(
-                                "DEBUG: analyze_async - parser found {} nodes for {}",
-                                parse_result.root_nodes.len(),
-                                dir.t2.name
-                            );
-
                             if !parse_result.errors.is_empty() {
-                                println!(
-                                    "Errors parsing template for {}: {:?}",
-                                    dir.t2.name, parse_result.errors
-                                );
                             } else {
                                 if let Some(comp) = &mut dir.component {
                                     comp.template_ast = Some(parse_result.root_nodes);
@@ -156,12 +129,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                 let style_path = self.fs.resolve(&[&component_dir, &url]);
                                 match self.fs.read_file(&style_path) {
                                     Ok(content) => resolved_styles.push(content),
-                                    Err(e) => {
-                                        println!(
-                                            "Failed to read style file at {:?}: {}",
-                                            style_path, e
-                                        );
-                                    }
+                                    Err(_) => {}
                                 }
                             }
                             if let Some(comp) = &mut dir.component {
@@ -197,10 +165,6 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
             std::collections::HashSet::new();
 
         // First pass: emit Angular component files with decorators
-        println!(
-            "DEBUG: Emit loop starting with {} directives",
-            compilation_result.directives.len()
-        );
         for directive in &compilation_result.directives {
             let (compiled_results, directive_name, source_file) = match directive {
                 DecoratorMetadata::Directive(dir) => {
@@ -283,11 +247,6 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                     (vec![], ngm.name.clone(), ngm.source_file.clone())
                 }
             };
-            println!(
-                "DEBUG: Compiled results for {}: {}",
-                directive_name,
-                compiled_results.len()
-            );
 
             for mut result in compiled_results {
                 // Collect diagnostics
@@ -305,14 +264,6 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                 let hoisted_statements = result.statements.join("\n");
 
                 // Find source file for this directive (using metadata source_file if available)
-                if let Some(ref s) = source_file {
-                    println!(
-                        "DEBUG: Emitter found source file for {}: {:?}",
-                        directive_name, s
-                    );
-                } else {
-                    println!("DEBUG: Emitter NO source file for {}", directive_name);
-                }
 
                 // Skip if source file is in node_modules or is a spec file
                 if let Some(ref src_file) = source_file {
@@ -383,10 +334,6 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                   let parser = Parser::new(&allocator, &source_content, source_type);
                                   let mut parse_result = parser.parse();
 
-                                  if !parse_result.errors.is_empty() {
-                                      println!("DEBUG: Parser errors for {}: {:?}", directive_name, parse_result.errors);
-                                  }
-
                                   if parse_result.errors.is_empty() {
                                       // Step 1: Run semantic analysis for scoping
                                       let semantic = oxc_semantic::SemanticBuilder::new()
@@ -453,7 +400,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
 
                 match fs.write_file(&out_path, final_content.as_bytes(), None) {
                     Ok(_) => {}
-                    Err(e) => println!("Failed to emit {:?}: {}", out_path, e),
+                    Err(_) => (),
                 }
 
                 // Mark this source file as having a component
@@ -540,7 +487,6 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                         let mut parse_result = parser.parse();
 
                         if !parse_result.errors.is_empty() {
-                            println!("Parse errors in {:?}, skipping", file);
                             continue;
                         }
 
@@ -577,13 +523,11 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                         let out_path_abs = AbsoluteFsPath::from(out_path.as_path());
 
                         match fs.write_file(&out_path_abs, js_output.as_bytes(), None) {
-                            Ok(_) => println!("Transpiled: {:?}", out_path_abs),
-                            Err(e) => println!("Failed to transpile {:?}: {}", out_path_abs, e),
+                            Ok(_) => (),
+                            Err(_) => (),
                         }
                     }
-                    Err(e) => {
-                        println!("Failed to read {:?}: {}", file, e);
-                    }
+                    Err(_) => {}
                 }
             }
         }

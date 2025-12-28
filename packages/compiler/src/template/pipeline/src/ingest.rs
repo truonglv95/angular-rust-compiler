@@ -402,15 +402,8 @@ fn maybe_record_directive_usage(
     // Match against available dependencies
     let mut matched_indices = Vec::new();
 
-    // Debug logging
-    println!(
-        "DEBUG: ingest checking element {} with attributes {:?}",
-        tag_name, element_selector
-    );
-
     job.selector_matcher
         .match_selector(&element_selector, |_, &dep_index| {
-            println!("DEBUG: MATCHED directive index {}", dep_index);
             matched_indices.push(dep_index);
         });
 

@@ -160,21 +160,16 @@ impl ComponentCompilationJob {
 
     fn create_selector_matcher(deps: &Vec<R3TemplateDependencyMetadata>) -> SelectorMatcher<usize> {
         let mut matcher = SelectorMatcher::new();
-        println!("DEBUG: initialize SelectorMatcher with {} deps", deps.len());
         for (i, dep) in deps.iter().enumerate() {
             if let R3TemplateDependencyMetadata::Directive(dir) = dep {
-                println!("DEBUG: Dep {}: Directive selector '{}'", i, dir.selector);
                 match CssSelector::parse(&dir.selector) {
                     Ok(selectors) => {
                         for selector in selectors {
-                            println!("DEBUG:   Added parsed selector: {}", selector);
                             matcher.add_selectable(selector, i);
                         }
                     }
-                    Err(e) => println!("DEBUG:   Failed to parse selector: {}", e),
+                    Err(_) => {}
                 }
-            } else {
-                println!("DEBUG: Dep {}: Not a directive", i);
             }
         }
         matcher

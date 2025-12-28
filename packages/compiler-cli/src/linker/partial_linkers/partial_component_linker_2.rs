@@ -55,17 +55,10 @@ impl PartialComponentLinker2 {
         let selector = meta_obj.get_string("selector").ok();
         let mut template_str = meta_obj.get_string("template").unwrap_or_default();
 
-        if template_str.is_empty() {
-            println!(
-                "DEBUG: Checking for templateUrl. has_url={}, keys={:?}",
-                meta_obj.has("templateUrl"),
-                meta_obj.to_map().keys()
-            );
-        }
+        if template_str.is_empty() {}
 
         if template_str.is_empty() && meta_obj.has("templateUrl") {
             let url = meta_obj.get_string("templateUrl")?;
-            println!("DEBUG: Found templateUrl: {}", url);
             // Resolve path relative to source_url
             // source_url is likely absolute if from rspack loader
             let source_path = std::path::Path::new(source_url);
@@ -75,11 +68,6 @@ impl PartialComponentLinker2 {
             // Read file
             match std::fs::read_to_string(&template_path) {
                 Ok(content) => {
-                    println!(
-                        "DEBUG: Read template from {:?}, content length: {}",
-                        template_path,
-                        content.len()
-                    );
                     template_str = content;
                 }
                 Err(e) => {

@@ -95,24 +95,6 @@ pub fn emit_component(
     metadata: &R3ComponentMetadata,
     host_job: Option<&HostBindingCompilationJob>,
 ) -> R3CompiledExpression {
-    println!(
-        "DEBUG: emit_component for {} - views: {}, mode: {:?}",
-        job.component_name,
-        job.views.len(),
-        job.mode
-    );
-    for (id, view) in &job.views {
-        println!(
-            "DEBUG: View {:?} has {} create ops, {} update ops",
-            id,
-            view.create.len(),
-            view.update.len()
-        );
-        for op in &view.create {
-            println!("DEBUG: Create Op: {:?}", op.kind());
-            // println!("DEBUG: Create Op Tag: {:?}", op.tag); // If tag exists
-        }
-    }
     let mut statements = vec![];
     statements.extend(job.pool.statements.clone());
 
@@ -428,7 +410,6 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                     let index = element_op.base.base.handle.get_slot().unwrap();
                     // Handle tag which might be Option<String>
                     let tag = element_op.base.tag.clone().unwrap_or("div".to_string());
-                    println!("DEBUG: Emit visiting ElementStart with tag '{}'", tag);
 
                     // Build args: slot, tag, [constsIndex]
                     let mut args = vec![*o::literal(index as f64), *o::literal(tag.clone())];

@@ -48,11 +48,6 @@ fn process_unit_with_compatibility(
     for op in unit.update().iter() {
         if check_consumes_vars_trait_update(op) {
             let vars_used = vars_used_by_op_update(op);
-            println!(
-                "DEBUG var_counting: op kind={:?} uses {} vars",
-                op.kind(),
-                vars_used
-            );
             var_count += vars_used;
         }
     }

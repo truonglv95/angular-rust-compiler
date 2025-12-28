@@ -35,6 +35,7 @@ pub mod remove_empty_bindings;
 pub mod remove_illegal_let_references;
 pub mod resolve_contexts;
 pub mod resolve_defer_deps_fns;
+pub mod resolve_definitions;
 pub mod resolve_dollar_event;
 pub mod resolve_names;
 pub mod resolve_sanitizers;
@@ -94,6 +95,9 @@ pub fn run(job: &mut ComponentCompilationJob) {
 
     // Resolve sanitizers for security-sensitive properties/attributes (e.g. href, src)
     resolve_sanitizers::resolve_sanitizers(job);
+
+    // Resolve definitions (used directives/pipes)
+    resolve_definitions::phase(job);
 
     // Create pipe operations before slot allocation
     pipe_creation::create_pipes(job);

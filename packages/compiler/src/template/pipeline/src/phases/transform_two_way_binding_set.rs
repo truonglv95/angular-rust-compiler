@@ -38,20 +38,13 @@ fn process_unit(unit: &mut dyn crate::template::pipeline::src::compilation::Comp
                         &mut |expr: Expression, _flags| {
                             // Check if this is a TwoWayBindingSetExpr
                             if let Expression::TwoWayBindingSet(two_way_expr) = &expr {
-                                eprintln!("DEBUG: transform_two_way_binding_set found TwoWayBindingSetExpr");
                                 let target = two_way_expr.target.clone();
                                 let value = two_way_expr.value.clone();
                                 let source_span = two_way_expr.source_span.clone();
 
-                                eprintln!(
-                                    "DEBUG: target type = {:?}",
-                                    std::mem::discriminant(&*target)
-                                );
-
                                 // Transform based on target type
                                 match &*target {
                                     Expression::ReadProp(_) | Expression::ReadKey(_) => {
-                                        eprintln!("DEBUG: matched ReadProp/ReadKey, creating twoWayBindingSet");
                                         // For ReadPropExpr or ReadKeyExpr, create:
                                         // twoWayBindingSet(target, value) || (target = value)
                                         let two_way_set =
@@ -68,14 +61,12 @@ fn process_unit(unit: &mut dyn crate::template::pipeline::src::compilation::Comp
                                         *two_way_set.or(parens_assign, source_span)
                                     }
                                     Expression::ReadVariable(_) => {
-                                        eprintln!("DEBUG: matched ReadVariable");
                                         // For ReadVariableExpr (local template variable),
                                         // only emit the twoWayBindingSet since the fallback
                                         // would be attempting to write into a constant.
                                         *two_way_binding_set(target.clone(), value.clone())
                                     }
                                     _ => {
-                                        eprintln!("DEBUG: unsupported target type: {:?}", target);
                                         panic!("Unsupported expression in two-way action binding.");
                                     }
                                 }
