@@ -10,6 +10,7 @@ interface EventLog {
 
 @Component({
   selector: 'app-event-binding-test',
+  standalone: true,
   imports: [NgIf, NgFor, FormsModule],
   templateUrl: './event-binding-test.html',
   styleUrl: './event-binding-test.css',

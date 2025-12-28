@@ -11,7 +11,7 @@ function NgForTest_li_7_Template(rf, ctx) {
     const item_r1 = ctx.$implicit;
     const i_r2 = ctx.index;
     i0.ɵɵadvance();
-    i0.ɵɵtextInterpolate2('', i_r2 + 1, '. ', item_r1, '');
+    i0.ɵɵtextInterpolate2('', i_r2 + 1, '. ', item_r1);
   }
 }
 function NgForTest_div_11_Template(rf, ctx) {
@@ -327,13 +327,14 @@ export class NgForTest {
         i0.ɵɵadvance(4);
         i0.ɵɵproperty('ngForOf', ctx.items);
         i0.ɵɵadvance(3);
-        i0.ɵɵtextInterpolate1('6. Current Users Count: ', ctx.users.length, '');
+        i0.ɵɵtextInterpolate1('6. Current Users Count: ', ctx.users.length);
       }
     },
     standalone: true,
     styles: [
       '.ng-for-test[_ngcontent-%COMP%] {\n  padding: 20px;\n  font-family: Arial, sans-serif;\n}\n\nsection[_ngcontent-%COMP%] {\n  margin-bottom: 24px;\n  padding: 16px;\n  border: 1px solid #ddd;\n  border-radius: 8px;\n}\n\nh3[_ngcontent-%COMP%] {\n  margin-top: 0;\n  color: #333;\n}\n\nbutton[_ngcontent-%COMP%] {\n  margin-right: 8px;\n  margin-bottom: 8px;\n  padding: 8px 16px;\n  cursor: pointer;\n}\n\n.number-item[_ngcontent-%COMP%] {\n  padding: 8px 12px;\n  margin: 4px 0;\n  border-radius: 4px;\n  transition: all 0.2s ease;\n}\n\n.number-item.first[_ngcontent-%COMP%] {\n  background-color: #e3f2fd;\n  border-left: 4px solid #2196f3;\n}\n\n.number-item.last[_ngcontent-%COMP%] {\n  background-color: #fce4ec;\n  border-left: 4px solid #e91e63;\n}\n\n.number-item.even[_ngcontent-%COMP%] {\n  background-color: #f5f5f5;\n}\n\n.number-item.odd[_ngcontent-%COMP%] {\n  background-color: #fff;\n}\n\ntable[_ngcontent-%COMP%] {\n  width: 100%;\n  border-collapse: collapse;\n  margin-top: 16px;\n}\n\nth[_ngcontent-%COMP%], \ntd[_ngcontent-%COMP%] {\n  padding: 12px;\n  text-align: left;\n  border-bottom: 1px solid #ddd;\n}\n\nth[_ngcontent-%COMP%] {\n  background-color: #f5f5f5;\n  font-weight: 600;\n}\n\ntr.active[_ngcontent-%COMP%] {\n  background-color: #e8f5e9;\n}\n\ntr.inactive[_ngcontent-%COMP%] {\n  background-color: #ffebee;\n}\n\n.category[_ngcontent-%COMP%] {\n  margin-bottom: 16px;\n  padding: 12px;\n  background-color: #fafafa;\n  border-radius: 8px;\n}\n\n.category[_ngcontent-%COMP%] h4[_ngcontent-%COMP%] {\n  margin: 0 0 8px 0;\n  color: #1976d2;\n}\n\n.ngfor-test[_ngcontent-%COMP%] {\n  padding: 4px 0;\n}',
     ],
+    encapsulation: 0,
     changeDetection: 0,
     dependencies: [NgFor, NgIf],
   });

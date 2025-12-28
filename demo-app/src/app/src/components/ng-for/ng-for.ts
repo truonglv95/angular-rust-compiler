@@ -15,6 +15,7 @@ interface Category {
 
 @Component({
   selector: 'app-ng-for',
+  standalone: true,
   imports: [NgFor, NgIf],
   templateUrl: './ng-for.html',
   styleUrl: './ng-for.scss',

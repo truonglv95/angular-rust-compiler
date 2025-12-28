@@ -11,6 +11,7 @@ interface UserProfile {
 
 @Component({
   selector: 'app-ng-if-test',
+  standalone: true,
   imports: [NgIf],
   templateUrl: './ng-if-test.html',
   styleUrl: './ng-if-test.css',

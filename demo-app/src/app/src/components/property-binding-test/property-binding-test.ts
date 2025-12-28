@@ -3,6 +3,7 @@ import { Component } from '@angular/core';
 
 @Component({
   selector: 'app-property-binding-test',
+  standalone: true,
   imports: [NgIf, NgFor, NgClass, NgStyle],
   templateUrl: './property-binding-test.html',
   styleUrl: './property-binding-test.css',

@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { NgIf, NgFor, JsonPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import * as i1 from '@angular/forms';
 import * as i0 from '@angular/core';
 const _c0 = (a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12) => ({
   name: a0,
@@ -24,10 +25,15 @@ function TwoWayBindingTest_option_48_Template(rf, ctx) {
     i0.ɵɵelementEnd();
   }
   if (rf & 2) {
-    const country_r2 = ctx.$implicit;
-    i0.ɵɵproperty('value', country_r2.code);
+    const country_r1 = ctx.$implicit;
+    i0.ɵɵproperty('value', country_r1.code);
     i0.ɵɵadvance();
-    i0.ɵɵtextInterpolate1(' ', country_r2.name, ' ');
+    i0.ɵɵtextInterpolate1(
+      // Select
+      ' ',
+      country_r1.name,
+      ' ',
+    );
   }
 }
 export class TwoWayBindingTest {
@@ -37,7 +43,6 @@ export class TwoWayBindingTest {
   age = 25;
   // Textarea
   message = 'Hello World!';
-  // Select
   selectedCountry = 'vn';
   countries = [
     {
@@ -120,43 +125,40 @@ export class TwoWayBindingTest {
       [1, 'form-actions'],
       [3, 'click'],
       [1, 'field'],
-      ['type', 'text', 'placeholder', 'Enter name', 3, 'ngModel', 'ngModelChange'],
-      ['type', 'email', 'placeholder', 'Enter email', 3, 'ngModel', 'ngModelChange'],
-      ['type', 'number', 'min', '0', 'max', '120', 3, 'ngModel', 'ngModelChange'],
-      ['rows', '4', 'cols', '50', 3, 'ngModel', 'ngModelChange'],
-      [3, 'ngModel', 'ngModelChange'],
+      ['type', 'text', 'placeholder', 'Enter name', 3, 'ngModelChange', 'ngModel'],
+      ['type', 'email', 'placeholder', 'Enter email', 3, 'ngModelChange', 'ngModel'],
+      ['type', 'number', 'min', '0', 'max', '120', 3, 'ngModelChange', 'ngModel'],
+      ['rows', '4', 'cols', '50', 3, 'ngModelChange', 'ngModel'],
+      [3, 'ngModelChange', 'ngModel'],
       [3, 'value', 4, 'ngFor', 'ngForOf'],
-      ['type', 'checkbox', 3, 'ngModel', 'ngModelChange'],
-      ['type', 'radio', 'value', 'male', 3, 'ngModel', 'ngModelChange'],
-      ['type', 'radio', 'value', 'female', 3, 'ngModel', 'ngModelChange'],
-      ['type', 'radio', 'value', 'other', 3, 'ngModel', 'ngModelChange'],
-      ['type', 'range', 'min', '0', 'max', '100', 3, 'ngModel', 'ngModelChange'],
+      ['type', 'checkbox', 3, 'ngModelChange', 'ngModel'],
+      ['type', 'radio', 'value', 'male', 3, 'ngModelChange', 'ngModel'],
+      ['type', 'radio', 'value', 'female', 3, 'ngModelChange', 'ngModel'],
+      ['type', 'radio', 'value', 'other', 3, 'ngModelChange', 'ngModel'],
+      ['type', 'range', 'min', '0', 'max', '100', 3, 'ngModelChange', 'ngModel'],
       [1, 'slider-preview'],
       [1, 'slider-preview', 'brightness'],
-      ['type', 'date', 3, 'ngModel', 'ngModelChange'],
-      ['type', 'time', 3, 'ngModel', 'ngModelChange'],
-      ['type', 'color', 3, 'ngModel', 'ngModelChange'],
+      ['type', 'date', 3, 'ngModelChange', 'ngModel'],
+      ['type', 'time', 3, 'ngModelChange', 'ngModel'],
+      ['type', 'color', 3, 'ngModelChange', 'ngModel'],
       [1, 'color-preview'],
       [1, 'summary'],
       [3, 'value'],
     ],
     template: function TwoWayBindingTest_Template(rf, ctx) {
       if (rf & 1) {
-        const _r1 = i0.ɵɵgetCurrentView();
         i0.ɵɵelementStart(0, 'div', 0)(1, 'h2');
         i0.ɵɵtext(2, 'Two-Way Binding Test Cases [(ngModel)]');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(3, 'div', 1)(4, 'button', 2);
         i0.ɵɵlistener('click', function TwoWayBindingTest_Template_button_click_4_listener() {
-          i0.ɵɵrestoreView(_r1);
-          return i0.ɵɵresetView(ctx.resetForm());
+          return ctx.resetForm();
         });
         i0.ɵɵtext(5, 'Reset All');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(6, 'button', 2);
         i0.ɵɵlistener('click', function TwoWayBindingTest_Template_button_click_6_listener() {
-          i0.ɵɵrestoreView(_r1);
-          return i0.ɵɵresetView(ctx.submitForm());
+          return ctx.submitForm();
         });
         i0.ɵɵtext(7, 'Submit Form');
         i0.ɵɵelementEnd()();
@@ -167,11 +169,11 @@ export class TwoWayBindingTest {
         i0.ɵɵtext(13, 'Name:');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(14, 'input', 4);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_input_ngModelChange_14_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.name);
+          function TwoWayBindingTest_Template_input_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.name, $event) || (ctx.name = $event);
+            return $event;
           },
         );
         i0.ɵɵelementEnd();
@@ -182,11 +184,11 @@ export class TwoWayBindingTest {
         i0.ɵɵtext(19, 'Email:');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(20, 'input', 5);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_input_ngModelChange_20_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.email);
+          function TwoWayBindingTest_Template_input_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.email, $event) || (ctx.email = $event);
+            return $event;
           },
         );
         i0.ɵɵelementEnd();
@@ -200,11 +202,11 @@ export class TwoWayBindingTest {
         i0.ɵɵtext(28, 'Age:');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(29, 'input', 6);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_input_ngModelChange_29_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.age);
+          function TwoWayBindingTest_Template_input_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.age, $event) || (ctx.age = $event);
+            return $event;
           },
         );
         i0.ɵɵelementEnd();
@@ -218,11 +220,11 @@ export class TwoWayBindingTest {
         i0.ɵɵtext(37, 'Message:');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(38, 'textarea', 7);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_textarea_ngModelChange_38_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.message);
+          function TwoWayBindingTest_Template_textarea_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.message, $event) || (ctx.message = $event);
+            return $event;
           },
         );
         i0.ɵɵelementEnd();
@@ -236,11 +238,11 @@ export class TwoWayBindingTest {
         i0.ɵɵtext(46, 'Country:');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(47, 'select', 8);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_select_ngModelChange_47_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.selectedCountry);
+          function TwoWayBindingTest_Template_select_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.selectedCountry, $event) || (ctx.selectedCountry = $event);
+            return $event;
           },
         );
         i0.ɵɵtemplate(48, TwoWayBindingTest_option_48_Template, 2, 2, 'option', 9);
@@ -252,11 +254,11 @@ export class TwoWayBindingTest {
         i0.ɵɵtext(53, '5. Checkboxes');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(54, 'div', 3)(55, 'label')(56, 'input', 10);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_input_ngModelChange_56_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.agreeTerms);
+          function TwoWayBindingTest_Template_input_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.agreeTerms, $event) || (ctx.agreeTerms = $event);
+            return $event;
           },
         );
         i0.ɵɵelementEnd();
@@ -266,11 +268,12 @@ export class TwoWayBindingTest {
         i0.ɵɵtext(59);
         i0.ɵɵelementEnd()();
         i0.ɵɵelementStart(60, 'div', 3)(61, 'label')(62, 'input', 10);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_input_ngModelChange_62_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.receiveNewsletter);
+          function TwoWayBindingTest_Template_input_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.receiveNewsletter, $event) ||
+              (ctx.receiveNewsletter = $event);
+            return $event;
           },
         );
         i0.ɵɵelementEnd();
@@ -283,33 +286,33 @@ export class TwoWayBindingTest {
         i0.ɵɵtext(68, '6. Radio Buttons');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(69, 'div', 3)(70, 'label')(71, 'input', 11);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_input_ngModelChange_71_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.gender);
+          function TwoWayBindingTest_Template_input_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.gender, $event) || (ctx.gender = $event);
+            return $event;
           },
         );
         i0.ɵɵelementEnd();
         i0.ɵɵtext(72, ' Male ');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(73, 'label')(74, 'input', 12);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_input_ngModelChange_74_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.gender);
+          function TwoWayBindingTest_Template_input_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.gender, $event) || (ctx.gender = $event);
+            return $event;
           },
         );
         i0.ɵɵelementEnd();
         i0.ɵɵtext(75, ' Female ');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(76, 'label')(77, 'input', 13);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_input_ngModelChange_77_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.gender);
+          function TwoWayBindingTest_Template_input_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.gender, $event) || (ctx.gender = $event);
+            return $event;
           },
         );
         i0.ɵɵelementEnd();
@@ -325,11 +328,11 @@ export class TwoWayBindingTest {
         i0.ɵɵtext(86);
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(87, 'input', 14);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_input_ngModelChange_87_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.volume);
+          function TwoWayBindingTest_Template_input_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.volume, $event) || (ctx.volume = $event);
+            return $event;
           },
         );
         i0.ɵɵelementEnd();
@@ -339,11 +342,11 @@ export class TwoWayBindingTest {
         i0.ɵɵtext(91);
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(92, 'input', 14);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_input_ngModelChange_92_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.brightness);
+          function TwoWayBindingTest_Template_input_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.brightness, $event) || (ctx.brightness = $event);
+            return $event;
           },
         );
         i0.ɵɵelementEnd();
@@ -356,11 +359,11 @@ export class TwoWayBindingTest {
         i0.ɵɵtext(99, 'Date:');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(100, 'input', 17);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_input_ngModelChange_100_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.selectedDate);
+          function TwoWayBindingTest_Template_input_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.selectedDate, $event) || (ctx.selectedDate = $event);
+            return $event;
           },
         );
         i0.ɵɵelementEnd();
@@ -371,11 +374,11 @@ export class TwoWayBindingTest {
         i0.ɵɵtext(105, 'Time:');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(106, 'input', 18);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_input_ngModelChange_106_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.selectedTime);
+          function TwoWayBindingTest_Template_input_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.selectedTime, $event) || (ctx.selectedTime = $event);
+            return $event;
           },
         );
         i0.ɵɵelementEnd();
@@ -389,11 +392,11 @@ export class TwoWayBindingTest {
         i0.ɵɵtext(114, 'Favorite Color:');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(115, 'input', 19);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function TwoWayBindingTest_Template_input_ngModelChange_115_listener() {
-            i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.favoriteColor);
+          function TwoWayBindingTest_Template_input_ngModelChange_0_twoWayListener($event) {
+            i0.ɵɵtwoWayBindingSet(ctx.favoriteColor, $event) || (ctx.favoriteColor = $event);
+            return $event;
           },
         );
         i0.ɵɵelementEnd();
@@ -412,54 +415,69 @@ export class TwoWayBindingTest {
       }
       if (rf & 2) {
         i0.ɵɵadvance(14);
+        i0.ɵɵtwoWayProperty('ngModel', ctx.name);
         i0.ɵɵadvance(2);
         i0.ɵɵtextInterpolate2('Current value: ', ctx.name, ' (', ctx.nameLength, ' characters)');
         i0.ɵɵadvance(4);
+        i0.ɵɵtwoWayProperty('ngModel', ctx.email);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Current value: ', ctx.email, '');
+        i0.ɵɵtextInterpolate1('Current value: ', ctx.email);
         i0.ɵɵadvance(7);
+        i0.ɵɵtwoWayProperty('ngModel', ctx.age);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Current value: ', ctx.age, '');
+        i0.ɵɵtextInterpolate1('Current value: ', ctx.age);
         i0.ɵɵadvance(7);
+        i0.ɵɵtwoWayProperty('ngModel', ctx.message);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Current value: ', ctx.message, '');
+        i0.ɵɵtextInterpolate1('Current value: ', ctx.message);
         i0.ɵɵadvance(7);
+        i0.ɵɵtwoWayProperty('ngModel', ctx.selectedCountry);
         i0.ɵɵadvance();
         i0.ɵɵproperty('ngForOf', ctx.countries);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Selected code: ', ctx.selectedCountry, '');
+        i0.ɵɵtextInterpolate1('Selected code: ', ctx.selectedCountry);
         i0.ɵɵadvance(6);
+        i0.ɵɵtwoWayProperty('ngModel', ctx.agreeTerms);
         i0.ɵɵadvance(3);
-        i0.ɵɵtextInterpolate1('Agreed: ', ctx.agreeTerms, '');
+        i0.ɵɵtextInterpolate1('Agreed: ', ctx.agreeTerms);
         i0.ɵɵadvance(3);
+        i0.ɵɵtwoWayProperty('ngModel', ctx.receiveNewsletter);
         i0.ɵɵadvance(3);
-        i0.ɵɵtextInterpolate1('Subscribed: ', ctx.receiveNewsletter, '');
+        i0.ɵɵtextInterpolate1('Subscribed: ', ctx.receiveNewsletter);
         i0.ɵɵadvance(6);
+        i0.ɵɵtwoWayProperty('ngModel', ctx.gender);
         i0.ɵɵadvance(3);
+        i0.ɵɵtwoWayProperty('ngModel', ctx.gender);
         i0.ɵɵadvance(3);
+        i0.ɵɵtwoWayProperty('ngModel', ctx.gender);
         i0.ɵɵadvance(3);
-        i0.ɵɵtextInterpolate1('Selected: ', ctx.gender, '');
+        i0.ɵɵtextInterpolate1('Selected: ', ctx.gender);
         i0.ɵɵadvance(6);
         i0.ɵɵtextInterpolate2('Volume: ', ctx.volume, '% (', ctx.volumeLabel, ')');
         i0.ɵɵadvance();
+        i0.ɵɵtwoWayProperty('ngModel', ctx.volume);
         i0.ɵɵadvance();
         i0.ɵɵstyleProp('width', ctx.volume, '%');
         i0.ɵɵadvance(3);
         i0.ɵɵtextInterpolate1('Brightness: ', ctx.brightness, '%');
         i0.ɵɵadvance();
+        i0.ɵɵtwoWayProperty('ngModel', ctx.brightness);
         i0.ɵɵadvance();
         i0.ɵɵstyleProp('width', ctx.brightness, '%');
         i0.ɵɵadvance(7);
+        i0.ɵɵtwoWayProperty('ngModel', ctx.selectedDate);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Selected: ', ctx.selectedDate, '');
+        i0.ɵɵtextInterpolate1('Selected: ', ctx.selectedDate);
         i0.ɵɵadvance(4);
+        i0.ɵɵtwoWayProperty('ngModel', ctx.selectedTime);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Selected: ', ctx.selectedTime, '');
+        i0.ɵɵtextInterpolate1('Selected: ', ctx.selectedTime);
         i0.ɵɵadvance(7);
+        i0.ɵɵtwoWayProperty('ngModel', ctx.favoriteColor);
         i0.ɵɵadvance();
         i0.ɵɵstyleProp('background-color', ctx.favoriteColor);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Selected: ', ctx.favoriteColor, '');
+        i0.ɵɵtextInterpolate1('Selected: ', ctx.favoriteColor);
         i0.ɵɵadvance(5);
         i0.ɵɵtextInterpolate(
           i0.ɵɵpipeBind1(
@@ -488,6 +506,26 @@ export class TwoWayBindingTest {
     styles: [
       ".two-way-binding-test[_ngcontent-%COMP%] {\n  padding: 20px;\n  font-family: Arial, sans-serif;\n}\n\nsection[_ngcontent-%COMP%] {\n  margin-bottom: 24px;\n  padding: 16px;\n  border: 1px solid #ddd;\n  border-radius: 8px;\n}\n\nh3[_ngcontent-%COMP%] {\n  margin-top: 0;\n  color: #333;\n}\n\n.form-actions[_ngcontent-%COMP%] {\n  margin-bottom: 20px;\n}\n\n.form-actions[_ngcontent-%COMP%] button[_ngcontent-%COMP%] {\n  margin-right: 10px;\n  padding: 10px 20px;\n  cursor: pointer;\n}\n\n.field[_ngcontent-%COMP%] {\n  margin-bottom: 16px;\n}\n\n.field[_ngcontent-%COMP%] label[_ngcontent-%COMP%] {\n  display: block;\n  margin-bottom: 4px;\n  font-weight: 500;\n}\n\n.field[_ngcontent-%COMP%] input[type='text'][_ngcontent-%COMP%], \n.field[_ngcontent-%COMP%] input[type='email'][_ngcontent-%COMP%], \n.field[_ngcontent-%COMP%] input[type='number'][_ngcontent-%COMP%], \n.field[_ngcontent-%COMP%] input[type='date'][_ngcontent-%COMP%], \n.field[_ngcontent-%COMP%] input[type='time'][_ngcontent-%COMP%], \n.field[_ngcontent-%COMP%] select[_ngcontent-%COMP%], \n.field[_ngcontent-%COMP%] textarea[_ngcontent-%COMP%] {\n  padding: 8px 12px;\n  border: 1px solid #ccc;\n  border-radius: 4px;\n  font-size: 14px;\n  width: 300px;\n  max-width: 100%;\n}\n\n.field[_ngcontent-%COMP%] input[type='range'][_ngcontent-%COMP%] {\n  width: 300px;\n}\n\n.slider-preview[_ngcontent-%COMP%] {\n  height: 8px;\n  background: linear-gradient(90deg, #4caf50, #8bc34a);\n  border-radius: 4px;\n  margin-top: 8px;\n  transition: width 0.2s ease;\n}\n\n.slider-preview.brightness[_ngcontent-%COMP%] {\n  background: linear-gradient(90deg, #ffc107, #ffeb3b);\n}\n\n.color-preview[_ngcontent-%COMP%] {\n  display: inline-block;\n  width: 30px;\n  height: 30px;\n  border-radius: 4px;\n  vertical-align: middle;\n  margin-left: 10px;\n  border: 1px solid #ccc;\n}\n\n.summary[_ngcontent-%COMP%] {\n  background-color: #f5f5f5;\n}\n\n.summary[_ngcontent-%COMP%] pre[_ngcontent-%COMP%] {\n  background-color: #fff;\n  padding: 16px;\n  border-radius: 4px;\n  overflow-x: auto;\n}\n\nlabel[_ngcontent-%COMP%] input[type='checkbox'][_ngcontent-%COMP%], \nlabel[_ngcontent-%COMP%] input[type='radio'][_ngcontent-%COMP%] {\n  margin-right: 8px;\n}",
     ],
-    dependencies: [NgIf, NgFor, FormsModule, NgModel, JsonPipe],
+    encapsulation: 0,
+    dependencies: [
+      NgIf,
+      NgFor,
+      FormsModule,
+      i1.ɵNgNoValidate,
+      i1.ɵNgSelectMultipleOption,
+      i1.DefaultValueAccessor,
+      i1.NumberValueAccessor,
+      i1.RangeValueAccessor,
+      i1.CheckboxControlValueAccessor,
+      i1.SelectControlValueAccessor,
+      i1.RadioControlValueAccessor,
+      i1.NgControlStatus,
+      i1.NgControlStatusGroup,
+      i1.MinValidator,
+      i1.MaxValidator,
+      i1.NgModel,
+      i1.NgForm,
+      JsonPipe,
+    ],
   });
 }

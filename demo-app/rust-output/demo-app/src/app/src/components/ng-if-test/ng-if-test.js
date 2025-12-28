@@ -68,11 +68,11 @@ function NgIfTest_div_33_Template(rf, ctx) {
   if (rf & 2) {
     const currentUser_r3 = ctx.ngIf;
     i0.ɵɵadvance(2);
-    i0.ɵɵtextInterpolate1('User: ', currentUser_r3.name, '');
+    i0.ɵɵtextInterpolate1('User: ', currentUser_r3.name);
     i0.ɵɵadvance(2);
-    i0.ɵɵtextInterpolate1('Role: ', currentUser_r3.role, '');
+    i0.ɵɵtextInterpolate1('Role: ', currentUser_r3.role);
     i0.ɵɵadvance(2);
-    i0.ɵɵtextInterpolate1('Premium: ', currentUser_r3.premium ? 'Yes' : 'No', '');
+    i0.ɵɵtextInterpolate1('Premium: ', currentUser_r3.premium ? 'Yes' : 'No');
   }
 }
 function NgIfTest_p_34_Template(rf, ctx) {
@@ -236,7 +236,7 @@ function NgIfTest_div_68_Template(rf, ctx) {
   if (rf & 2) {
     const ctx_r8 = i0.ɵɵnextContext();
     i0.ɵɵadvance();
-    i0.ɵɵtextInterpolate1('⚠️ ', ctx_r8.errorMessage, '');
+    i0.ɵɵtextInterpolate1('⚠️ ', ctx_r8.errorMessage);
   }
 }
 function NgIfTest_div_69_Template(rf, ctx) {
@@ -585,6 +585,7 @@ export class NgIfTest {
     styles: [
       '.ng-if-test[_ngcontent-%COMP%] {\n  padding: 20px;\n  font-family: Arial, sans-serif;\n}\n\nsection[_ngcontent-%COMP%] {\n  margin-bottom: 24px;\n  padding: 16px;\n  border: 1px solid #ddd;\n  border-radius: 8px;\n}\n\nh3[_ngcontent-%COMP%] {\n  margin-top: 0;\n  color: #333;\n}\n\nbutton[_ngcontent-%COMP%] {\n  margin-right: 8px;\n  margin-bottom: 8px;\n  padding: 8px 16px;\n  cursor: pointer;\n  border: 1px solid #ccc;\n  border-radius: 4px;\n  background-color: #fff;\n  transition: all 0.2s ease;\n}\n\nbutton[_ngcontent-%COMP%]:hover {\n  background-color: #f0f0f0;\n}\n\nbutton[_ngcontent-%COMP%]:disabled {\n  opacity: 0.5;\n  cursor: not-allowed;\n}\n\n.error-message[_ngcontent-%COMP%] {\n  padding: 12px;\n  background-color: #ffebee;\n  color: #c62828;\n  border-left: 4px solid #c62828;\n  border-radius: 4px;\n  margin-top: 8px;\n}\n\np[_ngcontent-%COMP%] {\n  margin: 8px 0;\n}',
     ],
+    encapsulation: 0,
     dependencies: [NgIf],
   });
 }

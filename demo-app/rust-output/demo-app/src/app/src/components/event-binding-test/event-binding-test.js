@@ -1,6 +1,7 @@
 import { NgIf, NgFor } from '@angular/common';
 import { Component } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import * as i1 from '@angular/forms';
 import * as i0 from '@angular/core';
 function EventBindingTest_p_16_Template(rf, ctx) {
   if (rf & 1) {
@@ -11,7 +12,7 @@ function EventBindingTest_p_16_Template(rf, ctx) {
   if (rf & 2) {
     const ctx_r1 = i0.ɵɵnextContext();
     i0.ɵɵadvance();
-    i0.ɵɵtextInterpolate1('Last click: ', ctx_r1.lastClickTime, '');
+    i0.ɵɵtextInterpolate1('Last click: ', ctx_r1.lastClickTime);
   }
 }
 function EventBindingTest_p_65_Template(rf, ctx) {
@@ -23,19 +24,18 @@ function EventBindingTest_p_65_Template(rf, ctx) {
   if (rf & 2) {
     const ctx_r2 = i0.ɵɵnextContext();
     i0.ɵɵadvance();
-    i0.ɵɵtextInterpolate1('Selected: ', ctx_r2.selectedOption, '');
+    i0.ɵɵtextInterpolate1('Selected: ', ctx_r2.selectedOption);
   }
 }
-function EventBindingTest_div_83_Template(rf, ctx) {
+function EventBindingTest_div_84_Template(rf, ctx) {
   if (rf & 1) {
     i0.ɵɵelementStart(0, 'div');
     i0.ɵɵtext(1, 'No events logged yet');
     i0.ɵɵelementEnd();
   }
 }
-function EventBindingTest_div_84_Template(rf, ctx) {
+function EventBindingTest_div_85_Template(rf, ctx) {
   if (rf & 1) {
-    // Click handlers
     i0.ɵɵelementStart(0, 'div', 20)(1, 'span', 21);
     i0.ɵɵtext(2);
     i0.ɵɵelementEnd();
@@ -79,6 +79,7 @@ export class EventBindingTest {
   // Event log
   eventLog = [];
   maxLogEntries = 10;
+  // Click handlers
   onClick() {
     this.clickCount++;
     this.lastClickTime = new Date().toLocaleTimeString();
@@ -187,7 +188,7 @@ export class EventBindingTest {
   static ɵcmp = /* @__PURE__ */ i0.ɵɵdefineComponent({
     type: EventBindingTest,
     selectors: [['app-event-binding-test']],
-    decls: 85,
+    decls: 86,
     vars: 21,
     consts: [
       ['logBtn', ''],
@@ -203,12 +204,12 @@ export class EventBindingTest {
         'placeholder',
         'Type something...',
         3,
-        'value',
         'input',
         'keydown',
         'keyup',
         'keydown.enter',
         'keydown.escape',
+        'value',
       ],
       ['type', 'text', 'placeholder', 'Focus on me...', 3, 'focus', 'blur'],
       [3, 'submit'],
@@ -220,8 +221,8 @@ export class EventBindingTest {
         'name',
         'formInput',
         3,
-        'ngModel',
         'ngModelChange',
+        'ngModel',
       ],
       ['type', 'submit'],
       [3, 'change'],
@@ -229,7 +230,7 @@ export class EventBindingTest {
       ['value', 'option1'],
       ['value', 'option2'],
       ['value', 'option3'],
-      ['type', 'checkbox', 3, 'checked', 'change'],
+      ['type', 'checkbox', 3, 'change', 'checked'],
       [1, 'event-log'],
       ['class', 'log-entry', 4, 'ngFor', 'ngForOf'],
       [1, 'log-entry'],
@@ -270,9 +271,9 @@ export class EventBindingTest {
         i0.ɵɵelementStart(12, 'button', 4);
         i0.ɵɵlistener(
           'contextmenu',
-          function EventBindingTest_Template_button_contextmenu_12_listener() {
+          function EventBindingTest_Template_button_contextmenu_12_listener($event) {
             i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.onRightClick(ctx.$event));
+            return i0.ɵɵresetView(ctx.onRightClick($event));
           },
         );
         i0.ɵɵtext(13, 'Right Click Me');
@@ -300,18 +301,27 @@ export class EventBindingTest {
             return i0.ɵɵresetView(ctx.onMouseLeave());
           },
         );
-        i0.ɵɵlistener('mousemove', function EventBindingTest_Template_div_mousemove_20_listener() {
-          i0.ɵɵrestoreView(_r1);
-          return i0.ɵɵresetView(ctx.onMouseMove(ctx.$event));
-        });
-        i0.ɵɵlistener('mousedown', function EventBindingTest_Template_div_mousedown_20_listener() {
-          i0.ɵɵrestoreView(_r1);
-          return i0.ɵɵresetView(ctx.onMouseDown(ctx.$event));
-        });
-        i0.ɵɵlistener('mouseup', function EventBindingTest_Template_div_mouseup_20_listener() {
-          i0.ɵɵrestoreView(_r1);
-          return i0.ɵɵresetView(ctx.onMouseUp(ctx.$event));
-        });
+        i0.ɵɵlistener(
+          'mousemove',
+          function EventBindingTest_Template_div_mousemove_20_listener($event) {
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.onMouseMove($event));
+          },
+        );
+        i0.ɵɵlistener(
+          'mousedown',
+          function EventBindingTest_Template_div_mousedown_20_listener($event) {
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.onMouseDown($event));
+          },
+        );
+        i0.ɵɵlistener(
+          'mouseup',
+          function EventBindingTest_Template_div_mouseup_20_listener($event) {
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.onMouseUp($event));
+          },
+        );
         i0.ɵɵelementStart(21, 'p');
         i0.ɵɵtext(22, 'Mouse over this area');
         i0.ɵɵelementEnd();
@@ -325,17 +335,20 @@ export class EventBindingTest {
         i0.ɵɵtext(29, '3. Keyboard Events');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(30, 'input', 7);
-        i0.ɵɵlistener('input', function EventBindingTest_Template_input_input_30_listener() {
+        i0.ɵɵlistener('input', function EventBindingTest_Template_input_input_30_listener($event) {
           i0.ɵɵrestoreView(_r1);
-          return i0.ɵɵresetView(ctx.onInput(ctx.$event));
+          return i0.ɵɵresetView(ctx.onInput($event));
         });
-        i0.ɵɵlistener('keydown', function EventBindingTest_Template_input_keydown_30_listener() {
+        i0.ɵɵlistener(
+          'keydown',
+          function EventBindingTest_Template_input_keydown_30_listener($event) {
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.onKeyDown($event));
+          },
+        );
+        i0.ɵɵlistener('keyup', function EventBindingTest_Template_input_keyup_30_listener($event) {
           i0.ɵɵrestoreView(_r1);
-          return i0.ɵɵresetView(ctx.onKeyDown(ctx.$event));
-        });
-        i0.ɵɵlistener('keyup', function EventBindingTest_Template_input_keyup_30_listener() {
-          i0.ɵɵrestoreView(_r1);
-          return i0.ɵɵresetView(ctx.onKeyUp(ctx.$event));
+          return i0.ɵɵresetView(ctx.onKeyUp($event));
         });
         i0.ɵɵlistener(
           'keydown.enter',
@@ -384,16 +397,17 @@ export class EventBindingTest {
         i0.ɵɵtext(48, '5. Form Events');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(49, 'form', 9);
-        i0.ɵɵlistener('submit', function EventBindingTest_Template_form_submit_49_listener() {
+        i0.ɵɵlistener('submit', function EventBindingTest_Template_form_submit_49_listener($event) {
           i0.ɵɵrestoreView(_r1);
-          return i0.ɵɵresetView(ctx.onSubmit(ctx.$event));
+          return i0.ɵɵresetView(ctx.onSubmit($event));
         });
         i0.ɵɵelementStart(50, 'input', 10);
-        i0.ɵɵlistener(
+        i0.ɵɵtwoWayListener(
           'ngModelChange',
-          function EventBindingTest_Template_input_ngModelChange_50_listener() {
+          function EventBindingTest_Template_input_ngModelChange_0_twoWayListener($event) {
             i0.ɵɵrestoreView(_r1);
-            return i0.ɵɵresetView(ctx.formValue);
+            i0.ɵɵtwoWayBindingSet(ctx.formValue, $event) || (ctx.formValue = $event);
+            return i0.ɵɵresetView($event);
           },
         );
         i0.ɵɵelementEnd();
@@ -404,10 +418,13 @@ export class EventBindingTest {
         i0.ɵɵtext(55, 'Select option:');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(56, 'select', 12);
-        i0.ɵɵlistener('change', function EventBindingTest_Template_select_change_56_listener() {
-          i0.ɵɵrestoreView(_r1);
-          return i0.ɵɵresetView(ctx.onSelectChange(ctx.$event));
-        });
+        i0.ɵɵlistener(
+          'change',
+          function EventBindingTest_Template_select_change_56_listener($event) {
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.onSelectChange($event));
+          },
+        );
         i0.ɵɵelementStart(57, 'option', 13);
         i0.ɵɵtext(58, '-- Select --');
         i0.ɵɵelementEnd();
@@ -423,10 +440,13 @@ export class EventBindingTest {
         i0.ɵɵtemplate(65, EventBindingTest_p_65_Template, 2, 1, 'p', 5);
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(66, 'div')(67, 'label')(68, 'input', 17);
-        i0.ɵɵlistener('change', function EventBindingTest_Template_input_change_68_listener() {
-          i0.ɵɵrestoreView(_r1);
-          return i0.ɵɵresetView(ctx.onCheckboxChange(ctx.$event));
-        });
+        i0.ɵɵlistener(
+          'change',
+          function EventBindingTest_Template_input_change_68_listener($event) {
+            i0.ɵɵrestoreView(_r1);
+            return i0.ɵɵresetView(ctx.onCheckboxChange($event));
+          },
+        );
         i0.ɵɵelementEnd();
         i0.ɵɵtext(69, ' Check me ');
         i0.ɵɵelementEnd();
@@ -437,31 +457,28 @@ export class EventBindingTest {
         i0.ɵɵtext(74, '6. Using $event object');
         i0.ɵɵelementEnd();
         i0.ɵɵelementStart(75, 'button', 2, 0);
-        i0.ɵɵlistener('click', function EventBindingTest_Template_button_click_75_listener() {
+        i0.ɵɵlistener('click', function EventBindingTest_Template_button_click_75_listener($event) {
           i0.ɵɵrestoreView(_r1);
           return i0.ɵɵresetView(
-            ctx.logEvent(
-              'click',
-              'Button at position: ' + ctx.$event.clientX + ',' + ctx.$event.clientY,
-            ),
+            ctx.logEvent('click', 'Button at position: ' + $event.clientX + ',' + $event.clientY),
           );
         });
-        i0.ɵɵtext(76, ' Click to log position ');
+        i0.ɵɵtext(77, ' Click to log position ');
         i0.ɵɵelementEnd()();
-        i0.ɵɵelementStart(77, 'section')(78, 'h3');
-        i0.ɵɵtext(79);
+        i0.ɵɵelementStart(78, 'section')(79, 'h3');
+        i0.ɵɵtext(80);
         i0.ɵɵelementEnd();
-        i0.ɵɵelementStart(80, 'button', 2);
-        i0.ɵɵlistener('click', function EventBindingTest_Template_button_click_80_listener() {
+        i0.ɵɵelementStart(81, 'button', 2);
+        i0.ɵɵlistener('click', function EventBindingTest_Template_button_click_81_listener() {
           i0.ɵɵrestoreView(_r1);
           return i0.ɵɵresetView(ctx.clearLog());
         });
-        i0.ɵɵtext(81, 'Clear Log');
+        i0.ɵɵtext(82, 'Clear Log');
         i0.ɵɵelementEnd();
-        i0.ɵɵelementStart(82, 'div', 18);
-        i0.ɵɵtemplate(83, EventBindingTest_div_83_Template, 2, 0, 'div', 5)(
-          84,
-          EventBindingTest_div_84_Template,
+        i0.ɵɵelementStart(83, 'div', 18);
+        i0.ɵɵtemplate(84, EventBindingTest_div_84_Template, 2, 0, 'div', 5)(
+          85,
+          EventBindingTest_div_85_Template,
           7,
           3,
           'div',
@@ -471,35 +488,36 @@ export class EventBindingTest {
       }
       if (rf & 2) {
         i0.ɵɵadvance(15);
-        i0.ɵɵtextInterpolate1('Click count: ', ctx.clickCount, '');
+        i0.ɵɵtextInterpolate1('Click count: ', ctx.clickCount);
         i0.ɵɵadvance();
         i0.ɵɵproperty('ngIf', ctx.lastClickTime);
         i0.ɵɵadvance(4);
         i0.ɵɵclassProp('hovering', ctx.isHovering);
         i0.ɵɵadvance(4);
-        i0.ɵɵtextInterpolate2('Position: X=', ctx.mousePosition.x, ', Y=', ctx.mousePosition.y, '');
+        i0.ɵɵtextInterpolate2('Position: X=', ctx.mousePosition.x, ', Y=', ctx.mousePosition.y);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Hovering: ', ctx.isHovering ? 'Yes' : 'No', '');
+        i0.ɵɵtextInterpolate1('Hovering: ', ctx.isHovering ? 'Yes' : 'No');
         i0.ɵɵadvance(4);
         i0.ɵɵproperty('value', ctx.inputValue);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Input value: ', ctx.inputValue, '');
+        i0.ɵɵtextInterpolate1('Input value: ', ctx.inputValue);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Last key: ', ctx.lastKeyPressed, '');
+        i0.ɵɵtextInterpolate1('Last key: ', ctx.lastKeyPressed);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Total key presses: ', ctx.keyPressCount, '');
+        i0.ɵɵtextInterpolate1('Total key presses: ', ctx.keyPressCount);
         i0.ɵɵadvance(7);
         i0.ɵɵclassProp('focused', ctx.isFocused);
         i0.ɵɵadvance(2);
-        i0.ɵɵtextInterpolate1('Input is ', ctx.isFocused ? 'focused' : 'not focused', '');
+        i0.ɵɵtextInterpolate1('Input is ', ctx.isFocused ? 'focused' : 'not focused');
         i0.ɵɵadvance(5);
+        i0.ɵɵtwoWayProperty('ngModel', ctx.formValue);
         i0.ɵɵadvance(15);
         i0.ɵɵproperty('ngIf', ctx.selectedOption);
         i0.ɵɵadvance(3);
         i0.ɵɵproperty('checked', ctx.checkboxValue);
         i0.ɵɵadvance(3);
-        i0.ɵɵtextInterpolate1('Checkbox is: ', ctx.checkboxValue ? 'checked' : 'unchecked', '');
-        i0.ɵɵadvance(8);
+        i0.ɵɵtextInterpolate1('Checkbox is: ', ctx.checkboxValue ? 'checked' : 'unchecked');
+        i0.ɵɵadvance(9);
         i0.ɵɵtextInterpolate1('Event Log (Last ', ctx.maxLogEntries, ' events)');
         i0.ɵɵadvance(4);
         i0.ɵɵproperty('ngIf', ctx.eventLog.length === 0);
@@ -511,6 +529,25 @@ export class EventBindingTest {
     styles: [
       ".event-binding-test[_ngcontent-%COMP%] {\n  padding: 20px;\n  font-family: Arial, sans-serif;\n}\n\nsection[_ngcontent-%COMP%] {\n  margin-bottom: 24px;\n  padding: 16px;\n  border: 1px solid #ddd;\n  border-radius: 8px;\n}\n\nh3[_ngcontent-%COMP%] {\n  margin-top: 0;\n  color: #333;\n}\n\nbutton[_ngcontent-%COMP%] {\n  margin-right: 8px;\n  margin-bottom: 8px;\n  padding: 8px 16px;\n  cursor: pointer;\n  border: 1px solid #ccc;\n  border-radius: 4px;\n  background-color: #fff;\n  transition: all 0.2s ease;\n}\n\nbutton[_ngcontent-%COMP%]:hover {\n  background-color: #e0e0e0;\n}\n\n.mouse-area[_ngcontent-%COMP%] {\n  padding: 30px;\n  background-color: #f0f0f0;\n  border: 2px dashed #ccc;\n  border-radius: 8px;\n  text-align: center;\n  transition: all 0.2s ease;\n}\n\n.mouse-area.hovering[_ngcontent-%COMP%] {\n  background-color: #e3f2fd;\n  border-color: #2196f3;\n}\n\ninput[type='text'][_ngcontent-%COMP%] {\n  padding: 8px 12px;\n  border: 1px solid #ccc;\n  border-radius: 4px;\n  font-size: 14px;\n  width: 300px;\n  transition: border-color 0.2s ease;\n}\n\ninput[type='text'][_ngcontent-%COMP%]:focus {\n  outline: none;\n  border-color: #2196f3;\n}\n\ninput[type='text'].focused[_ngcontent-%COMP%] {\n  border-color: #4caf50;\n  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);\n}\n\nform[_ngcontent-%COMP%] {\n  margin-bottom: 16px;\n}\n\nform[_ngcontent-%COMP%] input[_ngcontent-%COMP%] {\n  margin-right: 8px;\n}\n\nselect[_ngcontent-%COMP%] {\n  padding: 8px 12px;\n  border: 1px solid #ccc;\n  border-radius: 4px;\n  font-size: 14px;\n}\n\n.event-log[_ngcontent-%COMP%] {\n  max-height: 200px;\n  overflow-y: auto;\n  background-color: #263238;\n  color: #fff;\n  padding: 12px;\n  border-radius: 8px;\n  font-family: monospace;\n  font-size: 12px;\n}\n\n.log-entry[_ngcontent-%COMP%] {\n  padding: 4px 0;\n  border-bottom: 1px solid #37474f;\n}\n\n.log-entry[_ngcontent-%COMP%]:last-child {\n  border-bottom: none;\n}\n\n.log-type[_ngcontent-%COMP%] {\n  color: #4fc3f7;\n  margin-right: 8px;\n}\n\n.log-details[_ngcontent-%COMP%] {\n  color: #fff;\n}\n\n.log-time[_ngcontent-%COMP%] {\n  color: #90a4ae;\n  float: right;\n  font-size: 11px;\n}",
     ],
-    dependencies: [NgIf, NgFor, FormsModule, NgModel],
+    encapsulation: 0,
+    dependencies: [
+      NgIf,
+      NgFor,
+      FormsModule,
+      i1.ɵNgNoValidate,
+      i1.ɵNgSelectMultipleOption,
+      i1.DefaultValueAccessor,
+      i1.NumberValueAccessor,
+      i1.RangeValueAccessor,
+      i1.CheckboxControlValueAccessor,
+      i1.SelectControlValueAccessor,
+      i1.RadioControlValueAccessor,
+      i1.NgControlStatus,
+      i1.NgControlStatusGroup,
+      i1.MinValidator,
+      i1.MaxValidator,
+      i1.NgModel,
+      i1.NgForm,
+    ],
   });
 }

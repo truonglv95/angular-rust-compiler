@@ -19,6 +19,7 @@ import { EventBindingTest } from './src/components/event-binding-test/event-bind
 import { PropertyBindingTest } from './src/components/property-binding-test/property-binding-test';
 import { TwoWayBindingTest } from './src/components/two-way-binding-test/two-way-binding-test';
 import { UnusedImportComponent } from './unused-import.component';
+import { AnyTestComponent } from './src/components/any-test/any-test';
 import * as i0 from '@angular/core';
 const _c0 = () => ({
   title: 'Explore the Docs',
@@ -74,7 +75,7 @@ function App_div_47_Template(rf, ctx) {
     const item_r4 = ctx.$implicit;
     const i_r5 = ctx.index;
     i0.ɵɵadvance();
-    i0.ɵɵtextInterpolate2('', item_r4.title, ' ', i_r5, '');
+    i0.ɵɵtextInterpolate2('', item_r4.title, ' ', i_r5);
   }
 }
 export class App {
@@ -111,7 +112,7 @@ export class App {
   static ɵcmp = /* @__PURE__ */ i0.ɵɵdefineComponent({
     type: App,
     selectors: [['app-root']],
-    decls: 52,
+    decls: 53,
     vars: 19,
     consts: [
       [1, 'main'],
@@ -347,13 +348,13 @@ export class App {
         i0.ɵɵelement(48, 'app-ng-if-test')(49, 'app-event-binding-test')(
           50,
           'app-property-binding-test',
-        )(51, 'app-two-way-binding-test');
+        )(51, 'app-two-way-binding-test')(52, 'app-any-test');
       }
       if (rf & 2) {
         i0.ɵɵadvance(20);
-        i0.ɵɵtextInterpolate1('Hello, ', ctx.title(), '');
+        i0.ɵɵtextInterpolate1('Hello, ', ctx.title());
         i0.ɵɵadvance(4);
-        i0.ɵɵtextInterpolate1('hello ', i0.ɵɵpipeBind2(25, 3, ctx.name, ctx.surname), '');
+        i0.ɵɵtextInterpolate1('hello ', i0.ɵɵpipeBind2(25, 3, ctx.name, ctx.surname));
         i0.ɵɵadvance(5);
         i0.ɵɵrepeater(
           i0.ɵɵpureFunction6(
@@ -377,6 +378,7 @@ export class App {
       "[_nghost-%COMP%] {\n    --bright-blue: oklch(51.01% 0.274 263.83);\n    --electric-violet: oklch(53.18% 0.28 296.97);\n    --french-violet: oklch(47.66% 0.246 305.88);\n    --vivid-pink: oklch(69.02% 0.277 332.77);\n    --hot-red: oklch(61.42% 0.238 15.34);\n    --orange-red: oklch(63.32% 0.24 31.68);\n\n    --gray-900: oklch(19.37% 0.006 300.98);\n    --gray-700: oklch(36.98% 0.014 302.71);\n    --gray-400: oklch(70.9% 0.015 304.04);\n\n    --red-to-pink-to-purple-vertical-gradient: linear-gradient(\n      180deg,\n      var(--orange-red) 0%,\n      var(--vivid-pink) 50%,\n      var(--electric-violet) 100%\n    );\n\n    --red-to-pink-to-purple-horizontal-gradient: linear-gradient(\n      90deg,\n      var(--orange-red) 0%,\n      var(--vivid-pink) 50%,\n      var(--electric-violet) 100%\n    );\n\n    --pill-accent: var(--bright-blue);\n\n    font-family:\n      'Inter',\n      -apple-system,\n      BlinkMacSystemFont,\n      'Segoe UI',\n      Roboto,\n      Helvetica,\n      Arial,\n      sans-serif,\n      'Apple Color Emoji',\n      'Segoe UI Emoji',\n      'Segoe UI Symbol';\n    box-sizing: border-box;\n    -webkit-font-smoothing: antialiased;\n    -moz-osx-font-smoothing: grayscale;\n  }\n\n  h1[_ngcontent-%COMP%] {\n    font-size: 3.125rem;\n    color: var(--gray-900);\n    font-weight: 500;\n    line-height: 100%;\n    letter-spacing: -0.125rem;\n    margin: 0;\n    font-family:\n      'Inter Tight',\n      -apple-system,\n      BlinkMacSystemFont,\n      'Segoe UI',\n      Roboto,\n      Helvetica,\n      Arial,\n      sans-serif,\n      'Apple Color Emoji',\n      'Segoe UI Emoji',\n      'Segoe UI Symbol';\n  }\n\n  p[_ngcontent-%COMP%] {\n    margin: 0;\n    color: var(--gray-700);\n  }\n\n  main[_ngcontent-%COMP%] {\n    width: 100%;\n    min-height: 100%;\n    display: flex;\n    justify-content: center;\n    align-items: center;\n    padding: 1rem;\n    box-sizing: inherit;\n    position: relative;\n  }\n\n  .angular-logo[_ngcontent-%COMP%] {\n    max-width: 9.2rem;\n  }\n\n  .content[_ngcontent-%COMP%] {\n    display: flex;\n    justify-content: space-around;\n    width: 100%;\n    max-width: 700px;\n    margin-bottom: 3rem;\n  }\n\n  .content[_ngcontent-%COMP%] h1[_ngcontent-%COMP%] {\n    margin-top: 1.75rem;\n  }\n\n  .content[_ngcontent-%COMP%] p[_ngcontent-%COMP%] {\n    margin-top: 1.5rem;\n  }\n\n  .divider[_ngcontent-%COMP%] {\n    width: 1px;\n    background: var(--red-to-pink-to-purple-vertical-gradient);\n    margin-inline: 0.5rem;\n  }\n\n  .pill-group[_ngcontent-%COMP%] {\n    display: flex;\n    flex-direction: column;\n    align-items: start;\n    flex-wrap: wrap;\n    gap: 1.25rem;\n  }\n\n  .pill[_ngcontent-%COMP%] {\n    display: flex;\n    align-items: center;\n    --pill-accent: var(--bright-blue);\n    background: color-mix(in srgb, var(--pill-accent) 5%, transparent);\n    color: var(--pill-accent);\n    padding-inline: 0.75rem;\n    padding-block: 0.375rem;\n    border-radius: 2.75rem;\n    border: 0;\n    transition: background 0.3s ease;\n    font-family: var(--inter-font);\n    font-size: 0.875rem;\n    font-style: normal;\n    font-weight: 500;\n    line-height: 1.4rem;\n    letter-spacing: -0.00875rem;\n    text-decoration: none;\n    white-space: nowrap;\n  }\n\n  .pill[_ngcontent-%COMP%]:hover {\n    background: color-mix(in srgb, var(--pill-accent) 15%, transparent);\n  }\n\n  .pill-group[_ngcontent-%COMP%] .pill[_ngcontent-%COMP%]:nth-child(6n + 1) {\n    --pill-accent: var(--bright-blue);\n  }\n  .pill-group[_ngcontent-%COMP%] .pill[_ngcontent-%COMP%]:nth-child(6n + 2) {\n    --pill-accent: var(--electric-violet);\n  }\n  .pill-group[_ngcontent-%COMP%] .pill[_ngcontent-%COMP%]:nth-child(6n + 3) {\n    --pill-accent: var(--french-violet);\n  }\n\n  .pill-group[_ngcontent-%COMP%] .pill[_ngcontent-%COMP%]:nth-child(6n + 4), \n  .pill-group[_ngcontent-%COMP%] .pill[_ngcontent-%COMP%]:nth-child(6n + 5), \n  .pill-group[_ngcontent-%COMP%] .pill[_ngcontent-%COMP%]:nth-child(6n + 6) {\n    --pill-accent: var(--hot-red);\n  }\n\n  .pill-group[_ngcontent-%COMP%] svg[_ngcontent-%COMP%] {\n    margin-inline-start: 0.25rem;\n  }\n\n  .social-links[_ngcontent-%COMP%] {\n    display: flex;\n    align-items: center;\n    gap: 0.73rem;\n    margin-top: 1.5rem;\n  }\n\n  .social-links[_ngcontent-%COMP%] path[_ngcontent-%COMP%] {\n    transition: fill 0.3s ease;\n    fill: var(--gray-400);\n  }\n\n  .social-links[_ngcontent-%COMP%] a[_ngcontent-%COMP%]:hover svg[_ngcontent-%COMP%] path[_ngcontent-%COMP%] {\n    fill: var(--gray-900);\n  }\n\n  @media screen and (max-width: 650px) {\n    .content[_ngcontent-%COMP%] {\n      flex-direction: column;\n      width: max-content;\n    }\n\n    .divider[_ngcontent-%COMP%] {\n      height: 1px;\n      width: 100%;\n      background: var(--red-to-pink-to-purple-horizontal-gradient);\n      margin-block: 1.5rem;\n    }\n  }",
       'h2[_ngcontent-%COMP%] {\n    color: blue;\n  }',
     ],
+    encapsulation: 0,
     changeDetection: 0,
     inputs: {
       fullName: 'fullName',
@@ -397,6 +399,7 @@ export class App {
       PropertyBindingTest,
       TwoWayBindingTest,
       UnusedImportComponent,
+      AnyTestComponent,
     ],
   });
 }

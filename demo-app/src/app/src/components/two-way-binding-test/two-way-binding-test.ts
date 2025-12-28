@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 
 @Component({
   selector: 'app-two-way-binding-test',
+  standalone: true,
   imports: [NgIf, NgFor, FormsModule, JsonPipe],
   templateUrl: './two-way-binding-test.html',
   styleUrl: './two-way-binding-test.css',

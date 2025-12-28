@@ -20,9 +20,11 @@ import { EventBindingTest } from './src/components/event-binding-test/event-bind
 import { PropertyBindingTest } from './src/components/property-binding-test/property-binding-test';
 import { TwoWayBindingTest } from './src/components/two-way-binding-test/two-way-binding-test';
 import { UnusedImportComponent } from './unused-import.component';
+import { AnyTestComponent } from './src/components/any-test/any-test';
 
 @Component({
   selector: 'app-root',
+  standalone: true,
   imports: [
     RouterOutlet,
     NgFor,
@@ -33,6 +35,7 @@ import { UnusedImportComponent } from './unused-import.component';
     PropertyBindingTest,
     TwoWayBindingTest,
     UnusedImportComponent,
+    AnyTestComponent,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
