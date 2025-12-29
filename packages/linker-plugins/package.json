@@ -1,6 +1,6 @@
 {
   "name": "angular-rust-plugins",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Angular plugins for bundlers (Vite, esbuild, Rolldown, Webpack, Rspack) - powered by Rust compiler",
   "author": "Truonglv4",
   "license": "MIT",

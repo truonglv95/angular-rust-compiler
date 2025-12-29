@@ -309,6 +309,28 @@ The compiler now achieves full feature parity with the standard Angular compiler
 | HMR update      | ~50ms                | ~200ms      |
 | Memory usage    | ~100MB               | ~500MB      |
 
+## 🌍 Platform & Framework Support
+
+### Angular Compatibility
+
+Fully compatible with **Angular 16.0.0+**. Older versions (View Engine) are not supported.
+
+### Bundler Compatibility
+
+| Bundler | Status | Notes |
+|---------|--------|-------|
+| **Vite** | ✅ Stable | Recommended for development |
+| **Rolldown** | 🚀 Beta | Extremely fast, future default |
+| **Esbuild** | ✅ Stable | Solid for production builds |
+| **Webpack** | ⏳ Planned | Coming in v1.0 |
+
+### Operating Systems
+
+Pre-compiled binaries are provided for:
+- **macOS**: x64, arm64
+- **Windows**: x64, arm64
+- **Linux**: x64, arm64 (glibc & musl/Alpine)
+
 ## 🔧 Development
 
 ```bash
