@@ -34,7 +34,7 @@ pub fn ingest_dom_property(
             let exprs: Vec<Expression> = interp
                 .expressions
                 .iter()
-                .map(|expr| convert_ast(expr, job, root_xref, Some(&property.source_span)))
+                .map(|expr| convert_ast(expr, job, root_xref, None, Some(&property.source_span)))
                 .collect();
 
             // Create Interpolation expression
@@ -54,6 +54,7 @@ pub fn ingest_dom_property(
                 ast,
                 job,
                 root_xref,
+                None,
                 Some(&property.source_span),
             ))
         }
@@ -190,7 +191,7 @@ fn make_listener_handler_ops(
 
     // Convert handler AST to Expression
     let root_xref = job.root_mut().xref();
-    let handler_expr = convert_ast(handler, job, root_xref, Some(handler_span));
+    let handler_expr = convert_ast(handler, job, root_xref, None, Some(handler_span));
 
     // Extract return expression if present
     // For simplicity, treat the handler as a return statement

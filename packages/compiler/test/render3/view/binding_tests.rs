@@ -287,10 +287,10 @@ fn find_expression_in_node(node: &t::R3Node, expr: &str) -> Option<AST> {
         t::R3Node::Element(el) => {
             let mut all_nodes: Vec<t::R3Node> = vec![];
             for input in &el.inputs {
-                all_nodes.push(t::R3Node::BoundAttribute(input.clone()));
+                all_nodes.push(t::R3Node::BoundAttribute(Box::new(input.clone())));
             }
             for output in &el.outputs {
-                all_nodes.push(t::R3Node::BoundEvent(output.clone()));
+                all_nodes.push(t::R3Node::BoundEvent(Box::new(output.clone())));
             }
             all_nodes.extend(el.children.iter().cloned());
             find_expression(&all_nodes, expr)
@@ -298,10 +298,10 @@ fn find_expression_in_node(node: &t::R3Node, expr: &str) -> Option<AST> {
         t::R3Node::Template(tmpl) => {
             let mut all_nodes: Vec<t::R3Node> = vec![];
             for input in &tmpl.inputs {
-                all_nodes.push(t::R3Node::BoundAttribute(input.clone()));
+                all_nodes.push(t::R3Node::BoundAttribute(Box::new(input.clone())));
             }
             for output in &tmpl.outputs {
-                all_nodes.push(t::R3Node::BoundEvent(output.clone()));
+                all_nodes.push(t::R3Node::BoundEvent(Box::new(output.clone())));
             }
             all_nodes.extend(tmpl.children.iter().cloned());
             find_expression(&all_nodes, expr)
@@ -309,10 +309,10 @@ fn find_expression_in_node(node: &t::R3Node, expr: &str) -> Option<AST> {
         t::R3Node::Component(comp) => {
             let mut all_nodes: Vec<t::R3Node> = vec![];
             for input in &comp.inputs {
-                all_nodes.push(t::R3Node::BoundAttribute(input.clone()));
+                all_nodes.push(t::R3Node::BoundAttribute(Box::new(input.clone())));
             }
             for output in &comp.outputs {
-                all_nodes.push(t::R3Node::BoundEvent(output.clone()));
+                all_nodes.push(t::R3Node::BoundEvent(Box::new(output.clone())));
             }
             all_nodes.extend(comp.children.iter().cloned());
             find_expression(&all_nodes, expr)
@@ -320,10 +320,10 @@ fn find_expression_in_node(node: &t::R3Node, expr: &str) -> Option<AST> {
         t::R3Node::Directive(dir) => {
             let mut all_nodes: Vec<t::R3Node> = vec![];
             for input in &dir.inputs {
-                all_nodes.push(t::R3Node::BoundAttribute(input.clone()));
+                all_nodes.push(t::R3Node::BoundAttribute(Box::new(input.clone())));
             }
             for output in &dir.outputs {
-                all_nodes.push(t::R3Node::BoundEvent(output.clone()));
+                all_nodes.push(t::R3Node::BoundEvent(Box::new(output.clone())));
             }
             find_expression(&all_nodes, expr)
         }
@@ -582,7 +582,7 @@ mod tests {
                             if let Some(item_target) = res.get_expression_target(expr) {
                                 // Verify it points to a Variable with value '$implicit'
                                 if let TemplateEntity::Variable(ref var) = item_target {
-                                    assert_eq!(var.name, "item");
+                                    assert_eq!(&*var.name, "item");
                                     // Note: Variable.value contains the template variable value,
                                     // which should be '$implicit' for *ngFor
                                 }
@@ -617,7 +617,7 @@ mod tests {
 
             if let Some(t::R3Node::Template(tmpl)) = parse_result.nodes.first() {
                 if let Some(directives) =
-                    res.get_directives_of_node(&DirectiveOwner::Template(tmpl.clone()))
+                    res.get_directives_of_node(&DirectiveOwner::Template((**tmpl).clone()))
                 {
                     assert_eq!(directives.len(), 1);
                     assert_eq!(directives[0].name(), "NgFor");
@@ -662,7 +662,7 @@ mod tests {
             if let Some(t::R3Node::Element(svg_node)) = parse_result.nodes.first() {
                 if let Some(t::R3Node::Element(text_node)) = svg_node.children.first() {
                     if let Some(directives) =
-                        res.get_directives_of_node(&DirectiveOwner::Element(text_node.clone()))
+                        res.get_directives_of_node(&DirectiveOwner::Element((**text_node).clone()))
                     {
                         assert_eq!(directives.len(), 1);
                         assert_eq!(directives[0].name(), "Dir");
@@ -688,7 +688,7 @@ mod tests {
 
             if let Some(t::R3Node::Template(tmpl)) = parse_result.nodes.first() {
                 if let Some(directives) =
-                    res.get_directives_of_node(&DirectiveOwner::Template(tmpl.clone()))
+                    res.get_directives_of_node(&DirectiveOwner::Template((**tmpl).clone()))
                 {
                     assert_eq!(directives.len(), 1);
                     assert_eq!(directives[0].name(), "NgFor");
@@ -696,7 +696,7 @@ mod tests {
                     // Check directives on the element inside template
                     if let Some(t::R3Node::Element(el)) = tmpl.children.first() {
                         if let Some(el_directives) =
-                            res.get_directives_of_node(&DirectiveOwner::Element(el.clone()))
+                            res.get_directives_of_node(&DirectiveOwner::Element((**el).clone()))
                         {
                             assert_eq!(el_directives.len(), 1);
                             assert_eq!(el_directives[0].name(), "Dir");
@@ -728,9 +728,9 @@ mod tests {
             let entity_names: Vec<String> = entities
                 .iter()
                 .map(|e| match e {
-                    TemplateEntity::LetDeclaration(decl) => decl.name.clone(),
-                    TemplateEntity::Variable(var) => var.name.clone(),
-                    TemplateEntity::Reference(ref_) => ref_.name.clone(),
+                    TemplateEntity::LetDeclaration(decl) => decl.name.to_string(),
+                    TemplateEntity::Variable(var) => var.name.to_string(),
+                    TemplateEntity::Reference(ref_) => ref_.name.to_string(),
                 })
                 .collect();
 
@@ -1175,7 +1175,7 @@ mod tests {
                         {
                             // Should resolve to a Variable from template
                             if let TemplateEntity::Variable(var) = value_target {
-                                assert_eq!(var.name, "value");
+                                assert_eq!(&*var.name, "value");
                             }
                         }
                     }
@@ -1361,7 +1361,7 @@ mod tests {
                 if let Some(t::R3Node::ForLoopBlock(for_loop)) = parse_result.nodes.first() {
                     // ForLoopBlock should have nesting level 1 (top-level)
                     let nesting =
-                        res.get_nesting_level(&ScopedNode::ForLoopBlock(for_loop.clone()));
+                        res.get_nesting_level(&ScopedNode::ForLoopBlock((**for_loop).clone()));
                     assert_eq!(nesting, 1, "ForLoopBlock should have nesting level 1");
                 }
             }
@@ -1387,7 +1387,8 @@ mod tests {
 
                 // Find outer and inner templates
                 if let Some(t::R3Node::Template(outer)) = parse_result.nodes.first() {
-                    let outer_nesting = res.get_nesting_level(&ScopedNode::Template(outer.clone()));
+                    let outer_nesting =
+                        res.get_nesting_level(&ScopedNode::Template((**outer).clone()));
                     assert_eq!(
                         outer_nesting, 1,
                         "Outer template should have nesting level 1"
@@ -1395,7 +1396,7 @@ mod tests {
 
                     if let Some(t::R3Node::Template(inner)) = outer.children.first() {
                         let inner_nesting =
-                            res.get_nesting_level(&ScopedNode::Template(inner.clone()));
+                            res.get_nesting_level(&ScopedNode::Template((**inner).clone()));
                         assert_eq!(
                             inner_nesting, 2,
                             "Inner template should have nesting level 2"
@@ -1728,7 +1729,7 @@ mod tests {
                             &t::DeferredTrigger::Viewport(viewport_trigger.clone()),
                         );
                         if let Some(el) = trigger_el {
-                            assert_eq!(el.name, "button");
+                            assert_eq!(&*el.name, "button");
                         }
                     }
                 }
@@ -1774,7 +1775,10 @@ mod tests {
                             &t::DeferredTrigger::Viewport(viewport_trigger.clone()),
                         );
                         if let Some(el) = trigger_el {
-                            assert_eq!(el.name, "button", "Expected trigger to be button element");
+                            assert_eq!(
+                                &*el.name, "button",
+                                "Expected trigger to be button element"
+                            );
                         } else {
                             // If not found, it might be because scope resolution needs improvement
                             // But the API should at least be callable
@@ -1812,7 +1816,7 @@ mod tests {
                             &t::DeferredTrigger::Viewport(viewport_trigger.clone()),
                         );
                         if let Some(el) = trigger_el {
-                            assert_eq!(el.name, "button");
+                            assert_eq!(&*el.name, "button");
                         }
                     }
                 }
@@ -1879,7 +1883,7 @@ mod tests {
                         );
                         // Component reference should resolve to element representation
                         if let Some(el) = trigger_el {
-                            assert_eq!(el.name, "comp");
+                            assert_eq!(&*el.name, "comp");
                         }
                     }
                 }
@@ -1913,7 +1917,7 @@ mod tests {
                         );
                         // Directive reference should resolve to element representation
                         if let Some(el) = trigger_el {
-                            assert_eq!(el.name, "button");
+                            assert_eq!(&*el.name, "button");
                         }
                     }
                 }
@@ -1948,7 +1952,7 @@ mod tests {
                                 &t::DeferredTrigger::Viewport(viewport_trigger.clone()),
                             );
                             if let Some(el) = trigger_el {
-                                assert_eq!(el.name, "button");
+                                assert_eq!(&*el.name, "button");
                             }
                         }
                     }
@@ -1982,15 +1986,13 @@ mod tests {
                 if let Some(block) = defer_blocks.first() {
                     if let Some(ref viewport_trigger) = block.triggers.viewport {
                         // Should skip comments and find the button
-                        if viewport_trigger.reference.as_ref().map(|s| s.as_str())
-                            == Some("trigger")
-                        {
+                        if viewport_trigger.reference.as_ref().map(|s| &**s) == Some("trigger") {
                             let trigger_el = res.get_deferred_trigger_target(
                                 block,
                                 &t::DeferredTrigger::Viewport(viewport_trigger.clone()),
                             );
                             if let Some(el) = trigger_el {
-                                assert_eq!(el.name, "button");
+                                assert_eq!(&*el.name, "button");
                             }
                         } else if viewport_trigger.reference.is_none() {
                             // Implicit trigger
@@ -1999,7 +2001,7 @@ mod tests {
                                 &t::DeferredTrigger::Viewport(viewport_trigger.clone()),
                             );
                             if let Some(el) = trigger_el {
-                                assert_eq!(el.name, "button");
+                                assert_eq!(&*el.name, "button");
                             }
                         }
                     }
@@ -2451,7 +2453,7 @@ mod tests {
             // Find Component node if parsed correctly
             if let Some(t::R3Node::Component(comp)) = parse_result.nodes.first() {
                 let directives =
-                    res.get_directives_of_node(&DirectiveOwner::Component(comp.clone()));
+                    res.get_directives_of_node(&DirectiveOwner::Component((**comp).clone()));
                 if let Some(dirs) = directives {
                     let names: Vec<String> = dirs.iter().map(|d| d.name().to_string()).collect();
                     // Should contain MyComp and potentially other directives
@@ -2523,7 +2525,7 @@ mod tests {
                 // In selectorless mode, Component may have directives as children
                 // Check if directives are matched
                 let comp_directives =
-                    res.get_directives_of_node(&DirectiveOwner::Component(comp.clone()));
+                    res.get_directives_of_node(&DirectiveOwner::Component((**comp).clone()));
                 if let Some(dirs) = comp_directives {
                     let names: Vec<String> = dirs.iter().map(|d| d.name().to_string()).collect();
                     // Should contain matched directives
@@ -2573,7 +2575,8 @@ mod tests {
 
             // Element nodes should not have selectorless directives
             if let Some(t::R3Node::Element(el)) = parse_result.nodes.first() {
-                let directives = res.get_directives_of_node(&DirectiveOwner::Element(el.clone()));
+                let directives =
+                    res.get_directives_of_node(&DirectiveOwner::Element((**el).clone()));
                 // Element should not match selectorless directives
                 assert!(
                     directives.is_none(),
@@ -2672,7 +2675,7 @@ mod tests {
                 if let Some(reference) = el.references.first() {
                     let target = res.get_reference_target(reference);
                     if let Some(ReferenceTarget::Element(ref_el)) = target {
-                        assert_eq!(ref_el.name, "div");
+                        assert_eq!(&*ref_el.name, "div");
                     }
                 }
             }

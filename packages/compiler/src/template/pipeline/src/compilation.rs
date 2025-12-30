@@ -73,6 +73,7 @@ pub trait CompilationJob {
         &mut self,
         name: &str,
         view_xref: ir::XrefId,
+        external_view: Option<&mut ViewCompilationUnit>,
     ) -> (ir::handle::SlotHandle, ir::XrefId);
     /// Mark a pipe as used
     fn mark_pipe_used(&mut self, name: &str);
@@ -135,7 +136,10 @@ impl ComponentCompilationJob {
         // If needed, we could use Rc<RefCell<ViewCompilationUnit>> to share ownership
 
         let selector_matcher = Self::create_selector_matcher(&available_dependencies);
+
         let schema_registry = DomElementSchemaRegistry::new();
+
+        // let needs_name = {:?}", component_name, root_xref);
 
         ComponentCompilationJob {
             component_name,
@@ -289,7 +293,23 @@ impl CompilationJob for ComponentCompilationJob {
         &mut self,
         name: &str,
         view_xref: ir::XrefId,
+        mut external_view: Option<&mut ViewCompilationUnit>,
     ) -> (ir::handle::SlotHandle, ir::XrefId) {
+        // Check external_view first
+        if let Some(view) = external_view {
+            if let Some((slot, xref)) = view.pipes.get(name) {
+                return (slot.clone(), *xref);
+            }
+            // Need to allocate xref using self
+            let slot = ir::handle::SlotHandle::new();
+            let xref = self.allocate_xref_id();
+
+            view.pipes.insert(name.to_string(), (slot.clone(), xref));
+            let op = ir::ops::create::PipeOp::new(xref, slot.clone(), name.into());
+            view.create.push(Box::new(op));
+            return (slot, xref);
+        }
+
         // First check if pipe exists (immutably)
         {
             let unit = if view_xref == self.root.xref {
@@ -573,6 +593,7 @@ impl CompilationJob for HostBindingCompilationJob {
         &mut self,
         name: &str,
         _view_xref: ir::XrefId,
+        _external_view: Option<&mut ViewCompilationUnit>,
     ) -> (ir::handle::SlotHandle, ir::XrefId) {
         let unit = &mut self.root;
         if let Some((slot, xref)) = unit.pipes.get(name) {

@@ -34,7 +34,7 @@ impl Visitor for R3AstHumanizer {
     type Result = ();
 
     fn visit_element(&mut self, element: &t::Element) {
-        let mut res = vec!["Element".to_string(), element.name.clone()];
+        let mut res = vec!["Element".to_string(), element.name.to_string()];
         if element.is_self_closing {
             res.push("#selfClosing".to_string());
         }
@@ -93,7 +93,7 @@ impl Visitor for R3AstHumanizer {
     }
 
     fn visit_content(&mut self, content: &t::Content) {
-        let mut res = vec!["Content".to_string(), content.selector.clone()];
+        let mut res = vec!["Content".to_string(), content.selector.to_string()];
         if content.is_self_closing {
             res.push("#selfClosing".to_string());
         }
@@ -107,24 +107,24 @@ impl Visitor for R3AstHumanizer {
     fn visit_variable(&mut self, variable: &t::Variable) {
         self.result.push(vec![
             "Variable".to_string(),
-            variable.name.clone(),
-            variable.value.clone(),
+            variable.name.to_string(),
+            variable.value.to_string(),
         ]);
     }
 
     fn visit_reference(&mut self, reference: &t::Reference) {
         self.result.push(vec![
             "Reference".to_string(),
-            reference.name.clone(),
-            reference.value.clone(),
+            reference.name.to_string(),
+            reference.value.to_string(),
         ]);
     }
 
     fn visit_text_attribute(&mut self, attribute: &t::TextAttribute) {
         self.result.push(vec![
             "TextAttribute".to_string(),
-            attribute.name.clone(),
-            attribute.value.clone(),
+            attribute.name.to_string(),
+            attribute.value.to_string(),
         ]);
     }
 
@@ -146,7 +146,7 @@ impl Visitor for R3AstHumanizer {
         self.result.push(vec![
             "BoundAttribute".to_string(),
             binding_type_str,
-            attribute.name.clone(),
+            attribute.name.to_string(),
             value_str,
         ]);
     }
@@ -163,12 +163,16 @@ impl Visitor for R3AstHumanizer {
         // BoundEvent has handler as ExprAST
         let handler_str = unparse(&event.handler);
 
-        let target_str = event.target.clone().unwrap_or_else(|| String::new());
+        let target_str = event
+            .target
+            .as_ref()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| String::new());
 
         self.result.push(vec![
             "BoundEvent".to_string(),
             event_type_str,
-            event.name.clone(),
+            event.name.to_string(),
             target_str,
             handler_str,
         ]);
@@ -176,7 +180,7 @@ impl Visitor for R3AstHumanizer {
 
     fn visit_text(&mut self, text: &t::Text) {
         self.result
-            .push(vec!["Text".to_string(), text.value.clone()]);
+            .push(vec!["Text".to_string(), text.value.to_string()]);
     }
 
     fn visit_bound_text(&mut self, text: &t::BoundText) {
@@ -296,7 +300,7 @@ impl Visitor for R3AstHumanizer {
 
     fn visit_unknown_block(&mut self, block: &t::UnknownBlock) {
         self.result
-            .push(vec!["UnknownBlock".to_string(), block.name.clone()]);
+            .push(vec!["UnknownBlock".to_string(), block.name.to_string()]);
     }
 
     fn visit_let_declaration(&mut self, decl: &t::LetDeclaration) {
@@ -304,7 +308,7 @@ impl Visitor for R3AstHumanizer {
         let value_str = unparse(&decl.value);
         self.result.push(vec![
             "LetDeclaration".to_string(),
-            decl.name.clone(),
+            decl.name.to_string(),
             value_str,
         ]);
     }
@@ -312,9 +316,13 @@ impl Visitor for R3AstHumanizer {
     fn visit_component(&mut self, component: &t::Component) {
         let mut res = vec![
             "Component".to_string(),
-            component.component_name.clone(),
-            component.tag_name.clone().unwrap_or_else(|| String::new()),
-            component.full_name.clone(),
+            component.component_name.to_string(),
+            component
+                .tag_name
+                .as_ref()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| String::new()),
+            component.full_name.to_string(),
         ];
         if component.is_self_closing {
             res.push("#selfClosing".to_string());
@@ -340,7 +348,7 @@ impl Visitor for R3AstHumanizer {
 
     fn visit_directive(&mut self, directive: &t::Directive) {
         self.result
-            .push(vec!["Directive".to_string(), directive.name.clone()]);
+            .push(vec!["Directive".to_string(), directive.name.to_string()]);
         for attr in &directive.attributes {
             attr.visit(self);
         }
@@ -368,7 +376,11 @@ impl Visitor for R3AstHumanizer {
                     .push(vec!["ImmediateDeferredTrigger".to_string()]);
             }
             t::DeferredTrigger::Hover(h) => {
-                let ref_str = h.reference.clone().unwrap_or_else(|| String::new());
+                let ref_str = h
+                    .reference
+                    .as_ref()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| String::new());
                 self.result
                     .push(vec!["HoverDeferredTrigger".to_string(), ref_str]);
             }
@@ -382,12 +394,20 @@ impl Visitor for R3AstHumanizer {
                 ]);
             }
             t::DeferredTrigger::Interaction(i) => {
-                let ref_str = i.reference.clone().unwrap_or_else(|| String::new());
+                let ref_str = i
+                    .reference
+                    .as_ref()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| String::new());
                 self.result
                     .push(vec!["InteractionDeferredTrigger".to_string(), ref_str]);
             }
             t::DeferredTrigger::Viewport(v) => {
-                let ref_str = v.reference.clone().unwrap_or_else(|| String::new());
+                let ref_str = v
+                    .reference
+                    .as_ref()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| String::new());
                 let mut res = vec!["ViewportDeferredTrigger".to_string(), ref_str];
                 // ViewportDeferredTrigger has options as Option<LiteralMap>, not AST
                 // For now, just check if options exist
@@ -758,9 +778,9 @@ mod tests {
             if let (Some(t::R3Node::Element(input)), Some(t::R3Node::Element(div))) =
                 (result.nodes.get(0), result.nodes.get(1))
             {
-                assert_eq!(input.name, "input");
+                assert_eq!(&*input.name, "input");
                 assert!(input.is_void);
-                assert_eq!(div.name, "div");
+                assert_eq!(&*div.name, "div");
                 assert!(!div.is_void);
             } else {
                 panic!("Expected two Element nodes");

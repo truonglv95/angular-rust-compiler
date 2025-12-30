@@ -72,12 +72,13 @@ pub mod track_fn_optimization;
 pub mod transform_two_way_binding_set;
 pub mod wrap_icus;
 
-use crate::template::pipeline::src::compilation::ComponentCompilationJob;
+use crate::template::pipeline::src::compilation::{CompilationJob, ComponentCompilationJob};
 
 pub fn run(job: &mut ComponentCompilationJob) {
     // Simplified phase order for vars debugging
     pure_literal_structures::phase(job);
     generate_variables::phase(job); // Generate context variables including $implicit
+
     save_restore_view::save_and_restore_view(job); // Save/restore view for listeners - MUST run AFTER generate_variables so RestoreView is prepended last (appears first)
     resolve_names::phase(job);
     resolve_contexts::phase(job);
@@ -90,6 +91,7 @@ pub fn run(job: &mut ComponentCompilationJob) {
     attribute_extraction::extract_attributes(job);
     local_refs::lift_local_refs(job); // Lift local refs (#templateName) to consts for templateRefExtractor
     namespace::emit_namespace_changes(job);
+
     empty_elements::collapse_empty_instructions(job); // Merge ElementStart+ElementEnd -> Element for empty elements
     const_collection::collect_element_consts(job);
 
@@ -107,7 +109,9 @@ pub fn run(job: &mut ComponentCompilationJob) {
     track_fn_optimization::optimize_track_fns(job); // Generate track functions for @for loops
     var_counting::phase(job);
     variable_optimization::optimize_variables(job); // Remove unused variables
+
     next_context_merging::merge_next_context_expressions(job); // Merge sequential nextContext() calls
+
     naming::name_functions_and_variables(job);
     generate_advance::phase(job);
     conditionals::generate_conditional_expressions(job); // Collapse conditional expressions to single ternary

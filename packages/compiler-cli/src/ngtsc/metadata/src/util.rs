@@ -50,6 +50,56 @@ pub fn extract_directive_metadata<'a>(
         ..Default::default()
     };
 
+    // Extract constructor parameters
+    for element in &class_decl.body.body {
+        if let oxc_ast::ast::ClassElement::MethodDefinition(method) = element {
+            if method.kind == oxc_ast::ast::MethodDefinitionKind::Constructor {
+                for param in &method.value.params.items {
+                    let param_name = match &param.pattern.kind {
+                        oxc_ast::ast::BindingPatternKind::BindingIdentifier(id) => {
+                            Some(id.name.to_string())
+                        }
+                        _ => None,
+                    };
+
+                    // Extract type name from type annotation
+                    let type_name =
+                        param.pattern.type_annotation.as_ref().and_then(|ann| {
+                            match &ann.type_annotation {
+                                oxc_ast::ast::TSType::TSTypeReference(ref_type) => {
+                                    match &ref_type.type_name {
+                                        oxc_ast::ast::TSTypeName::IdentifierReference(ident) => {
+                                            Some(ident.name.to_string())
+                                        }
+                                        _ => None,
+                                    }
+                                }
+                                _ => None,
+                            }
+                        });
+
+                    // Try to determine module from imports (simplified - would need full import analysis)
+                    let from_module = type_name.as_ref().and_then(|tn| match tn.as_str() {
+                        "ElementRef" | "Renderer2" | "Injector" | "ChangeDetectorRef" => {
+                            Some("@angular/core".to_string())
+                        }
+                        "NgControl" | "FormControl" | "FormGroup" => {
+                            Some("@angular/forms".to_string())
+                        }
+                        _ => None,
+                    });
+
+                    meta.constructor_params.push(super::api::ConstructorParam {
+                        name: param_name,
+                        type_name,
+                        from_module,
+                    });
+                }
+                break; // Only one constructor
+            }
+        }
+    }
+
     // Scan class body for @Input and signals (input(), input.required())
     for element in &class_decl.body.body {
         if let oxc_ast::ast::ClassElement::PropertyDefinition(prop) = element {
@@ -211,6 +261,66 @@ pub fn extract_directive_metadata<'a>(
                                 is_signal: true,
                             });
                         }
+                    }
+                }
+            }
+        } else if let oxc_ast::ast::ClassElement::MethodDefinition(method) = element {
+            // Check for @HostListener decorator on methods
+            if let PropertyKey::StaticIdentifier(method_key) = &method.key {
+                let method_name = method_key.name.as_str();
+
+                for dec in &method.decorators {
+                    let mut is_host_listener = false;
+                    let mut event_name = method_name.to_string();
+                    let mut args = Vec::new();
+
+                    if let Expression::CallExpression(call) = &dec.expression {
+                        if let Expression::Identifier(ident) = &call.callee {
+                            if ident.name == "HostListener" {
+                                is_host_listener = true;
+
+                                // Extract event name (first argument)
+                                if let Some(arg) = call.arguments.first() {
+                                    if let Some(Expression::StringLiteral(s)) = arg.as_expression()
+                                    {
+                                        event_name = s.value.to_string();
+                                    }
+                                }
+
+                                // Extract args (second argument, optional)
+                                if let Some(arg) = call.arguments.get(1) {
+                                    if let Some(Expression::ArrayExpression(arr)) =
+                                        arg.as_expression()
+                                    {
+                                        for elem in &arr.elements {
+                                            if let Some(expr) = elem.as_expression() {
+                                                if let Expression::StringLiteral(s) = expr {
+                                                    args.push(s.value.to_string());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if let Expression::Identifier(ident) = &dec.expression {
+                        if ident.name == "HostListener" {
+                            is_host_listener = true;
+                            // No arguments, use method name as event name
+                        }
+                    }
+
+                    if is_host_listener {
+                        // Build handler expression: methodName(args...)
+                        let handler_expr = if args.is_empty() {
+                            format!("{}($event)", method_name)
+                        } else {
+                            // Replace $event.target, $event, etc. with actual args
+                            let args_str = args.join(", ");
+                            format!("{}({})", method_name, args_str)
+                        };
+
+                        meta.host.listeners.insert(event_name, handler_expr);
                     }
                 }
             }

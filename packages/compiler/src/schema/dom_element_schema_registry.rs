@@ -326,8 +326,8 @@ pub struct DomElementSchemaRegistry {
 }
 
 type ParsedSchema = (
-    HashMap<String, HashMap<String, String>>,
-    HashMap<String, HashSet<String>>,
+    std::sync::Arc<HashMap<String, HashMap<String, String>>>,
+    std::sync::Arc<HashMap<String, HashSet<String>>>,
 );
 
 static PARSED_DOM_SCHEMA: Lazy<ParsedSchema> = Lazy::new(|| {
@@ -413,15 +413,18 @@ static PARSED_DOM_SCHEMA: Lazy<ParsedSchema> = Lazy::new(|| {
         }
     }
 
-    (schema, event_schema)
+    (
+        std::sync::Arc::new(schema),
+        std::sync::Arc::new(event_schema),
+    )
 });
 
 impl DomElementSchemaRegistry {
     pub fn new() -> Self {
         let (schema, event_schema) = &*PARSED_DOM_SCHEMA;
         DomElementSchemaRegistry {
-            schema: std::sync::Arc::new(schema.clone()),
-            event_schema: std::sync::Arc::new(event_schema.clone()),
+            schema: std::sync::Arc::clone(schema),
+            event_schema: std::sync::Arc::clone(event_schema),
         }
     }
 

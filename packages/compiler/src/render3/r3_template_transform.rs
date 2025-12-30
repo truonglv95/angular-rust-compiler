@@ -375,7 +375,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                 .map(|attr| self.visit_attribute(attr))
                 .collect();
             self.ng_content_selectors.push(selector.clone());
-            t::R3Node::Content(t::Content {
+            t::R3Node::Content(Box::new(t::Content {
                 selector: selector.clone().into(),
                 attributes: attrs,
                 children,
@@ -384,14 +384,14 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                 start_source_span: element.start_source_span.clone(),
                 end_source_span: element.end_source_span.clone(),
                 i18n: element.i18n.clone(),
-            })
+            }))
         } else if is_template_element {
             let attrs = self.categorize_property_attributes(
                 Some(&element.name),
                 &prepared.parsed_properties,
                 &prepared.i18n_attrs_meta,
             );
-            t::R3Node::Template(t::Template {
+            t::R3Node::Template(Box::new(t::Template {
                 tag_name: Some(element.name.clone()),
                 attributes: prepared.attributes,
                 inputs: attrs.bound,
@@ -406,7 +406,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                 start_source_span: element.start_source_span.clone(),
                 end_source_span: element.end_source_span.clone(),
                 i18n: element.i18n.clone(),
-            })
+            }))
         } else {
             let attrs = self.categorize_property_attributes(
                 Some(&element.name),
@@ -426,7 +426,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                 }
             }
 
-            t::R3Node::Element(t::Element::new(
+            t::R3Node::Element(Box::new(t::Element::new(
                 element.name.clone(),
                 prepared.attributes,
                 attrs.bound,
@@ -440,7 +440,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                 element.end_source_span.clone(),
                 element.is_void,
                 element.i18n.clone(),
-            ))
+            )))
         };
 
         if is_i18n_root {
@@ -524,11 +524,11 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                     match node {
                         t::R3Node::BoundText(bt) => {
                             let key: Arc<str> = bt.source_span.to_string().into();
-                            placeholders.insert(key, t::IcuPlaceholder::BoundText(bt));
+                            placeholders.insert(key, t::IcuPlaceholder::BoundText(*bt));
                         }
                         t::R3Node::Text(txt) => {
                             let key: Arc<str> = txt.source_span.to_string().into();
-                            placeholders.insert(key, t::IcuPlaceholder::Text(txt));
+                            placeholders.insert(key, t::IcuPlaceholder::Text(*txt));
                         }
                         t::R3Node::Icu(nested_icu) => {
                             // Merge variables and placeholders from nested ICU
@@ -541,12 +541,12 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
             }
         }
 
-        Some(t::R3Node::Icu(t::Icu {
+        Some(t::R3Node::Icu(Box::new(t::Icu {
             vars,
             placeholders,
             source_span: expansion.source_span.clone(),
             i18n: expansion.i18n.clone(),
-        }))
+        })))
     }
 
     fn visit_comment(&mut self, comment: &html::Comment) -> Option<t::R3Node> {
@@ -577,13 +577,13 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
             self.report_error("@let declaration value cannot be empty", &decl.value_span);
         }
 
-        Some(t::R3Node::LetDeclaration(t::LetDeclaration {
+        Some(t::R3Node::LetDeclaration(Box::new(t::LetDeclaration {
             name: decl.name.clone(),
             value: (*value.ast).clone(),
             source_span: decl.source_span.clone(),
             name_span: decl.name_span.clone(),
             value_span: decl.value_span.clone(),
-        }))
+        })))
     }
 
     fn visit_component(&mut self, component: &html::Component) -> Option<t::R3Node> {
@@ -729,7 +729,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
             }
         }
 
-        let node = t::R3Node::Component(t::Component {
+        let node = t::R3Node::Component(Box::new(t::Component {
             component_name: component.component_name.clone(),
             tag_name: component.tag_name.clone(),
             full_name: component.full_name.clone(),
@@ -744,7 +744,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
             start_source_span: component.start_source_span.clone(),
             end_source_span: component.end_source_span.clone(),
             i18n: component.i18n.clone(),
-        });
+        }));
 
         let result = if prepared.element_has_inline_template {
             self.wrap_in_template(
@@ -811,7 +811,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                     }
                 }
 
-                Some(t::R3Node::DeferredBlock(result.node))
+                Some(t::R3Node::DeferredBlock(Box::new(result.node)))
             }
             "switch" => {
                 let result = create_switch_block(block, self.binding_parser);
@@ -835,7 +835,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                         }
                     }
 
-                    t::R3Node::SwitchBlock(switch_block)
+                    t::R3Node::SwitchBlock(Box::new(switch_block))
                 })
             }
             "for" => {
@@ -859,7 +859,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                         }
                     }
 
-                    t::R3Node::ForLoopBlock(for_block)
+                    t::R3Node::ForLoopBlock(Box::new(for_block))
                 })
             }
             "if" => {
@@ -881,7 +881,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                     })
                     .collect();
 
-                Some(t::R3Node::IfBlock(t::IfBlock {
+                Some(t::R3Node::IfBlock(Box::new(t::IfBlock {
                     branches,
                     block: t::BlockNode::new(
                         preprocess.name_span,
@@ -889,7 +889,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                         preprocess.start_source_span,
                         preprocess.end_source_span,
                     ),
-                }))
+                })))
             }
             _ => {
                 let error_message = if is_connected_defer_loop_block(&block.name) {
@@ -919,11 +919,11 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
 
                 self.errors
                     .push(ParseError::new(block.source_span.clone(), error_message));
-                Some(t::R3Node::UnknownBlock(t::UnknownBlock {
+                Some(t::R3Node::UnknownBlock(Box::new(t::UnknownBlock {
                     name: block.name.clone(),
                     source_span: block.source_span.clone(),
                     name_span: block.name_span.clone(),
-                }))
+                })))
             }
         };
 
@@ -1491,17 +1491,17 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
         };
 
         if is_static {
-            return Some(t::R3Node::Text(t::Text::new(
+            return Some(t::R3Node::Text(Box::new(t::Text::new(
                 value_processed.into(), // Use processed value or original? TypeScript uses processed.
                 source_span.clone(),
-            )));
+            ))));
         }
 
-        Some(t::R3Node::BoundText(t::BoundText::new(
+        Some(t::R3Node::BoundText(Box::new(t::BoundText::new(
             (*expr.ast).clone(),
             source_span.clone(),
             i18n.clone(),
-        )))
+        ))))
     }
 
     fn wrap_in_template(
@@ -1637,7 +1637,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
             _ => return node,
         };
 
-        t::R3Node::Template(t::Template {
+        t::R3Node::Template(Box::new(t::Template {
             tag_name,
             attributes: hoisted_attributes,
             inputs: hoisted_inputs,
@@ -1652,7 +1652,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
             start_source_span,
             end_source_span,
             i18n,
-        })
+        }))
     }
 
     fn report_error(&mut self, message: &str, source_span: &ParseSourceSpan) {
@@ -1795,7 +1795,7 @@ fn visit_non_bindable_node(node: &html::Node) -> Option<t::R3Node> {
                 })
                 .collect();
 
-            Some(t::R3Node::Element(t::Element::new(
+            Some(t::R3Node::Element(Box::new(t::Element::new(
                 element.name.clone(),
                 attrs,
                 vec![],
@@ -1809,28 +1809,31 @@ fn visit_non_bindable_node(node: &html::Node) -> Option<t::R3Node> {
                 element.end_source_span.clone(),
                 element.is_void,
                 None,
-            )))
+            ))))
         }
-        html::Node::Text(text) => Some(t::R3Node::Text(t::Text::new(
+        html::Node::Text(text) => Some(t::R3Node::Text(Box::new(t::Text::new(
             text.value.clone(),
             text.source_span.clone(),
-        ))),
+        )))),
         html::Node::Block(block) => {
-            let mut nodes = vec![t::R3Node::Text(t::Text::new(
+            let mut nodes = vec![t::R3Node::Text(Box::new(t::Text::new(
                 "".into(),
                 block.start_source_span.clone(),
-            ))];
+            )))];
             nodes.extend(visit_all_non_bindable(&block.children));
             if let Some(ref end_span) = block.end_source_span {
-                nodes.push(t::R3Node::Text(t::Text::new("".into(), end_span.clone())));
+                nodes.push(t::R3Node::Text(Box::new(t::Text::new(
+                    "".into(),
+                    end_span.clone(),
+                ))));
             }
             // Return first node, rest are ignored in this simplified implementation
             nodes.into_iter().next()
         }
-        html::Node::LetDeclaration(decl) => Some(t::R3Node::Text(t::Text::new(
+        html::Node::LetDeclaration(decl) => Some(t::R3Node::Text(Box::new(t::Text::new(
             format!("@let {} = {};", decl.name, decl.value).into(),
             decl.source_span.clone(),
-        ))),
+        )))),
         html::Node::Component(component) => {
             let children = visit_all_non_bindable(&component.children);
             let attrs: Vec<t::TextAttribute> = component
@@ -1855,7 +1858,7 @@ fn visit_non_bindable_node(node: &html::Node) -> Option<t::R3Node> {
                 .unwrap_or(&component.component_name)
                 .clone();
 
-            Some(t::R3Node::Element(t::Element::new(
+            Some(t::R3Node::Element(Box::new(t::Element::new(
                 name,
                 attrs,
                 vec![],
@@ -1869,7 +1872,7 @@ fn visit_non_bindable_node(node: &html::Node) -> Option<t::R3Node> {
                 component.end_source_span.clone(),
                 false, // Components are custom elements, not void (usually)
                 None,
-            )))
+            ))))
         }
         _ => None,
     }

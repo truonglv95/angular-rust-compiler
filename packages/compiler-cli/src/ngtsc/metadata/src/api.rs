@@ -220,6 +220,19 @@ pub struct DirectiveMeta<'a> {
     pub local_referenced_symbols: Option<HashSet<String>>,
     /// Source file path for source tracking.
     pub source_file: Option<PathBuf>,
+    /// Constructor parameters for dependency injection.
+    pub constructor_params: Vec<ConstructorParam>,
+}
+
+/// Constructor parameter metadata.
+#[derive(Debug, Clone)]
+pub struct ConstructorParam {
+    /// Parameter name.
+    pub name: Option<String>,
+    /// Type name (e.g., "ElementRef", "NgControl", "Renderer2").
+    pub type_name: Option<String>,
+    /// Module where the type comes from (e.g., "@angular/core", "@angular/forms").
+    pub from_module: Option<String>,
 }
 
 impl<'a> T2DirectiveMeta for DirectiveMeta<'a> {
@@ -290,6 +303,7 @@ impl<'a> Default for DirectiveMeta<'a> {
             selectorless_enabled: false,
             local_referenced_symbols: None,
             source_file: None,
+            constructor_params: Vec::new(),
         }
     }
 }
@@ -323,6 +337,7 @@ impl<'a> Clone for DirectiveMeta<'a> {
             selectorless_enabled: self.selectorless_enabled,
             local_referenced_symbols: self.local_referenced_symbols.clone(),
             source_file: self.source_file.clone(),
+            constructor_params: self.constructor_params.clone(),
         }
     }
 }

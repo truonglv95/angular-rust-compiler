@@ -51,7 +51,7 @@ mod tests {
 
         // Pattern match to extract DirectiveMeta from DecoratorMetadata
         if let DecoratorMetadata::Directive(dir) = &result.directives[0] {
-            assert_eq!(dir.t2.name, "AppComponent");
+            assert_eq!(&*dir.t2.name, "AppComponent");
             assert_eq!(
                 dir.component.as_ref().and_then(|c| c.template.as_ref()),
                 Some(&"<h1>Hello World</h1>".to_string())
@@ -63,10 +63,10 @@ mod tests {
             assert_eq!(ast.len(), 1);
 
             if let Node::Element(el) = &ast[0] {
-                assert_eq!(el.name, "h1");
+                assert_eq!(&*el.name, "h1");
                 assert_eq!(el.children.len(), 1);
                 if let Node::Text(text) = &el.children[0] {
-                    assert_eq!(text.value, "Hello World");
+                    assert_eq!(&*text.value, "Hello World");
                 } else {
                     panic!("Expected Text node child of h1");
                 }
@@ -122,7 +122,7 @@ mod tests {
         assert_eq!(res.directives.len(), 1);
 
         if let DecoratorMetadata::Directive(dir) = &res.directives[0] {
-            assert_eq!(dir.t2.name, "AppComponent");
+            assert_eq!(&*dir.t2.name, "AppComponent");
             let template_ast = dir.component.as_ref().and_then(|c| c.template_ast.as_ref());
             assert!(
                 template_ast.is_some(),
@@ -131,9 +131,9 @@ mod tests {
 
             let ast = template_ast.unwrap();
             if let Node::Element(el) = &ast[0] {
-                assert_eq!(el.name, "h1");
+                assert_eq!(&*el.name, "h1");
                 if let Node::Text(text) = &el.children[0] {
-                    assert_eq!(text.value, "Hello World External");
+                    assert_eq!(&*text.value, "Hello World External");
                 }
             }
         } else {
@@ -186,13 +186,13 @@ mod tests {
         assert_eq!(res.directives.len(), 1);
 
         if let DecoratorMetadata::Directive(dir) = &res.directives[0] {
-            assert_eq!(dir.t2.name, "AppComponent");
+            assert_eq!(&*dir.t2.name, "AppComponent");
 
             let styles = dir.component.as_ref().and_then(|c| c.styles.as_ref());
             assert!(styles.is_some());
             let styles = styles.unwrap();
             assert_eq!(styles.len(), 1);
-            assert_eq!(styles[0], "h1 { color: red; }");
+            assert_eq!(&*styles[0], "h1 { color: red; }");
         } else {
             panic!("Expected Directive metadata");
         }

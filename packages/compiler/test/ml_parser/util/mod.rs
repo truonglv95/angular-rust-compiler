@@ -237,7 +237,7 @@ impl Humanizer {
     fn visit_element(&mut self, element: &Element) {
         let mut res = vec![
             "Element".to_string(),
-            element.name.clone(),
+            element.name.to_string(),
             self.el_depth.to_string(),
         ];
 
@@ -275,8 +275,8 @@ impl Humanizer {
     fn visit_attribute(&mut self, attribute: &Attribute) {
         let res = vec![
             "Attribute".to_string(),
-            attribute.name.clone(),
-            attribute.value.clone(),
+            attribute.name.to_string(),
+            attribute.value.to_string(),
         ];
         self.result.push(res);
     }
@@ -284,7 +284,7 @@ impl Humanizer {
     fn visit_text(&mut self, text: &Text) {
         let res = vec![
             "Text".to_string(),
-            text.value.clone(),
+            text.value.to_string(),
             self.el_depth.to_string(),
         ];
         self.result.push(res);
@@ -294,7 +294,7 @@ impl Humanizer {
         let value = comment
             .value
             .as_ref()
-            .map(|v| v.clone())
+            .map(|v| v.to_string())
             .unwrap_or_default();
         let res = vec!["Comment".to_string(), value, self.el_depth.to_string()];
         self.result.push(res);
@@ -303,8 +303,8 @@ impl Humanizer {
     fn visit_expansion(&mut self, expansion: &Expansion) {
         let res = vec![
             "Expansion".to_string(),
-            expansion.switch_value.clone(),
-            expansion.expansion_type.clone(),
+            expansion.switch_value.to_string(),
+            expansion.expansion_type.to_string(),
             self.el_depth.to_string(),
         ];
         self.result.push(res);
@@ -320,7 +320,7 @@ impl Humanizer {
     fn visit_expansion_case(&mut self, case: &ExpansionCase) {
         let res = vec![
             "ExpansionCase".to_string(),
-            case.value.clone(),
+            case.value.to_string(),
             self.el_depth.to_string(),
         ];
         self.result.push(res);
@@ -329,7 +329,7 @@ impl Humanizer {
     fn visit_block(&mut self, block: &Block) {
         let mut res = vec![
             "Block".to_string(),
-            block.name.clone(),
+            block.name.to_string(),
             self.el_depth.to_string(),
         ];
 
@@ -357,15 +357,18 @@ impl Humanizer {
     }
 
     fn visit_block_parameter(&mut self, parameter: &BlockParameter) {
-        let res = vec!["BlockParameter".to_string(), parameter.expression.clone()];
+        let res = vec![
+            "BlockParameter".to_string(),
+            parameter.expression.to_string(),
+        ];
         self.result.push(res);
     }
 
     fn visit_let_declaration(&mut self, decl: &LetDeclaration) {
         let mut res = vec![
             "LetDeclaration".to_string(),
-            decl.name.clone(),
-            decl.value.clone(),
+            decl.name.to_string(),
+            decl.value.to_string(),
         ];
 
         if self.include_source_span {
@@ -379,7 +382,7 @@ impl Humanizer {
     fn visit_component(&mut self, component: &Component) {
         let mut res = vec![
             "Component".to_string(),
-            component.component_name.clone(),
+            component.component_name.to_string(),
             self.el_depth.to_string(),
         ];
 
@@ -415,7 +418,7 @@ impl Humanizer {
     }
 
     fn visit_directive(&mut self, directive: &Directive) {
-        let mut res = vec!["Directive".to_string(), directive.name.clone()];
+        let mut res = vec!["Directive".to_string(), directive.name.to_string()];
 
         if self.include_source_span {
             res.push(directive.source_span.start.to_string());

@@ -12,7 +12,7 @@ use crate::template::pipeline::ir::expression::{
 };
 // use crate::template::pipeline::ir::handle::SlotHandle;
 use crate::template::pipeline::ir::Namespace;
-use crate::template::pipeline::src::compilation::CompilationJob;
+use crate::template::pipeline::src::compilation::{CompilationJob, ViewCompilationUnit};
 
 /// Binary operator mappings from string to BinaryOperator
 pub static BINARY_OPERATORS: &[(&str, BinaryOperator)] = &[
@@ -164,15 +164,17 @@ pub fn convert_ast(
     ast: &crate::expression_parser::ast::AST,
     job: &mut dyn CompilationJob,
     view_xref: crate::template::pipeline::ir::XrefId,
+    external_view: Option<&mut ViewCompilationUnit>,
     base_source_span: Option<&crate::parse_util::ParseSourceSpan>,
 ) -> Expression {
-    convert_ast_internal(ast, job, view_xref, base_source_span)
+    convert_ast_internal(ast, job, view_xref, external_view, base_source_span)
 }
 
 fn convert_ast_internal(
     ast: &crate::expression_parser::ast::AST,
     job: &mut dyn CompilationJob,
     view_xref: crate::template::pipeline::ir::XrefId,
+    mut external_view: Option<&mut ViewCompilationUnit>,
     base_source_span: Option<&crate::parse_util::ParseSourceSpan>,
 ) -> Expression {
     use crate::expression_parser::ast::AST;
@@ -213,12 +215,14 @@ fn convert_ast_internal(
                     &bin.left,
                     job,
                     view_xref,
+                    external_view.as_deref_mut(),
                     base_source_span,
                 )),
                 rhs: Box::new(convert_ast_internal(
                     &bin.right,
                     job,
                     view_xref,
+                    external_view.as_deref_mut(),
                     base_source_span,
                 )),
                 type_: None,
@@ -237,6 +241,7 @@ fn convert_ast_internal(
                     &un.expr,
                     job,
                     view_xref,
+                    external_view.as_deref_mut(),
                     base_source_span,
                 )),
                 type_: None,
@@ -248,18 +253,21 @@ fn convert_ast_internal(
                 &cond.condition,
                 job,
                 view_xref,
+                external_view.as_deref_mut(),
                 base_source_span,
             )),
             true_case: Box::new(convert_ast_internal(
                 &cond.true_exp,
                 job,
                 view_xref,
+                external_view.as_deref_mut(),
                 base_source_span,
             )),
             false_case: Some(Box::new(convert_ast_internal(
                 &cond.false_exp,
                 job,
                 view_xref,
+                external_view.as_deref_mut(),
                 base_source_span,
             ))),
             type_: None,
@@ -275,12 +283,21 @@ fn convert_ast_internal(
                     &call.receiver,
                     job,
                     view_xref,
+                    external_view.as_deref_mut(),
                     base_source_span,
                 )),
                 args: call
                     .args
                     .iter()
-                    .map(|arg| convert_ast_internal(arg, job, view_xref, base_source_span))
+                    .map(|arg| {
+                        convert_ast_internal(
+                            arg,
+                            job,
+                            view_xref,
+                            external_view.as_deref_mut(),
+                            base_source_span,
+                        )
+                    })
                     .collect(),
                 type_: None,
                 source_span: convert_source_span(&call.span, base_source_span),
@@ -305,6 +322,7 @@ fn convert_ast_internal(
                         &prop.receiver,
                         job,
                         view_xref,
+                        external_view.as_deref_mut(),
                         base_source_span,
                     )),
                     name: prop.name.clone().into(),
@@ -318,12 +336,14 @@ fn convert_ast_internal(
                 &keyed.receiver,
                 job,
                 view_xref,
+                external_view.as_deref_mut(),
                 base_source_span,
             )),
             index: Box::new(convert_ast_internal(
                 &keyed.key,
                 job,
                 view_xref,
+                external_view.as_deref_mut(),
                 base_source_span,
             )),
             type_: None,
@@ -333,7 +353,15 @@ fn convert_ast_internal(
             entries: arr
                 .expressions
                 .iter()
-                .map(|expr| convert_ast_internal(expr, job, view_xref, base_source_span))
+                .map(|expr| {
+                    convert_ast_internal(
+                        expr,
+                        job,
+                        view_xref,
+                        external_view.as_deref_mut(),
+                        base_source_span,
+                    )
+                })
                 .collect(),
             type_: None,
             source_span: None, // Literal arrays typically use surrounding expression span
@@ -349,6 +377,7 @@ fn convert_ast_internal(
                         value,
                         job,
                         view_xref,
+                        external_view.as_deref_mut(),
                         base_source_span,
                     )),
                     quoted: key.quoted,
@@ -365,6 +394,7 @@ fn convert_ast_internal(
                 &not.expression,
                 job,
                 view_xref,
+                external_view.as_deref_mut(),
                 base_source_span,
             )),
             source_span: convert_source_span(&not.span, base_source_span),
@@ -374,6 +404,7 @@ fn convert_ast_internal(
                 &ty.expression,
                 job,
                 view_xref,
+                external_view.as_deref_mut(),
                 base_source_span,
             )),
             type_: None,
@@ -384,6 +415,7 @@ fn convert_ast_internal(
                 &void.expression,
                 job,
                 view_xref,
+                external_view.as_deref_mut(),
                 base_source_span,
             )),
             type_: None,
@@ -391,7 +423,13 @@ fn convert_ast_internal(
         }),
         AST::NonNullAssert(nn) => {
             // Non-null assertion shouldn't impact generated instructions, so we can just drop it
-            convert_ast_internal(&nn.expression, job, view_xref, base_source_span)
+            convert_ast_internal(
+                &nn.expression,
+                job,
+                view_xref,
+                external_view.as_deref_mut(),
+                base_source_span,
+            )
         }
         AST::ImplicitReceiver(_) => {
             // In TypeScript, ImplicitReceiver is handled in PropertyRead
@@ -418,8 +456,13 @@ fn convert_ast_internal(
         AST::SafePropertyRead(safe_prop) => {
             // Return IR SafePropertyReadExpr as in TypeScript
             // Note: Source span is not set here (same as TypeScript implementation)
-            let receiver_expr =
-                convert_ast_internal(&safe_prop.receiver, job, view_xref, base_source_span);
+            let receiver_expr = convert_ast_internal(
+                &safe_prop.receiver,
+                job,
+                view_xref,
+                external_view.as_deref_mut(),
+                base_source_span,
+            );
             Expression::SafePropertyRead(SafePropertyReadExpr::new(
                 Box::new(receiver_expr),
                 safe_prop.name.clone().into(),
@@ -427,9 +470,20 @@ fn convert_ast_internal(
         }
         AST::SafeKeyedRead(safe_keyed) => {
             // Return IR SafeKeyedReadExpr as in TypeScript
-            let receiver_expr =
-                convert_ast_internal(&safe_keyed.receiver, job, view_xref, base_source_span);
-            let key_expr = convert_ast_internal(&safe_keyed.key, job, view_xref, base_source_span);
+            let receiver_expr = convert_ast_internal(
+                &safe_keyed.receiver,
+                job,
+                view_xref,
+                external_view.as_deref_mut(),
+                base_source_span,
+            );
+            let key_expr = convert_ast_internal(
+                &safe_keyed.key,
+                job,
+                view_xref,
+                external_view.as_deref_mut(),
+                base_source_span,
+            );
             Expression::SafeKeyedRead(SafeKeyedReadExpr::new(
                 Box::new(receiver_expr),
                 Box::new(key_expr),
@@ -439,12 +493,25 @@ fn convert_ast_internal(
         AST::SafeCall(safe_call) => {
             // Return IR SafeInvokeFunctionExpr as in TypeScript
             // Note: Source span is not set here (same as TypeScript implementation)
-            let receiver_expr =
-                convert_ast_internal(&safe_call.receiver, job, view_xref, base_source_span);
+            let receiver_expr = convert_ast_internal(
+                &safe_call.receiver,
+                job,
+                view_xref,
+                external_view.as_deref_mut(),
+                base_source_span,
+            );
             let args: Vec<Expression> = safe_call
                 .args
                 .iter()
-                .map(|arg| convert_ast_internal(arg, job, view_xref, base_source_span))
+                .map(|arg| {
+                    convert_ast_internal(
+                        arg,
+                        job,
+                        view_xref,
+                        external_view.as_deref_mut(),
+                        base_source_span,
+                    )
+                })
                 .collect();
             Expression::SafeInvokeFunction(SafeInvokeFunctionExpr::new(
                 Box::new(receiver_expr),
@@ -459,7 +526,8 @@ fn convert_ast_internal(
         AST::BindingPipe(pipe) => {
             // Return IR PipeBindingExpr as in TypeScript
             // Use add_pipe to get or create the slot for this pipe in the current view
-            let (slot_handle, target_xref) = job.add_pipe(&pipe.name, view_xref);
+            let (slot_handle, target_xref) =
+                job.add_pipe(&pipe.name, view_xref, external_view.as_deref_mut());
 
             // Also mark as used
             job.mark_pipe_used(&pipe.name);
@@ -468,13 +536,18 @@ fn convert_ast_internal(
                 &pipe.exp,
                 job,
                 view_xref,
+                external_view.as_deref_mut(),
                 base_source_span,
             )];
-            args.extend(
-                pipe.args
-                    .iter()
-                    .map(|arg| convert_ast_internal(arg, job, view_xref, base_source_span)),
-            );
+            args.extend(pipe.args.iter().map(|arg| {
+                convert_ast_internal(
+                    arg,
+                    job,
+                    view_xref,
+                    external_view.as_deref_mut(),
+                    base_source_span,
+                )
+            }));
             Expression::PipeBinding(PipeBindingExpr::new(
                 target_xref,
                 slot_handle,
@@ -496,7 +569,15 @@ fn convert_ast_internal(
             let expressions: Vec<Expression> = template
                 .expressions
                 .iter()
-                .map(|expr| convert_ast_internal(expr, job, view_xref, base_source_span))
+                .map(|expr| {
+                    convert_ast_internal(
+                        expr,
+                        job,
+                        view_xref,
+                        external_view.as_deref_mut(),
+                        base_source_span,
+                    )
+                })
                 .collect();
             Expression::TemplateLiteral(TemplateLiteralExpr {
                 elements,
@@ -507,7 +588,13 @@ fn convert_ast_internal(
             use crate::output::output_ast::{
                 TaggedTemplateLiteralExpr, TemplateLiteral, TemplateLiteralElement,
             };
-            let tag_expr = convert_ast_internal(&tagged.tag, job, view_xref, base_source_span);
+            let tag_expr = convert_ast_internal(
+                &tagged.tag,
+                job,
+                view_xref,
+                external_view.as_deref_mut(),
+                base_source_span,
+            );
             // Convert template literal elements and expressions
             let elements: Vec<TemplateLiteralElement> = tagged
                 .template
@@ -523,7 +610,15 @@ fn convert_ast_internal(
                 .template
                 .expressions
                 .iter()
-                .map(|expr| convert_ast_internal(expr, job, view_xref, base_source_span))
+                .map(|expr| {
+                    convert_ast_internal(
+                        expr,
+                        job,
+                        view_xref,
+                        external_view.as_deref_mut(),
+                        base_source_span,
+                    )
+                })
                 .collect();
             let template = TemplateLiteral {
                 elements,
@@ -540,7 +635,13 @@ fn convert_ast_internal(
             // Parenthesized expressions don't affect semantics, so we can just unwrap
             // In TypeScript, this returns a ParenthesizedExpr, but in Rust output_ast doesn't have it
             // So we just return the inner expression
-            convert_ast_internal(&paren.expression, job, view_xref, base_source_span)
+            convert_ast_internal(
+                &paren.expression,
+                job,
+                view_xref,
+                external_view,
+                base_source_span,
+            )
         }
         AST::PropertyWrite(prop) => {
             // Whether this is an implicit receiver, *excluding* explicit reads of `this`.
@@ -558,6 +659,7 @@ fn convert_ast_internal(
                         &prop.value,
                         job,
                         view_xref,
+                        external_view.as_deref_mut(),
                         base_source_span,
                     )),
                     type_: None,
@@ -569,10 +671,17 @@ fn convert_ast_internal(
                         &prop.receiver,
                         job,
                         view_xref,
+                        external_view.as_deref_mut(),
                         base_source_span,
                     )),
                     name: prop.name.clone().into(),
-                    value: Box::new(convert_ast(&prop.value, job, view_xref, base_source_span)),
+                    value: Box::new(convert_ast(
+                        &prop.value,
+                        job,
+                        view_xref,
+                        external_view.as_deref_mut(),
+                        base_source_span,
+                    )),
                     type_: None,
                     source_span: convert_source_span(&prop.span, base_source_span),
                 })
@@ -583,18 +692,21 @@ fn convert_ast_internal(
                 &keyed.receiver,
                 job,
                 view_xref,
+                external_view.as_deref_mut(),
                 base_source_span,
             )),
             index: Box::new(convert_ast_internal(
                 &keyed.key,
                 job,
                 view_xref,
+                external_view.as_deref_mut(),
                 base_source_span,
             )),
             value: Box::new(convert_ast_internal(
                 &keyed.value,
                 job,
                 view_xref,
+                external_view.as_deref_mut(),
                 base_source_span,
             )),
             type_: None,

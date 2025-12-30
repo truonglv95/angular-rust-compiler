@@ -1,3 +1,5 @@
+use crate::ngtsc::annotations::component::src::handler::ComponentDecoratorHandler;
+use crate::ngtsc::annotations::directive::src::handler::DirectiveDecoratorHandler;
 use crate::ngtsc::core::NgCompilerOptions;
 use crate::ngtsc::file_system::{AbsoluteFsPath, FileSystem};
 use crate::ngtsc::metadata::{
@@ -10,6 +12,7 @@ use angular_compiler::ml_parser::{
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 fn get_html_tag_definition_wrapper(name: &str) -> &'static dyn TagDefinition {
@@ -30,6 +33,7 @@ pub struct CompilationTicket<'a, T: FileSystem> {
 pub struct NgCompiler<'a, T: FileSystem> {
     pub options: NgCompilerOptions,
     pub fs: &'a T,
+    pub is_core: bool,
 }
 
 #[derive(Default)]
@@ -44,6 +48,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
         NgCompiler {
             options: ticket.options,
             fs: ticket.fs,
+            is_core: false,
         }
     }
 
@@ -150,7 +155,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
         &self,
         compilation_result: &CompilationResult,
     ) -> Result<Vec<crate::ngtsc::core::Diagnostic>, String> {
-        let mut result_diagnostics = Vec::new();
+        let mut result_diagnostics: Vec<crate::ngtsc::core::Diagnostic> = Vec::new();
         let fs = self.fs;
 
         let component_handler =
@@ -160,309 +165,287 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                 false,
             );
 
+        use rayon::prelude::*;
+        use std::collections::{HashMap, HashSet};
+
         // Track which files have components (they get special handling)
-        let mut component_files: std::collections::HashSet<PathBuf> =
-            std::collections::HashSet::new();
+        let mut component_files: HashSet<PathBuf> = HashSet::new();
+        let mut result_diagnostics = Vec::new();
 
-        // First pass: emit Angular component files with decorators
+        // Group directives by source file to efficient processing
+        let mut file_to_directives: HashMap<PathBuf, Vec<&DecoratorMetadata>> = HashMap::new();
+        let mut directives_without_source: Vec<&DecoratorMetadata> = Vec::new();
+
         for directive in &compilation_result.directives {
-            let (compiled_results, directive_name, source_file) = match directive {
-                DecoratorMetadata::Directive(dir) => {
-                    // Check is_component flag to route to correct handler
-                    let results = if dir.t2.is_component {
-                        component_handler.compile_ivy(directive)
-                    } else {
-                        directive_handler.compile_ivy(directive)
-                    };
-
-                    (results, dir.t2.name.clone(), dir.source_file.clone())
-                }
-
-                DecoratorMetadata::Pipe(pipe) => {
-                    // Compile pipe to ɵpipe definition
-                    let initializer = format!(
-                        "/*@__PURE__*/ i0.ɵɵdefinePipe({{ name: '{}', type: {}, pure: {}{} }})",
-                        pipe.pipe_name,
-                        pipe.name,
-                        pipe.is_pure,
-                        if pipe.is_standalone {
-                            ", standalone: true"
-                        } else {
-                            ""
-                        }
-                    );
-                    let results = vec![crate::ngtsc::transform::src::api::CompileResult {
-                        name: "ɵpipe".to_string(),
-                        initializer: Some(initializer),
-                        statements: vec![],
-                        type_desc: format!(
-                            "i0.ɵɵPipeDeclaration<{}, '{}', {}>",
-                            pipe.name, pipe.pipe_name, pipe.is_standalone
-                        ),
-                        deferrable_imports: None,
-                        diagnostics: Vec::new(),
-                        additional_imports: Vec::new(),
-                    }];
-                    (results, pipe.name.clone(), pipe.source_file.clone())
-                }
-                DecoratorMetadata::Injectable(inj) => {
-                    // Compile injectable to ɵfac and ɵprov definitions
-                    let provided_in = inj.provided_in.as_deref().unwrap_or("null");
-                    let provided_in_value = if provided_in == "null" {
-                        "null".to_string()
-                    } else {
-                        format!("'{}'", provided_in)
-                    };
-
-                    let fac_initializer = format!(
-                         "function {}_Factory(__ngFactoryType__) {{ return new (__ngFactoryType__ || {})(); }}",
-                         inj.name, inj.name
-                     );
-                    let prov_initializer = format!(
-                         "/*@__PURE__*/ i0.ɵɵdefineInjectable({{ token: {}, factory: {}.ɵfac, providedIn: {} }})",
-                         inj.name, inj.name, provided_in_value
-                     );
-                    let results = vec![
-                        crate::ngtsc::transform::src::api::CompileResult {
-                            name: "ɵfac".to_string(),
-                            initializer: Some(fac_initializer),
-                            statements: vec![],
-                            type_desc: format!("i0.ɵɵFactoryDeclaration<{}, never>", inj.name),
-                            deferrable_imports: None,
-                            diagnostics: Vec::new(),
-                            additional_imports: Vec::new(),
-                        },
-                        crate::ngtsc::transform::src::api::CompileResult {
-                            name: "ɵprov".to_string(),
-                            initializer: Some(prov_initializer),
-                            statements: vec![],
-                            type_desc: format!("i0.ɵɵInjectableDeclaration<{}>", inj.name),
-                            deferrable_imports: None,
-                            diagnostics: Vec::new(),
-                            additional_imports: Vec::new(),
-                        },
-                    ];
-                    (results, inj.name.clone(), inj.source_file.clone())
-                }
-                DecoratorMetadata::NgModule(ngm) => {
-                    // TODO: Implement NgModule compilation
-                    (vec![], ngm.name.clone(), ngm.source_file.clone())
-                }
-            };
-
-            for mut result in compiled_results {
-                // Collect diagnostics
-                for ts_diag in result.diagnostics.drain(..) {
-                    result_diagnostics.push(crate::ngtsc::core::Diagnostic {
-                        file: ts_diag.file.map(PathBuf::from),
-                        message: ts_diag.message_text.to_string(),
-                        code: ts_diag.code as usize,
-                        start: Some(ts_diag.start),
-                        length: Some(ts_diag.length),
-                    });
-                }
-
-                let initializer = result.initializer.clone().unwrap_or_default();
-                let hoisted_statements = result.statements.join("\n");
-
-                // Find source file for this directive (using metadata source_file if available)
-
-                // Skip if source file is in node_modules or is a spec file
-                if let Some(ref src_file) = source_file {
-                    let src_path = src_file.to_string_lossy();
-                    if src_path.contains("node_modules")
-                        || src_path.ends_with(".spec.ts")
-                        || src_path.ends_with(".d.ts")
-                    {
-                        continue;
-                    }
-                }
-
-                let out_path = if let Some(ref src_file) = source_file {
-                    if let Some(out_dir) = &self.options.out_dir {
-                        // Calculate relative path from project root
-                        let project_path = std::path::Path::new(&self.options.project);
-                        let project_root =
-                            project_path.parent().unwrap_or(std::path::Path::new("."));
-                        let absolute_project_root = std::fs::canonicalize(project_root)
-                            .unwrap_or(project_root.to_path_buf());
-
-                        let absolute_src_file = std::fs::canonicalize(src_file.as_path())
-                            .unwrap_or(src_file.as_path().to_path_buf());
-
-                        // Try to strip prefix
-                        let relative_path = absolute_src_file
-                            .strip_prefix(&absolute_project_root)
-                            .unwrap_or_else(|_| {
-                                // Fallback: just use filename if stripping fails
-                                std::path::Path::new(src_file.file_name().unwrap())
-                            });
-
-                        let mut p = PathBuf::from(out_dir);
-                        p.push(relative_path);
-                        p.set_extension("js");
-
-                        // Ensure parent dir exists
-                        if let Some(parent) = p.parent() {
-                            let _ = fs.ensure_dir(&AbsoluteFsPath::from(parent));
-                        }
-
-                        AbsoluteFsPath::from(p)
-                    } else {
-                        // Only for safety, shouldn't reach here if out_dir checked above
-                        let mut p = PathBuf::from(self.options.out_dir.as_deref().unwrap_or("."));
-                        p.push(format!("{}.js", directive_name));
-                        AbsoluteFsPath::from(p)
-                    }
-                } else {
-                    // Fallback if no source file found
-                    let mut p = PathBuf::from(self.options.out_dir.as_deref().unwrap_or("."));
-                    p.push(format!("{}.js", directive_name));
-                    AbsoluteFsPath::from(p)
-                };
-                // ============= AST-BASED TRANSFORMATION =============
-                // 1. Parse source file → OXC AST
-                // 2. Strip TypeScript types (transformer)
-                // 3. Transform AST: remove decorators, add Ivy statements
-                // 4. Codegen → JavaScript output
-
-                let final_content = if let Some(ref src_file) = source_file {
-                    let source_path = AbsoluteFsPath::from(src_file.as_path());
-
-                    match fs.read_file(&source_path) {
-                              Ok(source_content) => {
-
-
-                                  let allocator = Allocator::default();
-                                  let source_type = SourceType::ts();
-                                  let file_path = src_file.to_string_lossy().to_string();
-
-                                  // Parse
-
-                                  let parser = Parser::new(&allocator, &source_content, source_type);
-                                  let mut parse_result = parser.parse();
-
-
-                                  if parse_result.errors.is_empty() {
-                                      // Step 1: Run semantic analysis for scoping
-
-                                      let semantic = oxc_semantic::SemanticBuilder::new()
-                                          .with_excess_capacity(0.0)
-                                          .build(&parse_result.program);
-
-
-                                      // Step 2: Apply TypeScript transformer to strip types
-
-                                      let transform_options = oxc_transformer::TransformOptions::default();
-                                      let transformer = oxc_transformer::Transformer::new(
-                                          &allocator,
-                                          std::path::Path::new(&file_path),
-                                          &transform_options,
-                                      );
-                                      let _ = transformer.build_with_scoping(
-                                          semantic.semantic.into_scoping(),
-                                          &mut parse_result.program,
-                                      );
-
-
-                                      // Step 3: AST-based Ivy transformation
-
-                                      let fac_expr_str = format!("function {}_Factory(t) {{ return new (t || {})(); }}", directive_name, directive_name);
-                                      let cmp_expr_str = format!("/*@__PURE__*/ {}", initializer);
-
-                                      let hoisted_statements_arena: &str = allocator.alloc_str(&hoisted_statements);
-                                      let fac_expr_arena: &str = allocator.alloc_str(&fac_expr_str);
-                                      let cmp_expr_arena: &str = allocator.alloc_str(&cmp_expr_str);
-
-                                      super::ast_transformer::transform_component_ast(
-                                          &allocator,
-                                          &mut parse_result.program,
-                                          &directive_name,
-                                          hoisted_statements_arena,
-                                          fac_expr_arena,
-                                          cmp_expr_arena,
-                                          &result.name,
-                                          &result.additional_imports,
-                                      );
-
-
-                                      // Step 4: Codegen final JavaScript
-
-                                      let codegen = oxc_codegen::Codegen::new().with_options(oxc_codegen::CodegenOptions {
-                                          single_quote: true,
-                                          ..oxc_codegen::CodegenOptions::default()
-                                      });
-                                      let code = codegen.build(&parse_result.program).code;
-
-                                      code
-                                  } else {
-                                      // Fallback to empty class if parse fails
-                                      format!("import * as i0 from '@angular/core';\nexport class {} {{}}\n{}.ɵfac = function {}_Factory(t) {{ return new (t || {})(); }};\n{}.ɵcmp = /*@__PURE__*/ {};",
-                                          directive_name, directive_name, directive_name, directive_name, directive_name, initializer)
-                                  }
-                              }
-
-                              Err(_) => format!("import * as i0 from '@angular/core';\nexport class {} {{}}\n{}.ɵfac = function {}_Factory(t) {{ return new (t || {})(); }};\n{}.ɵcmp = /*@__PURE__*/ {};",
-                                  directive_name, directive_name, directive_name, directive_name, directive_name, initializer)
-                          }
-                } else {
-                    // This else matches "if let Some(src_file) = source_file"
-                    format!("import * as i0 from '@angular/core';\nexport class {} {{}}\n{}.ɵfac = function {}_Factory(t) {{ return new (t || {})(); }};\n{}.ɵcmp = /*@__PURE__*/ {};",
-                               directive_name, directive_name, directive_name, directive_name, directive_name, initializer)
-                };
-
-                match fs.write_file(&out_path, final_content.as_bytes(), None) {
-                    Ok(_) => {}
-                    Err(_) => (),
-                }
-
-                // Mark this source file as having a component
-                for file in &compilation_result.files {
-                    let mut is_match = false;
-
-                    // Check by exact path match
-                    if let Some(ref src_file) = source_file {
-                        if file == src_file.as_path() {
-                            is_match = true;
-                        }
-                    }
-
-                    // Check by name match (handling kebab-case vs PascalCase)
-                    if !is_match {
-                        if let Some(stem) = file.file_stem() {
-                            let stem_str = stem.to_string_lossy();
-                            // Simple check: removing hyphens should match directive name (case-insensitive)
-                            let clean_stem = stem_str.replace("-", "");
-                            if clean_stem.eq_ignore_ascii_case(&directive_name) {
-                                is_match = true;
-                            } else if stem_str.eq_ignore_ascii_case("app") {
-                                // Special case for app
-                                is_match = true;
-                            }
-                        }
-                    }
-
-                    if is_match {
-                        component_files.insert(file.clone());
-                    }
-                }
+            if let Some(src) = directive.source_file() {
+                file_to_directives
+                    .entry(src.clone())
+                    .or_default()
+                    .push(directive);
+            } else {
+                directives_without_source.push(directive);
             }
         }
 
+        struct FileResult {
+            path: PathBuf,
+            diagnostics: Vec<crate::ngtsc::core::Diagnostic>,
+        }
+
+        struct UnsafeSyncWrapper<T>(T);
+        unsafe impl<T> Sync for UnsafeSyncWrapper<T> {}
+        unsafe impl<T> Send for UnsafeSyncWrapper<T> {}
+
+        // Parallel processing of files with components
+        let file_results: Vec<FileResult> = file_to_directives
+            .into_iter()
+            .map(|(k, v)| (k, v.into_iter().map(UnsafeSyncWrapper).collect::<Vec<_>>()))
+            .collect::<Vec<_>>() // Collect into Vec to allow par_iter
+            .into_par_iter()
+            .map(|(src_file, directives_wrapper)| {
+                let directives: Vec<&DecoratorMetadata> = directives_wrapper.into_iter().map(|w| w.0).collect();
+
+                // Setup output path
+                let mut out_path = if let Some(out_dir) = &self.options.out_dir {
+                    let project_path = std::path::Path::new(&self.options.project);
+                    let project_root = project_path.parent().unwrap_or(std::path::Path::new("."));
+                    let absolute_project_root =
+                        std::fs::canonicalize(project_root).unwrap_or(project_root.to_path_buf());
+
+                    let absolute_src_file = std::fs::canonicalize(&src_file)
+                        .unwrap_or(src_file.clone());
+
+                    let relative_path = absolute_src_file
+                        .strip_prefix(&absolute_project_root)
+                        .unwrap_or_else(|_| std::path::Path::new(src_file.file_name().unwrap()));
+
+                    let mut p = PathBuf::from(out_dir);
+                    p.push(relative_path);
+                    p.set_extension("js");
+                    p
+                } else {
+                    let mut p = PathBuf::from(&src_file);
+                    p.set_extension("js");
+                    p
+                };
+
+                // Ensure parent dir exists
+                if let Some(parent) = out_path.parent() {
+                    let _ = fs.ensure_dir(&AbsoluteFsPath::from(parent));
+                }
+
+                let source_path = AbsoluteFsPath::from(src_file.as_path());
+                let mut diagnostics = Vec::new();
+
+                // Read parse and transform
+                let output_content = match fs.read_file(&source_path) {
+                    Ok(source_content) => {
+                        let allocator = Allocator::default();
+                        let source_type = SourceType::ts();
+                        let file_path = src_file.to_string_lossy().to_string();
+
+                        let parser = Parser::new(&allocator, &source_content, source_type);
+                        let mut parse_result = parser.parse();
+
+                        if parse_result.errors.is_empty() {
+                            // Step 1: Run semantic analysis for scoping
+                            let semantic = oxc_semantic::SemanticBuilder::new()
+                                .with_excess_capacity(0.0)
+                                .build(&parse_result.program);
+
+                            // Step 2: Apply TypeScript transformer to strip types
+                            let transform_options = oxc_transformer::TransformOptions::default();
+                            let transformer = oxc_transformer::Transformer::new(
+                                &allocator,
+                                std::path::Path::new(&file_path),
+                                &transform_options,
+                            );
+                            let _ = transformer.build_with_scoping(
+                                semantic.semantic.into_scoping(),
+                                &mut parse_result.program,
+                            );
+
+                            // Step 3: AST-based Ivy transformation for ALL directives in this file
+                            for directive in directives {
+                                let (compiled_results, directive_name) = match directive {
+                                    DecoratorMetadata::Directive(dir) => {
+                                        let results = if dir.t2.is_component {
+                                            component_handler.compile_ivy(&directive)
+                                        } else {
+                                            directive_handler.compile_ivy(&directive)
+                                        };
+                                        (results, dir.t2.name.clone())
+                                    }
+                                    DecoratorMetadata::Pipe(pipe) => {
+                                        let initializer = format!(
+                                            "/*@__PURE__*/ i0.ɵɵdefinePipe({{ name: '{}', type: {}, pure: {}{} }})",
+                                            pipe.pipe_name, pipe.name, pipe.is_pure,
+                                            if pipe.is_standalone { ", standalone: true" } else { "" }
+                                        );
+                                        let results = vec![crate::ngtsc::transform::src::api::CompileResult {
+                                            name: "ɵpipe".to_string(),
+                                            initializer: Some(initializer),
+                                            statements: vec![],
+                                            type_desc: format!("i0.ɵɵPipeDeclaration<{}, '{}', {}>", pipe.name, pipe.pipe_name, pipe.is_standalone),
+                                            deferrable_imports: None,
+                                            diagnostics: Vec::new(),
+                                            additional_imports: Vec::new(),
+                                        }];
+                                        (results, pipe.name.clone())
+                                    }
+                                    DecoratorMetadata::Injectable(inj) => {
+                                        let provided_in = inj.provided_in.as_deref().unwrap_or("null");
+                                        let provided_in_value = if provided_in == "null" { "null".to_string() } else { format!("'{}'", provided_in) };
+                                        let fac_initializer = format!("function {}_Factory(__ngFactoryType__) {{ return new (__ngFactoryType__ || {})(); }}", inj.name, inj.name);
+                                        let prov_initializer = format!("/*@__PURE__*/ i0.ɵɵdefineInjectable({{ token: {}, factory: {}.ɵfac, providedIn: {} }})", inj.name, inj.name, provided_in_value);
+                                        let results = vec![
+                                            crate::ngtsc::transform::src::api::CompileResult {
+                                                name: "ɵfac".to_string(),
+                                                initializer: Some(fac_initializer),
+                                                statements: vec![],
+                                                type_desc: format!("i0.ɵɵFactoryDeclaration<{}, never>", inj.name),
+                                                deferrable_imports: None,
+                                                diagnostics: Vec::new(),
+                                                additional_imports: Vec::new(),
+                                            },
+                                            crate::ngtsc::transform::src::api::CompileResult {
+                                                name: "ɵprov".to_string(),
+                                                initializer: Some(prov_initializer),
+                                                statements: vec![],
+                                                type_desc: format!("i0.ɵɵInjectableDeclaration<{}>", inj.name),
+                                                deferrable_imports: None,
+                                                diagnostics: Vec::new(),
+                                                additional_imports: Vec::new(),
+                                            }
+                                        ];
+                                        (results, inj.name.clone())
+                                    }
+                                    DecoratorMetadata::NgModule(ngm) => (vec![], ngm.name.clone())
+                                };
+
+                                // Collect diagnostics
+                                for r in &compiled_results {
+                                    diagnostics.extend(r.diagnostics.iter().map(|d| crate::ngtsc::core::Diagnostic {
+                                        file: d.file.clone().map(PathBuf::from),
+                                        message: d.message_text.to_string(),
+                                        code: d.code as usize,
+                                        start: Some(d.start),
+                                        length: Some(d.length),
+                                    }));
+                                }
+
+                                if compiled_results.is_empty() {
+                                    continue;
+                                }
+
+                                // Apply to AST
+                                // Primary result
+                                let mut hoisted_statements = String::new();
+
+                                // Merge results if multiple (e.g. fac and cmp)
+                                for res in &compiled_results {
+                                    for stmt in &res.statements {
+                                        hoisted_statements.push_str(stmt);
+                                        hoisted_statements.push('\n');
+                                    }
+                                }
+
+                                // Prepare expressions for transform_component_ast
+                                let fac_expr_str_default = format!("function {}_Factory(t) {{ return new (t || {})(); }}", directive_name, directive_name);
+
+                                // Finding the main initializer (cmp, pipe, prov)
+                                let main_result = compiled_results.iter().find(|r| r.name == "ɵcmp" || r.name == "ɵpipe" || r.name == "ɵprov" || r.name == "ɵdir");
+                                let main_initializer = main_result.and_then(|r| r.initializer.as_deref()).unwrap_or("null");
+                                let def_name = main_result.map(|r| r.name.as_str()).unwrap_or("ɵcmp");
+
+                                let cmp_expr_str = format!("/*@__PURE__*/ {}", main_initializer);
+
+                                let fac_initializer = compiled_results.iter().find(|r| r.name == "ɵfac").and_then(|r| r.initializer.as_deref()).unwrap_or(&fac_expr_str_default);
+
+                                let hoisted_statements_arena: &str = allocator.alloc_str(&hoisted_statements);
+                                let fac_expr_arena: &str = allocator.alloc_str(fac_initializer); // Use correct fac logic
+                                let cmp_expr_arena: &str = allocator.alloc_str(&cmp_expr_str);
+
+                                // Only transform if we have something valid
+                                if main_initializer != "null" {
+                                    // Use additional_imports from main result, or fallback to first result
+                                    let additional_imports = main_result.map(|r| r.additional_imports.as_slice()).unwrap_or_else(|| compiled_results[0].additional_imports.as_slice());
+
+                                    super::ast_transformer::transform_component_ast(
+                                        &allocator,
+                                        &mut parse_result.program,
+                                        &directive_name,
+                                        hoisted_statements_arena,
+                                        fac_expr_arena, // fac
+                                        cmp_expr_arena, // cmp/pipe/prov
+                                        def_name, // Use correct field name (ɵcmp, ɵdir, ɵpipe, or ɵprov)
+                                        additional_imports,
+                                    );
+                                }
+                            }
+
+                            // Step 4: Codegen final JavaScript
+                            let codegen = oxc_codegen::Codegen::new().with_options(oxc_codegen::CodegenOptions {
+                                single_quote: true,
+                                ..oxc_codegen::CodegenOptions::default()
+                            });
+                            let code = codegen.build(&parse_result.program).code;
+
+                            Some(code)
+                        } else {
+                            // Parse error
+                            None
+                        }
+                    },
+                    Err(_) => None
+                };
+
+                if let Some(content) = output_content {
+                    let out_path_abs = AbsoluteFsPath::from(out_path.as_path());
+                    match fs.write_file(&out_path_abs, content.as_bytes(), None) {
+                        Ok(_) => (),
+                        Err(_) => (),
+                    }
+                }
+
+                FileResult {
+                    path: src_file,
+                    diagnostics
+                }
+            })
+            .collect();
+
+        // Collect results
+        for res in file_results {
+            component_files.insert(res.path);
+        }
+
+        // Handle directives without source (fallback, sequential)
+        for directive in directives_without_source {
+            self.process_directive_fallback(
+                &directive,
+                self.fs,
+                &mut component_files,
+                &mut result_diagnostics,
+                &compilation_result.files,
+            );
+        }
         // Second pass: transpile non-component TypeScript files
-        for file in &compilation_result.files {
+        // Use parallel iterator
+        compilation_result.files.par_iter().for_each(|file| {
             // Skip files in node_modules, spec files, and declaration files
             let src_path = file.to_string_lossy();
+
             if src_path.contains("node_modules")
                 || src_path.ends_with(".spec.ts")
                 || src_path.ends_with(".d.ts")
             {
-                continue;
+                return; // Use return for for_each
             }
 
             // Skip files that have components (already emitted)
             if component_files.contains(file) {
-                continue;
+                return;
             }
 
             if let Some(out_dir) = &self.options.out_dir {
@@ -502,7 +485,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                         let mut parse_result = parser.parse();
 
                         if !parse_result.errors.is_empty() {
-                            continue;
+                            return;
                         }
 
                         // Run semantic analysis to get scoping information
@@ -548,12 +531,90 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                     Err(_) => {}
                 }
             }
-        }
+        });
 
         Ok(result_diagnostics)
     }
-}
 
+    fn process_directive_fallback(
+        &self,
+        directive: &DecoratorMetadata<'static>,
+        fs: &T,
+        component_files: &mut HashSet<PathBuf>,
+        result_diagnostics: &mut Vec<crate::ngtsc::core::Diagnostic>,
+        compilation_files: &[PathBuf],
+    ) {
+        let component_handler = ComponentDecoratorHandler::new();
+        let directive_handler = DirectiveDecoratorHandler::new(self.is_core);
+
+        let (compiled_results, directive_name, source_file) = match directive {
+            DecoratorMetadata::Directive(dir) => {
+                let results = if dir.t2.is_component {
+                    component_handler.compile_ivy(directive)
+                } else {
+                    directive_handler.compile_ivy(directive)
+                };
+                (results, dir.t2.name.clone(), dir.source_file.clone())
+            }
+            _ => return,
+        };
+
+        // Collect diagnostics
+        for r in &compiled_results {
+            result_diagnostics.extend(r.diagnostics.iter().map(|d| {
+                crate::ngtsc::core::Diagnostic {
+                    file: d.file.clone().map(PathBuf::from),
+                    message: d.message_text.to_string(),
+                    code: d.code as usize,
+                    start: Some(d.start),
+                    length: Some(d.length),
+                }
+            }));
+        }
+
+        if let Some(initializer) = compiled_results
+            .into_iter()
+            .find(|r| r.name == "ɵcmp" || r.name == "ɵdir")
+            .and_then(|r| r.initializer)
+        {
+            let final_content = if let Some(src_file) = source_file.as_ref() {
+                let source_path =
+                    crate::ngtsc::file_system::AbsoluteFsPath::from(src_file.as_path());
+                match fs.read_file(&source_path) {
+                    Ok(content) => {
+                        let source_text = content.clone();
+                        let stripped = strip_angular_decorator(&source_text);
+                        format!("{}\n\n{}.ɵfac = function {}_Factory(t) {{ return new (t || {})(); }};\n{}.ɵcmp = /*@__PURE__*/ {};",
+                               stripped, directive_name, directive_name, directive_name, directive_name, initializer)
+                    }
+                    Err(_) => format!(
+                        "// Error reading file\nexport class {} {{}}",
+                        directive_name
+                    ),
+                }
+            } else {
+                format!("export class {} {{}}", directive_name)
+            };
+
+            if let Some(src_file) = source_file {
+                let file_name = src_file.file_name().unwrap_or_default();
+                let file_name_str = file_name.to_string_lossy();
+                let js_name = file_name_str.replace(".ts", ".js");
+
+                for out_path in compilation_files {
+                    if out_path.ends_with(&js_name) {
+                        let _ = fs.write_file(
+                            &crate::ngtsc::file_system::AbsoluteFsPath::from(out_path),
+                            final_content.as_bytes(),
+                            None,
+                        );
+                    }
+                }
+                component_files.insert(src_file);
+            }
+        }
+    }
+}
 /// Strip Angular decorators (@Component, @Directive, @Injectable, etc.) from transpiled code
 fn strip_angular_decorator(code: &str) -> String {
     // Pattern to match: export @Decorator({...}) class ClassName

@@ -288,8 +288,45 @@ impl DirectiveDecoratorHandler {
 
         let define_directive_name = Identifiers::define_directive().name.unwrap_or_default();
 
-        // ɵfac
-        let fac_definition = format!("(t) => new (t || {})()", dir.t2.name);
+        // ɵfac - Build factory with dependency injection
+        let mut additional_imports_for_fac = Vec::new();
+        let mut inject_calls = Vec::new();
+
+        for param in &dir.constructor_params {
+            if let Some(ref type_name) = param.type_name {
+                let module = param.from_module.as_deref().unwrap_or("@angular/core");
+                let import_alias = if module == "@angular/forms" {
+                    "i1"
+                } else {
+                    "i0"
+                };
+
+                // Track imports needed
+                if module == "@angular/forms"
+                    && !additional_imports_for_fac.iter().any(|(_, m)| m == module)
+                {
+                    additional_imports_for_fac
+                        .push(("i1".to_string(), "@angular/forms".to_string()));
+                }
+
+                inject_calls.push(format!(
+                    "{}.ɵɵdirectiveInject({}.{})",
+                    import_alias, import_alias, type_name
+                ));
+            }
+        }
+
+        let fac_definition = if inject_calls.is_empty() {
+            format!("(t) => new (t || {})()", dir.t2.name)
+        } else {
+            format!(
+                "function {}_Factory(__ngFactoryType__) {{ return new (__ngFactoryType__ || {})({}); }}",
+                dir.t2.name,
+                dir.t2.name,
+                inject_calls.join(", ")
+            )
+        };
+
         let fac_result = CompileResult {
             name: "ɵfac".to_string(),
             initializer: Some(fac_definition),
@@ -297,12 +334,63 @@ impl DirectiveDecoratorHandler {
             type_desc: "FactoryDef".to_string(),
             deferrable_imports: None,
             diagnostics: Vec::new(),
-            additional_imports: Vec::new(),
+            additional_imports: additional_imports_for_fac,
+        };
+
+        // Build hostBindings if there are listeners
+        let host_bindings_str = if !dir.host.listeners.is_empty() {
+            let mut listener_parts = Vec::new();
+            for (event_name, handler_expr) in &dir.host.listeners {
+                // Format: i0.ɵɵlistener('eventName', function HandlerName($event) { return ctx.methodName(...); })
+                // handler_expr is like "onInput($event.target)" or "onPaste($event.target)"
+                // Extract method name from handler_expr (e.g., "onInput($event.target)" -> "onInput")
+                let method_name = handler_expr
+                    .split('(')
+                    .next()
+                    .unwrap_or(handler_expr)
+                    .trim();
+
+                // Extract arguments from handler_expr (e.g., "onInput($event.target)" -> "$event.target")
+                let args = if handler_expr.contains('(') {
+                    handler_expr
+                        .split('(')
+                        .nth(1)
+                        .and_then(|s| s.strip_suffix(')'))
+                        .unwrap_or("")
+                        .trim()
+                } else {
+                    "$event"
+                };
+
+                listener_parts.push(format!(
+                    "'{}', function {}_{}_HostBindingHandler($event) {{ return ctx.{}({}); }}",
+                    event_name, dir.t2.name, event_name, method_name, args
+                ));
+            }
+
+            // Chain listener calls: i0.ɵɵlistener(...)('event2', ...)
+            let listener_code = if listener_parts.len() == 1 {
+                format!("i0.ɵɵlistener({})", listener_parts[0])
+            } else {
+                let first = format!("i0.ɵɵlistener({})", listener_parts[0]);
+                let rest: Vec<String> = listener_parts[1..]
+                    .iter()
+                    .map(|part| format!("({})", part))
+                    .collect();
+                format!("{}{}", first, rest.join(""))
+            };
+
+            format!(
+                ", hostBindings: function {}_HostBindings(rf, ctx) {{ if (rf & 1) {{ {} }} }}",
+                dir.t2.name, listener_code
+            )
+        } else {
+            String::new()
         };
 
         // ɵdir
         let definition = format!(
-            "i0.{}({{ type: {}, selectors: {}{}{}{}}})",
+            "i0.{}({{ type: {}, selectors: {}{}{}{}{}}})",
             define_directive_name,
             dir.t2.name,
             dir.t2
@@ -316,6 +404,7 @@ impl DirectiveDecoratorHandler {
                     }
                 })
                 .unwrap_or_else(|| String::from("[]")),
+            host_bindings_str,
             if !dir.t2.inputs.is_empty() {
                 let mut inputs_str = String::from(", inputs: {");
                 for (i, (prop, input)) in dir.t2.inputs.iter().enumerate() {
@@ -354,6 +443,9 @@ impl DirectiveDecoratorHandler {
             "" // Placeholder for other fields if needed
         );
 
+        // Merge additional_imports from fac_result into dir_result
+        let all_additional_imports = fac_result.additional_imports.clone();
+
         let dir_result = CompileResult {
             name: "ɵdir".to_string(),
             initializer: Some(definition),
@@ -361,7 +453,7 @@ impl DirectiveDecoratorHandler {
             type_desc: "DirectiveDef".to_string(),
             deferrable_imports: None,
             diagnostics: Vec::new(),
-            additional_imports: Vec::new(),
+            additional_imports: all_additional_imports,
         };
 
         vec![fac_result, dir_result]

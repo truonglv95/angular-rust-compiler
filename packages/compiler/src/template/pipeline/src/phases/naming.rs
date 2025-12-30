@@ -593,6 +593,29 @@ fn process_op_with_var_names(
                     name: format!("{}{}_{}", child_base_name, suffix, slot),
                 });
             }
+            ir::OpKind::RepeaterCreate => {
+                let rep_ptr = op_ptr as *mut RepeaterCreateOp;
+                let rep = &mut *rep_ptr;
+                if let Some(empty) = rep.empty_view {
+                    tasks.push(RecTask {
+                        xref: empty,
+                        name: format!(
+                            "{}Empty_{}",
+                            child_base_name,
+                            rep.base.base.handle.get_slot().unwrap()
+                        ),
+                    });
+                }
+                tasks.push(RecTask {
+                    xref: rep.base.base.xref,
+                    name: format!(
+                        "{}{}_{}",
+                        child_base_name,
+                        rep.function_name_suffix,
+                        rep.base.base.handle.get_slot().unwrap()
+                    ),
+                });
+            }
             ir::OpKind::StyleProp => {
                 let style_ptr = op_ptr as *mut StylePropOp;
                 let style = &mut *style_ptr;

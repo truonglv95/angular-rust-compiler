@@ -175,7 +175,7 @@ pub trait PathManipulation {
 }
 
 /// An abstraction over the read-only aspects of a file-system.
-pub trait ReadonlyFileSystem: PathManipulation {
+pub trait ReadonlyFileSystem: PathManipulation + Sync + Send {
     fn is_case_sensitive(&self) -> bool;
     fn exists(&self, path: &AbsoluteFsPath) -> bool;
     fn read_file(&self, path: &AbsoluteFsPath) -> io::Result<String>;
@@ -188,7 +188,7 @@ pub trait ReadonlyFileSystem: PathManipulation {
 }
 
 /// A basic interface to abstract the underlying file-system.
-pub trait FileSystem: ReadonlyFileSystem {
+pub trait FileSystem: ReadonlyFileSystem + Sync + Send {
     fn write_file(
         &self,
         path: &AbsoluteFsPath,

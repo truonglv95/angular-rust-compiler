@@ -409,7 +409,17 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                 {
                     let index = element_op.base.base.handle.get_slot().unwrap();
                     // Handle tag which might be Option<String>
-                    let tag = element_op.base.tag.clone().unwrap_or("div".to_string());
+                    let mut tag = element_op.base.tag.clone().unwrap_or("div".to_string());
+
+                    // Strip namespace prefix if present (e.g., ":svg:svg" -> "svg")
+                    // When namespace op is present, tag name should not have prefix
+                    if tag.starts_with(':') {
+                        if let Ok((_, stripped_name)) =
+                            crate::ml_parser::tags::split_ns_name(&tag, false)
+                        {
+                            tag = stripped_name;
+                        }
+                    }
 
                     // Build args: slot, tag, [constsIndex]
                     let mut args = vec![*o::literal(index as f64), *o::literal(tag.clone())];
@@ -452,7 +462,17 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
             ir::OpKind::Element => {
                 if let Some(element_op) = op.as_any().downcast_ref::<ir::ops::create::ElementOp>() {
                     let index = element_op.base.base.handle.get_slot().unwrap();
-                    let tag = element_op.base.tag.clone().unwrap_or("div".to_string());
+                    let mut tag = element_op.base.tag.clone().unwrap_or("div".to_string());
+
+                    // Strip namespace prefix if present (e.g., ":svg:svg" -> "svg")
+                    // When namespace op is present, tag name should not have prefix
+                    if tag.starts_with(':') {
+                        if let Ok((_, stripped_name)) =
+                            crate::ml_parser::tags::split_ns_name(&tag, false)
+                        {
+                            tag = stripped_name;
+                        }
+                    }
 
                     // Build args: slot, tag, [constsIndex]
                     let mut args = vec![*o::literal(index as f64), *o::literal(tag)];

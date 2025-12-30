@@ -87,23 +87,23 @@ impl Visitor for CombinedRecursiveAstVisitor {
     fn visit_element(&mut self, element: &t::Element) {
         // Visit attributes (convert TextAttribute to R3Node)
         for attr in &element.attributes {
-            self.visit_all_template_nodes(&[t::R3Node::TextAttribute(attr.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::TextAttribute(Box::new(attr.clone()))]);
         }
         // Visit inputs (convert BoundAttribute to R3Node)
         for input in &element.inputs {
-            self.visit_all_template_nodes(&[t::R3Node::BoundAttribute(input.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::BoundAttribute(Box::new(input.clone()))]);
         }
         // Visit outputs (convert BoundEvent to R3Node)
         for output in &element.outputs {
-            self.visit_all_template_nodes(&[t::R3Node::BoundEvent(output.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::BoundEvent(Box::new(output.clone()))]);
         }
         // Visit directives (convert Directive to R3Node)
         for dir in &element.directives {
-            self.visit_all_template_nodes(&[t::R3Node::Directive(dir.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::Directive(Box::new(dir.clone()))]);
         }
         // Visit references (convert Reference to R3Node)
         for ref_node in &element.references {
-            self.visit_all_template_nodes(&[t::R3Node::Reference(ref_node.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::Reference(Box::new(ref_node.clone()))]);
         }
         // Visit children
         self.visit_all_template_nodes(&element.children);
@@ -112,38 +112,42 @@ impl Visitor for CombinedRecursiveAstVisitor {
     fn visit_template(&mut self, template: &t::Template) {
         // Visit attributes (convert TextAttribute to R3Node)
         for attr in &template.attributes {
-            self.visit_all_template_nodes(&[t::R3Node::TextAttribute(attr.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::TextAttribute(Box::new(attr.clone()))]);
         }
         // Visit inputs (convert BoundAttribute to R3Node)
         for input in &template.inputs {
-            self.visit_all_template_nodes(&[t::R3Node::BoundAttribute(input.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::BoundAttribute(Box::new(input.clone()))]);
         }
         // Visit outputs (convert BoundEvent to R3Node)
         for output in &template.outputs {
-            self.visit_all_template_nodes(&[t::R3Node::BoundEvent(output.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::BoundEvent(Box::new(output.clone()))]);
         }
         // Visit directives (convert Directive to R3Node)
         for dir in &template.directives {
-            self.visit_all_template_nodes(&[t::R3Node::Directive(dir.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::Directive(Box::new(dir.clone()))]);
         }
         // Visit template_attrs
         for attr in &template.template_attrs {
             match attr {
                 t::TemplateAttr::Text(ta) => {
-                    self.visit_all_template_nodes(&[t::R3Node::TextAttribute(ta.clone())]);
+                    self.visit_all_template_nodes(&[t::R3Node::TextAttribute(Box::new(
+                        ta.clone(),
+                    ))]);
                 }
                 t::TemplateAttr::Bound(ba) => {
-                    self.visit_all_template_nodes(&[t::R3Node::BoundAttribute(ba.clone())]);
+                    self.visit_all_template_nodes(&[t::R3Node::BoundAttribute(Box::new(
+                        ba.clone(),
+                    ))]);
                 }
             }
         }
         // Visit variables (convert Variable to R3Node)
         for var in &template.variables {
-            self.visit_all_template_nodes(&[t::R3Node::Variable(var.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::Variable(Box::new(var.clone()))]);
         }
         // Visit references (convert Reference to R3Node)
         for ref_node in &template.references {
-            self.visit_all_template_nodes(&[t::R3Node::Reference(ref_node.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::Reference(Box::new(ref_node.clone()))]);
         }
         // Visit children
         self.visit_all_template_nodes(&template.children);
@@ -152,7 +156,7 @@ impl Visitor for CombinedRecursiveAstVisitor {
     fn visit_content(&mut self, content: &t::Content) {
         // Visit attributes (convert TextAttribute to R3Node)
         for attr in &content.attributes {
-            self.visit_all_template_nodes(&[t::R3Node::TextAttribute(attr.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::TextAttribute(Box::new(attr.clone()))]);
         }
         self.visit_all_template_nodes(&content.children);
     }
@@ -201,15 +205,19 @@ impl Visitor for CombinedRecursiveAstVisitor {
         self.visit_all_template_nodes(&deferred.children);
         // Visit connected blocks (placeholder, loading, error)
         if let Some(ref placeholder) = deferred.placeholder {
-            self.visit_all_template_nodes(&[t::R3Node::DeferredBlockPlaceholder(
+            self.visit_all_template_nodes(&[t::R3Node::DeferredBlockPlaceholder(Box::new(
                 (**placeholder).clone(),
-            )]);
+            ))]);
         }
         if let Some(ref loading) = deferred.loading {
-            self.visit_all_template_nodes(&[t::R3Node::DeferredBlockLoading((**loading).clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::DeferredBlockLoading(Box::new(
+                (**loading).clone(),
+            ))]);
         }
         if let Some(ref error) = deferred.error {
-            self.visit_all_template_nodes(&[t::R3Node::DeferredBlockError((**error).clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::DeferredBlockError(Box::new(
+                (**error).clone(),
+            ))]);
         }
     }
 
@@ -251,7 +259,7 @@ impl Visitor for CombinedRecursiveAstVisitor {
         self.visit_ast(&block.expression);
         // Visit all cases
         for case in &block.cases {
-            self.visit_all_template_nodes(&[t::R3Node::SwitchBlockCase(case.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::SwitchBlockCase(Box::new(case.clone()))]);
         }
     }
 
@@ -265,17 +273,19 @@ impl Visitor for CombinedRecursiveAstVisitor {
 
     fn visit_for_loop_block(&mut self, block: &t::ForLoopBlock) {
         // Visit the item variable
-        self.visit_all_template_nodes(&[t::R3Node::Variable(block.item.clone())]);
+        self.visit_all_template_nodes(&[t::R3Node::Variable(Box::new(block.item.clone()))]);
         // Visit context variables
         for var in &block.context_variables {
-            self.visit_all_template_nodes(&[t::R3Node::Variable(var.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::Variable(Box::new(var.clone()))]);
         }
         // ForLoopBlock has expression and track_by as ASTWithSource
         self.visit_ast(&block.expression.ast);
         self.visit_ast(&block.track_by.ast);
         self.visit_all_template_nodes(&block.children);
         if let Some(ref empty) = block.empty {
-            self.visit_all_template_nodes(&[t::R3Node::ForLoopBlockEmpty((**empty).clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::ForLoopBlockEmpty(Box::new(
+                (**empty).clone(),
+            ))]);
         }
     }
 
@@ -286,7 +296,7 @@ impl Visitor for CombinedRecursiveAstVisitor {
     fn visit_if_block(&mut self, block: &t::IfBlock) {
         // Visit all branches
         for branch in &block.branches {
-            self.visit_all_template_nodes(&[t::R3Node::IfBlockBranch(branch.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::IfBlockBranch(Box::new(branch.clone()))]);
         }
     }
 
@@ -297,7 +307,7 @@ impl Visitor for CombinedRecursiveAstVisitor {
         }
         // Visit expression alias if present
         if let Some(ref expr_alias) = block.expression_alias {
-            self.visit_all_template_nodes(&[t::R3Node::Variable(expr_alias.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::Variable(Box::new(expr_alias.clone()))]);
         }
         self.visit_all_template_nodes(&block.children);
     }
@@ -310,23 +320,23 @@ impl Visitor for CombinedRecursiveAstVisitor {
     fn visit_component(&mut self, component: &t::Component) {
         // Visit attributes (convert TextAttribute to R3Node)
         for attr in &component.attributes {
-            self.visit_all_template_nodes(&[t::R3Node::TextAttribute(attr.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::TextAttribute(Box::new(attr.clone()))]);
         }
         // Visit inputs (convert BoundAttribute to R3Node)
         for input in &component.inputs {
-            self.visit_all_template_nodes(&[t::R3Node::BoundAttribute(input.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::BoundAttribute(Box::new(input.clone()))]);
         }
         // Visit outputs (convert BoundEvent to R3Node)
         for output in &component.outputs {
-            self.visit_all_template_nodes(&[t::R3Node::BoundEvent(output.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::BoundEvent(Box::new(output.clone()))]);
         }
         // Visit directives (convert Directive to R3Node)
         for dir in &component.directives {
-            self.visit_all_template_nodes(&[t::R3Node::Directive(dir.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::Directive(Box::new(dir.clone()))]);
         }
         // Visit references (convert Reference to R3Node)
         for ref_node in &component.references {
-            self.visit_all_template_nodes(&[t::R3Node::Reference(ref_node.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::Reference(Box::new(ref_node.clone()))]);
         }
         // Visit children
         self.visit_all_template_nodes(&component.children);
@@ -335,19 +345,19 @@ impl Visitor for CombinedRecursiveAstVisitor {
     fn visit_directive(&mut self, directive: &t::Directive) {
         // Visit attributes (convert TextAttribute to R3Node)
         for attr in &directive.attributes {
-            self.visit_all_template_nodes(&[t::R3Node::TextAttribute(attr.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::TextAttribute(Box::new(attr.clone()))]);
         }
         // Visit inputs (convert BoundAttribute to R3Node)
         for input in &directive.inputs {
-            self.visit_all_template_nodes(&[t::R3Node::BoundAttribute(input.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::BoundAttribute(Box::new(input.clone()))]);
         }
         // Visit outputs (convert BoundEvent to R3Node)
         for output in &directive.outputs {
-            self.visit_all_template_nodes(&[t::R3Node::BoundEvent(output.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::BoundEvent(Box::new(output.clone()))]);
         }
         // Visit references (convert Reference to R3Node)
         for ref_node in &directive.references {
-            self.visit_all_template_nodes(&[t::R3Node::Reference(ref_node.clone())]);
+            self.visit_all_template_nodes(&[t::R3Node::Reference(Box::new(ref_node.clone()))]);
         }
     }
 

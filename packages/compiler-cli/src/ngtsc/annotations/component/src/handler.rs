@@ -9,28 +9,23 @@ use angular_compiler::ml_parser::html_whitespaces::{
 };
 use angular_compiler::output::abstract_emitter::EmitterVisitorContext;
 use angular_compiler::output::abstract_js_emitter::AbstractJsEmitterVisitor;
-use angular_compiler::output::output_ast::{
-    Expression, ExpressionTrait, ExternalExpr, ExternalReference, ReadVarExpr,
-};
+use angular_compiler::output::output_ast::{Expression, ExpressionTrait, ReadVarExpr};
 use angular_compiler::parse_util::{ParseLocation, ParseSourceFile, ParseSourceSpan};
 use angular_compiler::render3::r3_template_transform::{
     html_ast_to_render3_ast, Render3ParseOptions,
 };
 use angular_compiler::render3::view::api::{
     DeclarationListEmitMode, R3ComponentDeferMetadata, R3ComponentMetadata, R3ComponentTemplate,
-    R3DirectiveDependencyMetadata, R3DirectiveMetadata, R3HostMetadata, R3LifecycleMetadata,
-    R3NgModuleDependencyMetadata, R3PipeDependencyMetadata, R3TemplateDependencyKind,
-    R3TemplateDependencyMetadata,
+    R3DirectiveMetadata, R3HostMetadata, R3LifecycleMetadata, R3TemplateDependencyMetadata,
 };
-use angular_compiler::render3::view::template::{parse_template, ParseTemplateOptions};
+// use angular_compiler::render3::view::template::{parse_template, ParseTemplateOptions};
 // use std::collections::HashMap;
 use angular_compiler::template::pipeline::src::compilation::TemplateCompilationMode;
 use angular_compiler::template::pipeline::src::emit::emit_component;
-use angular_compiler::template::pipeline::src::ingest::{
-    ingest_component, ingest_host_binding, HostBindingInput,
-};
+use angular_compiler::template::pipeline::src::ingest::{ingest_host_binding, HostBindingInput};
 use angular_compiler::template::pipeline::src::phases;
 use std::any::Any;
+// use std::time::Instant;
 // use angular_compiler::constant_pool::ConstantPool as CompilerConstantPool; // Distinct from ngtsc ConstantPool if needed
 
 /// Get metadata for known Angular directives (NgFor, NgIf, etc.)
@@ -883,7 +878,6 @@ impl ComponentDecoratorHandler {
         // 1. Ingest template into compilation job
 
         // Ingest
-
         let mut job = angular_compiler::template::pipeline::src::ingest::ingest_component(
             dir.t2.name.clone(),
             nodes, // Template AST nodes
@@ -975,7 +969,6 @@ impl ComponentDecoratorHandler {
         }
 
         // 4. Emit component definition
-
         let compiled = emit_component(&job, &r3_metadata, host_job.as_ref());
 
         // Detect required imports based on metadata

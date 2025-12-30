@@ -87,70 +87,16 @@ pub fn ingest_component(
     );
 
     // Ingest nodes into root using Safe XrefId approach
+    // Ingest nodes into root using Safe XrefId approach
     let root_xref = job.root.xref;
-    ingest_nodes_internal(root_xref, template, &mut job);
+    ingest_children_into_view(&mut job, root_xref, template);
 
     job
 }
 
-/// Helper to get mutable view unit by XrefId
-fn get_unit_mut<'a>(
-    job: &'a mut ComponentCompilationJob,
-    unit_xref: ir::XrefId,
-) -> &'a mut ViewCompilationUnit {
-    if unit_xref == job.root.xref {
-        &mut job.root
-    } else {
-        job.views.get_mut(&unit_xref).expect("View not found")
-    }
-}
-
-/// Helper method to push an operation to a view unit safely
-fn push_create_op(
-    job: &mut ComponentCompilationJob,
-    unit_xref: ir::XrefId,
-    op: Box<dyn ir::CreateOp + Send + Sync>,
-) {
-    if unit_xref == job.root.xref {
-        job.root.create.push(op);
-    } else {
-        let unit = job.views.get_mut(&unit_xref).expect("View not found");
-        unit.create.push(op);
-    }
-}
-
-/// Helper method to insert an operation to a view unit safely
-fn insert_create_op(
-    job: &mut ComponentCompilationJob,
-    unit_xref: ir::XrefId,
-    index: usize,
-    op: Box<dyn ir::CreateOp + Send + Sync>,
-) {
-    if unit_xref == job.root.xref {
-        job.root.create.insert_at(index, op);
-    } else {
-        let unit = job.views.get_mut(&unit_xref).expect("View not found");
-        unit.create.insert_at(index, op);
-    }
-}
-
-/// Helper method to push an update operation to a view unit safely
-fn push_update_op(
-    job: &mut ComponentCompilationJob,
-    unit_xref: ir::XrefId,
-    op: Box<dyn ir::UpdateOp + Send + Sync>,
-) {
-    if unit_xref == job.root.xref {
-        job.root.update.push(op);
-    } else {
-        let unit = job.views.get_mut(&unit_xref).expect("View not found");
-        unit.update.push(op);
-    }
-}
-
-/// Internal helper to ingest nodes using XrefId
+/// Internal helper to ingest nodes directly into a ViewCompilationUnit
 fn ingest_nodes_internal(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     template: Vec<t::R3Node>,
     job: &mut ComponentCompilationJob,
 ) {
@@ -159,13 +105,13 @@ fn ingest_nodes_internal(
     while let Some(node) = { iter.next() } {
         match node {
             t::R3Node::Element(el) => {
-                ingest_element(unit_xref, el, job);
+                ingest_element(view, *el, job);
             }
             t::R3Node::Template(tmpl) => {
-                ingest_template(unit_xref, tmpl, job);
+                ingest_template(view, *tmpl, job);
             }
             t::R3Node::Content(content) => {
-                ingest_content(unit_xref, content, job);
+                ingest_content(view, *content, job);
             }
             t::R3Node::Text(text) => {
                 let mut prefix = text.value.to_string();
@@ -196,13 +142,13 @@ fn ingest_nodes_internal(
                         } else {
                             prefix
                         };
-                        ingest_bound_text(unit_xref, bound_text, None, prefix, job);
+                        ingest_bound_text(view, *bound_text, None, prefix, job);
                     }
                 } else {
                     // Standard text node - skip whitespace-only
                     if !prefix.trim().is_empty() {
                         ingest_text(
-                            unit_xref,
+                            view,
                             t::Text {
                                 value: prefix.into(),
                                 source_span: text.source_span.clone(),
@@ -214,25 +160,25 @@ fn ingest_nodes_internal(
                 }
             }
             t::R3Node::BoundText(bound_text) => {
-                ingest_bound_text(unit_xref, bound_text, None, String::new(), job);
+                ingest_bound_text(view, *bound_text, None, String::new(), job);
             }
             t::R3Node::IfBlock(if_block) => {
-                ingest_if_block(unit_xref, if_block, job);
+                ingest_if_block(view, *if_block, job);
             }
             t::R3Node::SwitchBlock(switch_block) => {
-                ingest_switch_block(unit_xref, switch_block, job);
+                ingest_switch_block(view, *switch_block, job);
             }
             t::R3Node::DeferredBlock(deferred_block) => {
-                ingest_defer_block(unit_xref, deferred_block, job);
+                ingest_defer_block(view, *deferred_block, job);
             }
             t::R3Node::Icu(icu) => {
-                ingest_icu(unit_xref, icu, job);
+                ingest_icu(view, *icu, job);
             }
             t::R3Node::ForLoopBlock(for_loop) => {
-                ingest_for_block(unit_xref, for_loop, job);
+                ingest_for_block(view, *for_loop, job);
             }
             t::R3Node::LetDeclaration(let_decl) => {
-                ingest_let_declaration(unit_xref, let_decl, job);
+                ingest_let_declaration(view, *let_decl, job);
             }
             t::R3Node::Component(_) => {
                 // TODO: Account for selectorless nodes
@@ -364,30 +310,55 @@ pub fn ingest_host_binding(
 }
 
 /// Ingest the nodes of a template AST into the given `ViewCompilationUnit`.
+/// Helper to ingest nodes into a ViewCompilationUnit
 fn ingest_nodes(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     template: Vec<t::R3Node>,
     job: &mut ComponentCompilationJob,
 ) {
-    ingest_nodes_internal(unit_xref, template, job);
+    ingest_nodes_internal(view, template, job);
+}
+
+fn create_dummy_view() -> ViewCompilationUnit {
+    ViewCompilationUnit::new(ir::XrefId::new(usize::MAX), None)
 }
 
 /// Safely ingest children into a view by using XrefId.
+/// Takes the view out of the job to process children efficiently without repeated lookups.
 fn ingest_children_into_view(
     job: &mut ComponentCompilationJob,
     view_xref: ir::XrefId,
     children: Vec<t::R3Node>,
 ) {
-    ingest_nodes_internal(view_xref, children, job);
+    // Check if we are processing the root view BEFORE modifying job.root
+    let is_root = view_xref == job.root.xref;
+
+    // Extract the view from the job to allow passing &mut ViewCompilationUnit separately
+    let mut view = if is_root {
+        std::mem::replace(&mut job.root, create_dummy_view())
+    } else {
+        job.views
+            .shift_remove(&view_xref)
+            .unwrap_or_else(|| panic!("View not found: {:?}", view_xref))
+    };
+
+    ingest_nodes_internal(&mut view, children, job);
+
+    // Put the view back
+    if is_root {
+        job.root = view;
+    } else {
+        job.views.insert(view_xref, view);
+    }
 }
 
 fn maybe_record_directive_usage(
     job: &mut ComponentCompilationJob,
     tag_name: &str,
-    attributes: &Vec<t::TextAttribute>,
-    inputs: &Vec<t::BoundAttribute>,
-    outputs: &Vec<t::BoundEvent>,
-    template_attrs: &Vec<t::TemplateAttr>,
+    attributes: &[t::TextAttribute],
+    inputs: &[t::BoundAttribute],
+    outputs: &[t::BoundEvent],
+    template_attrs: &[t::TemplateAttr],
 ) -> bool {
     // Reset and populate temp_selector
     job.temp_selector.reset();
@@ -433,7 +404,11 @@ fn maybe_record_directive_usage(
 }
 
 /// Ingest an element AST from the template into the given `ViewCompilationUnit`.
-fn ingest_element(unit_xref: ir::XrefId, element: t::Element, job: &mut ComponentCompilationJob) {
+fn ingest_element(
+    view: &mut ViewCompilationUnit,
+    element: t::Element,
+    job: &mut ComponentCompilationJob,
+) {
     // Check i18n metadata
     if let Some(ref i18n_meta) = element.i18n {
         match i18n_meta {
@@ -446,51 +421,52 @@ fn ingest_element(unit_xref: ir::XrefId, element: t::Element, job: &mut Componen
         }
     }
 
-    let id = job.allocate_xref_id();
+    let i18n_placeholder = match &element.i18n {
+        Some(I18nMeta::Node(I18nNode::TagPlaceholder(ph))) => Some(ph.clone()),
+        _ => None,
+    };
 
+    // Split namespace and element name (strip prefix from tag name)
     let (namespace_key, element_name) = match split_ns_name(&element.name, false) {
         Ok((ns, name)) => (ns, name),
         Err(_) => (None, element.name.to_string()),
     };
 
     let namespace = namespace_for_key(namespace_key.as_deref());
-    let i18n_placeholder = match &element.i18n {
-        Some(I18nMeta::Node(I18nNode::TagPlaceholder(ph))) => Some(ph.clone()),
-        _ => None,
-    };
 
-    // Record directive usage first
+    let id = job.allocate_xref_id();
+
+    // Ingest attributes, inputs, outputs, etc.
+    // Note: We need to update ingest_element_bindings to take 'view'
+    ingest_element_bindings(view, id, &element, job);
+
     let has_directives = maybe_record_directive_usage(
         job,
-        &element_name,
+        &element.name,
         &element.attributes,
         &element.inputs,
         &element.outputs,
-        &vec![],
+        &[], // Element does not have template_attrs
     );
-
-    // Create element start op
+    let is_structural = has_directives;
 
     let mut start_op = ir::ops::create::ElementStartOp::new(
-        element_name.clone(),
+        element_name, // Use stripped name without namespace prefix
         id,
         namespace,
-        i18n_placeholder.clone(),
+        i18n_placeholder,
         element.start_source_span.clone(),
         element.source_span.clone(),
     );
-    start_op.base.has_directives = has_directives;
+    start_op.base.has_directives = is_structural;
     let handle = start_op.base.base.handle.clone();
+    view.create.push(Box::new(start_op));
 
-    push_create_op(job, unit_xref, Box::new(start_op));
+    // Ingest references
+    ingest_references(view, id, &element, job);
 
-    // Ingest element bindings, events, and references
-
-    ingest_element_bindings(unit_xref, id, &element, job);
-
-    ingest_element_events(unit_xref, id, &element_name, &element, handle, job);
-
-    ingest_references(unit_xref, id, &element, job);
+    // Ingest element events
+    ingest_element_events(view, id, &element.name, &element, handle, job);
 
     // Handle i18n start if needed
     let mut i18n_block_id: Option<ir::XrefId> = None;
@@ -503,29 +479,31 @@ fn ingest_element(unit_xref: ir::XrefId, element: t::Element, job: &mut Componen
             Some(id),
             Some(element.start_source_span.clone()),
         );
-        push_create_op(job, unit_xref, i18n_start_op);
+        view.create.push(i18n_start_op);
     }
 
     // Ingest children
+    ingest_nodes(view, element.children, job);
 
-    ingest_nodes(unit_xref, element.children, job);
-
-    // Handle i18n end if needed (before element end)
     // Handle i18n end if needed (before element end)
     if let Some(i18n_id) = i18n_block_id {
         let i18n_end_op =
             ir::ops::create::create_i18n_end_op(i18n_id, element.end_source_span.clone());
-        push_create_op(job, unit_xref, i18n_end_op);
+        view.create.push(i18n_end_op);
     }
 
     // Create element end op
 
     let end_op = ir::ops::create::create_element_end_op(id, element.end_source_span.clone());
-    push_create_op(job, unit_xref, end_op);
+    view.create.push(end_op);
 }
 
 /// Ingest a template AST node
-fn ingest_template(unit_xref: ir::XrefId, tmpl: t::Template, job: &mut ComponentCompilationJob) {
+fn ingest_template(
+    view: &mut ViewCompilationUnit,
+    tmpl: t::Template,
+    job: &mut ComponentCompilationJob,
+) {
     // Check i18n metadata
     if let Some(ref i18n_meta) = tmpl.i18n {
         match i18n_meta {
@@ -538,8 +516,8 @@ fn ingest_template(unit_xref: ir::XrefId, tmpl: t::Template, job: &mut Component
         }
     }
 
-    let child_view_xref = job.allocate_view(Some(unit_xref));
-    let xref = child_view_xref; // Use child_view_xref as the template's own xref
+    // Allocate View ID for valid view (use view.xref as parent)
+    let child_view_xref = job.allocate_view(Some(view.xref));
 
     let (namespace_prefix, tag_name_without_namespace) = if let Some(ref tag_name) = tmpl.tag_name {
         match split_ns_name(tag_name, false) {
@@ -567,8 +545,7 @@ fn ingest_template(unit_xref: ir::XrefId, tmpl: t::Template, job: &mut Component
         ir::TemplateKind::Structural
     };
 
-    // Create template op
-    let template_op = ir::ops::create::TemplateOp::new(
+    let template_op_struct = ir::ops::create::TemplateOp::new(
         child_view_xref,
         template_kind,
         tag_name_without_namespace.clone(),
@@ -578,9 +555,13 @@ fn ingest_template(unit_xref: ir::XrefId, tmpl: t::Template, job: &mut Component
         tmpl.start_source_span.clone(),
         tmpl.source_span.clone(),
     );
-    let handle = template_op.base.base.handle.clone();
+    // Get handle from struct before boxing based on trait
+    let handle = template_op_struct.base.base.handle.clone();
 
-    push_create_op(job, unit_xref, Box::new(template_op));
+    // Convert to boxed CreateOp
+    // We need to match the return type of create_template_op which is Box<dyn CreateOp>
+    // but here we are pushing to view.create which accepts Box<dyn CreateOp>
+    view.create.push(Box::new(template_op_struct));
 
     // Record directive usage for templates (structural directives)
     maybe_record_directive_usage(
@@ -593,10 +574,9 @@ fn ingest_template(unit_xref: ir::XrefId, tmpl: t::Template, job: &mut Component
     );
 
     // Ingest template bindings, events, and references
-    // Ingest template bindings, events, and references
-    ingest_template_bindings(unit_xref, child_view_xref, &tmpl, template_kind, job);
+    ingest_template_bindings(view, child_view_xref, &tmpl, template_kind, job);
     ingest_template_events(
-        unit_xref,
+        view,
         child_view_xref,
         tag_name_without_namespace.as_deref(),
         &tmpl.outputs,
@@ -604,7 +584,7 @@ fn ingest_template(unit_xref: ir::XrefId, tmpl: t::Template, job: &mut Component
         handle,
         job,
     );
-    ingest_references_template(unit_xref, child_view_xref, &tmpl, job);
+    ingest_references_template(view, child_view_xref, &tmpl, job);
 
     // Ingest children into child view
     let variables_to_add: Vec<_> = tmpl
@@ -620,12 +600,10 @@ fn ingest_template(unit_xref: ir::XrefId, tmpl: t::Template, job: &mut Component
         })
         .collect();
 
-    // Create template end op
-    // Templates do not have an end op in IR
-
+    // Recurse using helper (handles skipping lookup)
     ingest_children_into_view(job, child_view_xref, tmpl.children);
 
-    // Set up context variables
+    // Set up context variables (need to access child view via job)
     {
         let child_view = job.views.get_mut(&child_view_xref).unwrap();
         for (name, value) in variables_to_add {
@@ -638,14 +616,17 @@ fn ingest_template(unit_xref: ir::XrefId, tmpl: t::Template, job: &mut Component
         if let Some(I18nMeta::Message(msg)) = &tmpl.i18n {
             let id = job.allocate_xref_id();
 
-            // Insert i18n start op at index 0 (after head)
+            // Insert i18n start op at index 0 (after head) inside child view
             let i18n_start_op = ir::ops::create::create_i18n_start_op(
                 id,
                 msg.clone(),
                 None, // i18n_context
                 Some(tmpl.start_source_span.clone()),
             );
-            insert_create_op(job, child_view_xref, 0, i18n_start_op);
+
+            // To mutate child view, we access via job
+            let child_view = job.views.get_mut(&child_view_xref).unwrap();
+            child_view.create.insert_at(0, i18n_start_op);
 
             // Insert i18n end op at the end
             let end_span = tmpl
@@ -654,13 +635,21 @@ fn ingest_template(unit_xref: ir::XrefId, tmpl: t::Template, job: &mut Component
                 .unwrap_or(&tmpl.start_source_span)
                 .clone();
             let i18n_end_op = ir::ops::create::create_i18n_end_op(id, Some(end_span));
-            push_create_op(job, child_view_xref, i18n_end_op);
+
+            // Re-borrow child view (borrow checker might complain if we held it?)
+            // No, scope ended. Re-acquire.
+            let child_view = job.views.get_mut(&child_view_xref).unwrap();
+            child_view.create.push(i18n_end_op);
         }
     }
 }
 
 /// Ingest a content (ng-content) node
-fn ingest_content(unit_xref: ir::XrefId, content: t::Content, job: &mut ComponentCompilationJob) {
+fn ingest_content(
+    view: &mut ViewCompilationUnit,
+    content: t::Content,
+    job: &mut ComponentCompilationJob,
+) {
     // Check i18n metadata
     if let Some(ref i18n_meta) = content.i18n {
         match i18n_meta {
@@ -684,9 +673,10 @@ fn ingest_content(unit_xref: ir::XrefId, content: t::Content, job: &mut Componen
     });
 
     if has_non_empty_content {
-        let fallback_view_xref = job.allocate_view(Some(unit_xref));
+        let fallback_view_xref = job.allocate_view(Some(view.xref));
         // Take ownership - no clone needed!
-        ingest_nodes_internal(fallback_view_xref, content.children, job);
+        // Recurse using helper
+        ingest_children_into_view(job, fallback_view_xref, content.children);
         fallback_view = Some(fallback_view_xref);
     }
 
@@ -704,13 +694,9 @@ fn ingest_content(unit_xref: ir::XrefId, content: t::Content, job: &mut Componen
         content.source_span.clone(),
     );
 
-    push_create_op(job, unit_xref, op);
+    view.create.push(op);
 
     // Ingest content attributes as bindings
-    // use crate::schema::dom_element_schema_registry::DomElementSchemaRegistry; // Unused
-    // use crate::schema::element_schema_registry::ElementSchemaRegistry; // Unused
-    // let dom_schema = DomElementSchemaRegistry::new();
-
     for attr in content.attributes {
         let security_context =
             job.schema_registry
@@ -737,13 +723,13 @@ fn ingest_content(unit_xref: ir::XrefId, content: t::Content, job: &mut Componen
             None, // i18n_message
             attr.source_span,
         );
-        push_update_op(job, unit_xref, binding_op);
+        view.update.push(binding_op);
     }
 }
 
 /// Ingest a text node
 fn ingest_text(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     text: t::Text,
     icu_placeholder: Option<String>,
     job: &mut ComponentCompilationJob,
@@ -759,25 +745,34 @@ fn ingest_text(
         icu_placeholder,
         Some(text.source_span.clone()),
     );
-    push_create_op(job, unit_xref, text_op);
+    view.create.push(text_op);
 }
 
 /// Ingest a bound text node
 fn ingest_bound_text(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     bound_text: t::BoundText,
     icu_placeholder: Option<String>,
     prefix: String,
     job: &mut ComponentCompilationJob,
 ) {
-    // Unwrap ASTWithSource if present
-    // Note: In Rust, ASTWithSource is a struct wrapper, not a variant
-    // The value is already the AST, so we don't need to unwrap
     let value = &bound_text.value;
-
-    // Extract Interpolation from AST
     let interpolation_ast = match value {
-        ExprAST::Interpolation(interp) => interp.clone(),
+        // Also handle ExprAST (Expression Parser AST) if it leaks here?
+        // But bound_text.value is t::AST (R3 AST).
+        // Wait, t::AST DOES exist in r3_ast?
+        // Let's check R3 AST definition.
+        // If t::AST exists, maybe I imported wrong one?
+        // Cargo check said: `could not find AST in t`.
+        // So t (r3_ast) does NOT have AST enum?
+        // Let's use ExprAST (imported as AST).
+        // Wait, BoundText value IS R3 AST.
+        // Maybe it is `t::AST::Interpolation`?
+        // Let's assume it should be ExprAST if that's what convert_ast expects?
+        // No, convert_ast expects AST.
+        // If R3 AST uses ExprAST internally?
+        // Let's try `ExprAST::Interpolation`.
+        ExprAST::Interpolation(interp) => interp,
         _ => panic!(
             "AssertionError: expected Interpolation for BoundText node, got {:?}",
             std::mem::discriminant(value)
@@ -835,7 +830,7 @@ fn ingest_bound_text(
         icu_placeholder,
         Some(bound_text.source_span.clone()),
     );
-    push_create_op(job, unit_xref, text_op);
+    view.create.push(text_op);
 
     // Convert expressions - use compatibility mode to determine base source span
     let base_source_span =
@@ -852,7 +847,8 @@ fn ingest_bound_text(
             crate::template::pipeline::src::conversion::convert_ast(
                 expr,
                 job,
-                unit_xref,
+                view.xref,
+                Some(&mut *view),
                 base_source_span,
             )
         })
@@ -875,11 +871,15 @@ fn ingest_bound_text(
         interpolation,
         bound_text.source_span.clone(),
     );
-    push_update_op(job, unit_xref, interpolate_op);
+    view.update.push(interpolate_op);
 }
 
 /// Ingest an if block
-fn ingest_if_block(unit_xref: ir::XrefId, if_block: t::IfBlock, job: &mut ComponentCompilationJob) {
+fn ingest_if_block(
+    view: &mut ViewCompilationUnit,
+    if_block: t::IfBlock,
+    job: &mut ComponentCompilationJob,
+) {
     use crate::template::pipeline::ir::expression::ConditionalCaseExpr;
 
     let mut first_xref: Option<ir::XrefId> = None;
@@ -889,10 +889,10 @@ fn ingest_if_block(unit_xref: ir::XrefId, if_block: t::IfBlock, job: &mut Compon
         // Take ownership of children - no clone needed!
         let children = branch.children;
 
-        let c_view_xref = job.allocate_view(Some(unit_xref));
+        let c_view_xref = job.allocate_view(Some(view.xref));
 
         // Extract tag name from single root element/template for content projection
-        let tag_name = ingest_control_flow_insertion_point_from_children(unit_xref, job, &children);
+        let tag_name = ingest_control_flow_insertion_point_from_children(view, job, &children);
 
         // Extract i18n metadata
         let _i18n_placeholder: Option<crate::i18n::i18n_ast::BlockPlaceholder> = match &branch.i18n
@@ -941,7 +941,7 @@ fn ingest_if_block(unit_xref: ir::XrefId, if_block: t::IfBlock, job: &mut Compon
             (Box::new(op) as Box<dyn ir::CreateOp + Send + Sync>, handle)
         };
 
-        push_create_op(job, unit_xref, conditional_op);
+        view.create.push(conditional_op);
 
         if first_xref.is_none() {
             first_xref = Some(c_view_xref);
@@ -960,7 +960,11 @@ fn ingest_if_block(unit_xref: ir::XrefId, if_block: t::IfBlock, job: &mut Compon
         // Convert expression if present
         let case_expr = branch.expression.as_ref().map(|expr| {
             Box::new(crate::template::pipeline::src::conversion::convert_ast(
-                expr, job, unit_xref, None,
+                expr,
+                job,
+                view.xref,
+                Some(&mut *view),
+                None,
             ))
         });
 
@@ -974,7 +978,7 @@ fn ingest_if_block(unit_xref: ir::XrefId, if_block: t::IfBlock, job: &mut Compon
         conditions.push(conditional_case_expr);
 
         // Ingest children into conditional view
-        ingest_nodes_internal(c_view_xref, children, job);
+        ingest_children_into_view(job, c_view_xref, children);
     }
 
     // Create ConditionalOp update operation
@@ -984,12 +988,12 @@ fn ingest_if_block(unit_xref: ir::XrefId, if_block: t::IfBlock, job: &mut Compon
         conditions,
         if_block.block.source_span.clone(),
     );
-    push_update_op(job, unit_xref, conditional_update_op);
+    view.update.push(conditional_update_op);
 }
 
 /// Ingest a switch block
 fn ingest_switch_block(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     switch_block: t::SwitchBlock,
     job: &mut ComponentCompilationJob,
 ) {
@@ -1007,10 +1011,10 @@ fn ingest_switch_block(
         // Take ownership of children - no clone needed!
         let children = case.children;
 
-        let c_view_xref = job.allocate_view(Some(unit_xref));
+        let c_view_xref = job.allocate_view(Some(view.xref));
 
         // Extract tag name from single root element/template for content projection
-        let tag_name = ingest_control_flow_insertion_point_from_children(unit_xref, job, &children);
+        let tag_name = ingest_control_flow_insertion_point_from_children(view, job, &children);
 
         // Extract i18n metadata
         let _i18n_placeholder: Option<crate::i18n::i18n_ast::BlockPlaceholder> = match &case.i18n {
@@ -1057,7 +1061,7 @@ fn ingest_switch_block(
             (Box::new(op) as Box<dyn ir::CreateOp + Send + Sync>, handle)
         };
 
-        push_create_op(job, unit_xref, conditional_op);
+        view.create.push(conditional_op);
 
         if first_xref.is_none() {
             first_xref = Some(c_view_xref);
@@ -1068,7 +1072,8 @@ fn ingest_switch_block(
             Box::new(crate::template::pipeline::src::conversion::convert_ast(
                 expr,
                 job,
-                unit_xref,
+                view.xref,
+                Some(&mut *view),
                 Some(&switch_block.block.start_source_span),
             ))
         });
@@ -1083,16 +1088,16 @@ fn ingest_switch_block(
         conditions.push(conditional_case_expr);
 
         // Ingest children into conditional view
-        ingest_nodes_internal(c_view_xref, children, job);
+        ingest_children_into_view(job, c_view_xref, children);
     }
 
-    // Convert switch expression
     // Convert switch expression
     let switch_span = switch_block.block.source_span.clone();
     let switch_expr = crate::template::pipeline::src::conversion::convert_ast(
         &switch_block.expression,
         job,
-        unit_xref,
+        view.xref,
+        Some(&mut *view),
         Some(&switch_span),
     );
 
@@ -1103,25 +1108,25 @@ fn ingest_switch_block(
         conditions,
         switch_block.block.source_span.clone(),
     );
-    push_update_op(job, unit_xref, conditional_update_op);
+    view.update.push(conditional_update_op);
 }
 
 /// Ingest a deferred block
 fn ingest_defer_block(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     deferred_block: t::DeferredBlock,
     job: &mut ComponentCompilationJob,
 ) {
     let defer_xref = job.allocate_xref_id();
 
     // 1. Ingest main block
-    let main_view_xref = job.allocate_view(Some(unit_xref));
+    let main_view_xref = job.allocate_view(Some(view.xref));
 
     // Extract children for main view
     let main_children = deferred_block.children.clone();
 
     // Ingest children into main view
-    ingest_nodes_internal(main_view_xref, main_children, job);
+    ingest_children_into_view(job, main_view_xref, main_children);
 
     // Resolver (not yet supported in Rust AST?)
     let own_resolver_fn = None;
@@ -1129,8 +1134,8 @@ fn ingest_defer_block(
     // 2. Ingest @loading block if present
     let (loading_view, loading_minimum_time, loading_after_time) =
         if let Some(loading) = &deferred_block.loading {
-            let view_xref = job.allocate_view(Some(unit_xref));
-            ingest_nodes_internal(view_xref, loading.children.clone(), job);
+            let view_xref = job.allocate_view(Some(view.xref));
+            ingest_children_into_view(job, view_xref, loading.children.clone());
 
             let min = loading.minimum_time.map(|t| t as f64);
             let after = loading.after_time.map(|t| t as f64);
@@ -1142,8 +1147,8 @@ fn ingest_defer_block(
     // 3. Ingest @placeholder block if present
     let (placeholder_view, placeholder_minimum_time) =
         if let Some(placeholder) = &deferred_block.placeholder {
-            let view_xref = job.allocate_view(Some(unit_xref));
-            ingest_nodes_internal(view_xref, placeholder.children.clone(), job);
+            let view_xref = job.allocate_view(Some(view.xref));
+            ingest_children_into_view(job, view_xref, placeholder.children.clone());
 
             let min = placeholder.minimum_time.map(|t| t as f64);
             (Some(view_xref), min)
@@ -1153,8 +1158,8 @@ fn ingest_defer_block(
 
     // 4. Ingest @error block if present
     let error_view = if let Some(error) = &deferred_block.error {
-        let view_xref = job.allocate_view(Some(unit_xref));
-        ingest_nodes_internal(view_xref, error.children.clone(), job);
+        let view_xref = job.allocate_view(Some(view.xref));
+        ingest_children_into_view(job, view_xref, error.children.clone());
 
         Some(view_xref)
     } else {
@@ -1197,7 +1202,7 @@ fn ingest_defer_block(
         defer_op.flags = Some(1); // HasHydrateTriggers flag
     }
 
-    push_create_op(job, unit_xref, Box::new(defer_op));
+    view.create.push(Box::new(defer_op));
 
     // Ingest defer triggers (on, when, etc.)
     // Use vectors to collect ops before pushing
@@ -1206,40 +1211,42 @@ fn ingest_defer_block(
 
     // Ingest hydrate triggers
     ingest_defer_triggers(
-        unit_xref,
+        view.xref,
         ir::enums::DeferOpModifierKind::Hydrate,
         &deferred_block.hydrate_triggers,
         &mut defer_on_ops,
         &mut defer_when_ops,
         defer_xref,
+        Some(&mut *view),
         job,
     );
 
     // Ingest regular triggers
     ingest_defer_triggers(
-        unit_xref,
+        view.xref,
         ir::enums::DeferOpModifierKind::None,
         &deferred_block.triggers,
         &mut defer_on_ops,
         &mut defer_when_ops,
         defer_xref,
+        Some(&mut *view),
         job,
     );
 
     // Ingest prefetch triggers
     ingest_defer_triggers(
-        unit_xref,
+        view.xref,
         ir::enums::DeferOpModifierKind::Prefetch,
         &deferred_block.prefetch_triggers,
         &mut defer_on_ops,
         &mut defer_when_ops,
         defer_xref,
+        Some(&mut *view),
         job,
     );
 
     // If no concrete (non-prefetch, non-hydrate) triggers were provided, default to 'idle'
     // Check if we added any None-modifier triggers.
-    // We check if "regular triggers" block resulted in any ops.
     // If deferred_block.triggers is essentially empty (all fields None).
     let has_concrete_triggers = deferred_block.triggers.idle.is_some()
         || deferred_block.triggers.immediate.is_some()
@@ -1257,15 +1264,15 @@ fn ingest_defer_block(
             ir::enums::DeferOpModifierKind::None,
             deferred_block.block.source_span.clone(),
         );
-        push_create_op(job, unit_xref, idle_op);
+        defer_on_ops.push(idle_op);
     }
 
     // Push converted ops
     for op in defer_on_ops {
-        push_create_op(job, unit_xref, op);
+        view.create.push(op);
     }
     for op in defer_when_ops {
-        push_update_op(job, unit_xref, op);
+        view.update.push(op);
     }
 }
 
@@ -1277,6 +1284,7 @@ fn ingest_defer_triggers(
     defer_on_ops: &mut Vec<Box<dyn ir::CreateOp + Send + Sync>>,
     defer_when_ops: &mut Vec<Box<dyn ir::UpdateOp + Send + Sync>>,
     defer_xref: ir::XrefId,
+    mut external_view: Option<&mut ViewCompilationUnit>,
     job: &mut ComponentCompilationJob,
 ) {
     use crate::template::pipeline::ir::ops::create::DeferTrigger as IRDeferTrigger;
@@ -1383,10 +1391,15 @@ fn ingest_defer_triggers(
     }
 
     // Handle when trigger (creates DeferWhenOp, not DeferOnOp)
-    // Handle when trigger (creates DeferWhenOp, not DeferOnOp)
     if let Some(ref when) = triggers.when {
         let span = when.source_span.clone();
-        let expr = convert_ast(&when.value, job, unit_xref, Some(&span));
+        let expr = convert_ast(
+            &when.value,
+            job,
+            unit_xref,
+            external_view.as_deref_mut(),
+            Some(&span),
+        );
 
         let defer_when_op = ir::ops::update::create_defer_when_op(
             defer_xref,
@@ -1397,7 +1410,6 @@ fn ingest_defer_triggers(
         defer_when_ops.push(defer_when_op);
     }
 }
-
 /// Helper function to extract ICU name from i18n message
 /// Equivalent to TypeScript's icuFromI18nMessage(message).name
 fn icu_from_i18n_message(message: &crate::i18n::i18n_ast::Message) -> Option<String> {
@@ -1412,7 +1424,7 @@ fn icu_from_i18n_message(message: &crate::i18n::i18n_ast::Message) -> Option<Str
 }
 
 /// Ingest an ICU node
-fn ingest_icu(unit_xref: ir::XrefId, icu: t::Icu, job: &mut ComponentCompilationJob) {
+fn ingest_icu(view: &mut ViewCompilationUnit, icu: t::Icu, job: &mut ComponentCompilationJob) {
     // Check if this is a single i18n ICU
     if let Some(I18nMeta::Message(ref msg)) = icu.i18n {
         if is_single_i18n_icu(icu.i18n.as_ref()) {
@@ -1429,13 +1441,13 @@ fn ingest_icu(unit_xref: ir::XrefId, icu: t::Icu, job: &mut ComponentCompilation
                 icu_name.clone(),
                 icu.source_span.clone(),
             );
-            push_create_op(job, unit_xref, icu_start_op);
+            view.create.push(icu_start_op);
 
             // Ingest ICU variables and placeholders
             // Iterate over icu.vars (BoundText) - pass placeholder name
             for (placeholder, bound_text) in &icu.vars {
                 ingest_bound_text(
-                    unit_xref,
+                    view,
                     bound_text.clone(),
                     Some(placeholder.to_string()),
                     String::new(),
@@ -1447,11 +1459,11 @@ fn ingest_icu(unit_xref: ir::XrefId, icu: t::Icu, job: &mut ComponentCompilation
             for (placeholder, icu_ph) in &icu.placeholders {
                 match icu_ph {
                     t::IcuPlaceholder::Text(text) => {
-                        ingest_text(unit_xref, text.clone(), Some(placeholder.to_string()), job);
+                        ingest_text(view, text.clone(), Some(placeholder.to_string()), job);
                     }
                     t::IcuPlaceholder::BoundText(bound_text) => {
                         ingest_bound_text(
-                            unit_xref,
+                            view,
                             bound_text.clone(),
                             Some(placeholder.to_string()),
                             String::new(),
@@ -1463,7 +1475,7 @@ fn ingest_icu(unit_xref: ir::XrefId, icu: t::Icu, job: &mut ComponentCompilation
 
             // Create IcuEndOp
             let icu_end_op = ir::ops::create::create_icu_end_op(xref);
-            push_create_op(job, unit_xref, icu_end_op);
+            view.create.push(icu_end_op);
         } else {
             panic!("ICU must be a single i18n ICU");
         }
@@ -1620,11 +1632,11 @@ fn get_computed_for_loop_variable_expression(
 ///
 /// @returns Tag name to be used for the control flow template.
 fn ingest_control_flow_insertion_point_from_children(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     job: &mut ComponentCompilationJob,
     children: &[t::R3Node],
 ) -> Option<String> {
-    use crate::i18n::i18n_ast::{I18nMeta, Node as I18nNode};
+    use crate::i18n::i18n_ast::I18nMeta;
     use crate::schema::dom_element_schema_registry::DomElementSchemaRegistry;
     use crate::schema::element_schema_registry::ElementSchemaRegistry;
 
@@ -1697,7 +1709,7 @@ fn ingest_control_flow_insertion_point_from_children(
                                     for class_name in class_value.split_whitespace() {
                                         let extracted_attr_op =
                                             ir::ops::create::create_extracted_attribute_op(
-                                                unit_xref,
+                                                view.xref,
                                                 ir::BindingKind::ClassName,
                                                 None, // namespace
                                                 class_name.to_string().into(),
@@ -1707,7 +1719,7 @@ fn ingest_control_flow_insertion_point_from_children(
                                                 vec![security_context.clone()],
                                                 None, // source_span - derived from class literal?
                                             );
-                                        push_create_op(job, unit_xref, extracted_attr_op);
+                                        view.create.push(extracted_attr_op);
                                     }
                                     continue;
                                 }
@@ -1715,7 +1727,7 @@ fn ingest_control_flow_insertion_point_from_children(
                         }
 
                         let extracted_attr_op = ir::ops::create::create_extracted_attribute_op(
-                            unit_xref,
+                            view.xref,
                             ir::BindingKind::Attribute,
                             None, // namespace
                             attr.name.clone(),
@@ -1725,7 +1737,7 @@ fn ingest_control_flow_insertion_point_from_children(
                             vec![security_context],
                             Some(attr.source_span.clone()),
                         );
-                        push_create_op(job, unit_xref, extracted_attr_op);
+                        view.create.push(extracted_attr_op);
                     }
                 }
 
@@ -1738,7 +1750,7 @@ fn ingest_control_flow_insertion_point_from_children(
                         let security_context =
                             dom_schema.security_context(&NG_TEMPLATE_TAG_NAME, &input.name, true);
                         let extracted_attr_op = ir::ops::create::create_extracted_attribute_op(
-                            unit_xref,
+                            view.xref,
                             ir::BindingKind::Property,
                             None, // name
                             input.name.clone(),
@@ -1748,7 +1760,7 @@ fn ingest_control_flow_insertion_point_from_children(
                             vec![security_context],
                             Some(input.source_span.clone()),
                         );
-                        push_create_op(job, unit_xref, extracted_attr_op);
+                        view.create.push(extracted_attr_op);
                     }
                 }
 
@@ -1784,7 +1796,7 @@ fn ingest_control_flow_insertion_point_from_children(
                         };
 
                         let extracted_attr_op = ir::ops::create::create_extracted_attribute_op(
-                            unit_xref,
+                            view.xref,
                             ir::BindingKind::Attribute,
                             None, // namespace
                             attr.name.clone(),
@@ -1794,7 +1806,7 @@ fn ingest_control_flow_insertion_point_from_children(
                             vec![security_context],
                             Some(attr.source_span.clone()),
                         );
-                        push_create_op(job, unit_xref, extracted_attr_op);
+                        view.create.push(extracted_attr_op);
                     }
                 }
 
@@ -1807,7 +1819,7 @@ fn ingest_control_flow_insertion_point_from_children(
                         let security_context =
                             dom_schema.security_context(&NG_TEMPLATE_TAG_NAME, &input.name, true);
                         let extracted_attr_op = ir::ops::create::create_extracted_attribute_op(
-                            unit_xref,
+                            view.xref,
                             ir::BindingKind::Property,
                             None,
                             input.name.clone(),
@@ -1817,7 +1829,7 @@ fn ingest_control_flow_insertion_point_from_children(
                             vec![security_context],
                             Some(input.source_span.clone()),
                         );
-                        push_create_op(job, unit_xref, extracted_attr_op);
+                        view.create.push(extracted_attr_op);
                     }
                 }
 
@@ -1837,12 +1849,12 @@ fn ingest_control_flow_insertion_point_from_children(
 
 /// Ingest a for loop block
 fn ingest_for_block(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     for_loop: t::ForLoopBlock,
     job: &mut ComponentCompilationJob,
 ) {
     // Allocate view for repeater
-    let repeater_view_xref = job.allocate_view(Some(unit_xref));
+    let repeater_view_xref = job.allocate_view(Some(view.xref));
 
     // Get repeater view - safe access via method if we had one, but here we need to mutate
     // We should use the safe access pattern:
@@ -1915,24 +1927,34 @@ fn ingest_for_block(
     let track_expr = crate::template::pipeline::src::conversion::convert_ast(
         &for_loop.track_by.ast,
         job,
-        unit_xref,
+        view.xref,
+        Some(&mut *view),
         track_source_span,
     );
 
     // Ingest children into repeater view
-    ingest_nodes_internal(repeater_view_xref, children, job);
+    ingest_children_into_view(job, repeater_view_xref, children);
 
     // Handle empty view if present
     let (empty_view_xref, empty_tag_name) = if let Some(empty) = &for_loop.empty {
-        let empty_xref = job.allocate_view(Some(unit_xref));
+        let empty_xref = job.allocate_view(Some(view.xref));
         let empty_children = empty.children.clone();
 
         // Extract tag name from single root element/template for content projection
-        let empty_tag_name =
-            ingest_control_flow_insertion_point_from_children(empty_xref, job, &empty_children);
+        let empty_tag_name = {
+            let mut empty_view =
+                std::mem::replace(job.views.get_mut(&empty_xref).unwrap(), create_dummy_view());
+            let name = ingest_control_flow_insertion_point_from_children(
+                &mut empty_view,
+                job,
+                &empty_children,
+            );
+            *job.views.get_mut(&empty_xref).unwrap() = empty_view;
+            name
+        };
 
         // Ingest empty children
-        ingest_nodes_internal(empty_xref, empty_children, job);
+        ingest_children_into_view(job, empty_xref, empty_children);
 
         (Some(empty_xref), empty_tag_name)
     } else {
@@ -1960,11 +1982,19 @@ fn ingest_for_block(
         });
 
     // Extract tag name from single root element/template for content projection
-    let tag_name = ingest_control_flow_insertion_point_from_children(
-        repeater_view_xref,
-        job,
-        &for_loop.children,
-    );
+    let tag_name = {
+        let mut repeater_view = std::mem::replace(
+            job.views.get_mut(&repeater_view_xref).unwrap(),
+            create_dummy_view(),
+        );
+        let name = ingest_control_flow_insertion_point_from_children(
+            &mut repeater_view,
+            job,
+            &for_loop.children,
+        );
+        *job.views.get_mut(&repeater_view_xref).unwrap() = repeater_view;
+        name
+    };
 
     // Create RepeaterCreateOp - need to create it first to get handle
     let repeater_create_op = ir::ops::create::RepeaterCreateOp::new(
@@ -1984,18 +2014,16 @@ fn ingest_for_block(
     let repeater_handle = repeater_create_op.base.base.handle.clone();
 
     // Box and push
-    push_create_op(
-        job,
-        unit_xref,
-        Box::new(repeater_create_op) as Box<dyn ir::CreateOp + Send + Sync>,
-    );
+    view.create
+        .push(Box::new(repeater_create_op) as Box<dyn ir::CreateOp + Send + Sync>);
 
     // Convert for loop expression - use source span from expression if available
     let expression_source_span = Some(&for_loop.block.source_span);
     let collection_expr = crate::template::pipeline::src::conversion::convert_ast(
         &for_loop.expression.ast,
         job,
-        unit_xref,
+        view.xref,
+        Some(&mut *view),
         expression_source_span,
     );
 
@@ -2007,12 +2035,12 @@ fn ingest_for_block(
         for_loop.block.source_span.clone(),
     );
 
-    push_update_op(job, unit_xref, repeater_op);
+    view.update.push(repeater_op);
 }
 
 /// Ingest a let declaration
 fn ingest_let_declaration(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     let_decl: t::LetDeclaration,
     job: &mut ComponentCompilationJob,
 ) {
@@ -2024,13 +2052,14 @@ fn ingest_let_declaration(
         let_decl.name.clone(),
         let_decl.source_span.clone(),
     );
-    push_create_op(job, unit_xref, declare_let_op);
+    view.create.push(declare_let_op);
 
     // Convert value expression
     let value_expr = crate::template::pipeline::src::conversion::convert_ast(
         &let_decl.value,
         job,
-        unit_xref,
+        view.xref,
+        Some(&mut *view),
         Some(&let_decl.value_span),
     );
 
@@ -2041,7 +2070,7 @@ fn ingest_let_declaration(
         value_expr,
         let_decl.source_span.clone(),
     );
-    push_update_op(job, unit_xref, store_let_op);
+    view.update.push(store_let_op);
 }
 
 /// Check if a template is a plain template (not a structural directive)
@@ -2050,10 +2079,9 @@ fn is_plain_template(tmpl: &t::Template) -> bool {
     tmpl.template_attrs.is_empty() && tmpl.inputs.is_empty() && tmpl.outputs.is_empty()
 }
 
-/// Process all of the bindings on an element in the template AST and convert them to their IR representation.
-/// Process all of the bindings on an element in the template AST and convert them to their IR representation.
+/// Process all of the bindings (inputs/attributes) on an element
 fn ingest_element_bindings(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     element_xref: ir::XrefId,
     element: &t::Element,
     job: &mut ComponentCompilationJob,
@@ -2110,7 +2138,7 @@ fn ingest_element_bindings(
             attr.source_span.clone(),
         );
 
-        push_update_op(job, unit_xref, binding_op);
+        view.update.push(binding_op);
 
         if attr.i18n.is_some() {
             i18n_attribute_binding_names.insert(attr.name.clone());
@@ -2138,7 +2166,8 @@ fn ingest_element_bindings(
         let expression = crate::template::pipeline::src::conversion::convert_ast(
             &input.value,
             job,
-            unit_xref,
+            view.xref, // pass view xref for context lookup
+            Some(&mut *view),
             input.value_span.as_ref(),
         );
 
@@ -2162,13 +2191,13 @@ fn ingest_element_bindings(
             input.source_span.clone(),
         );
 
-        push_update_op(job, unit_xref, binding_op);
+        view.update.push(binding_op);
     }
 }
 
 /// Process all of the events (outputs) on an element in the template AST
 fn ingest_element_events(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     element_xref: ir::XrefId,
     element_tag: &str,
     element: &t::Element,
@@ -2189,8 +2218,13 @@ fn ingest_element_events(
     }
 
     for output in &element.outputs {
-        let handler_ops =
-            make_listener_handler_ops(&output.handler, &output.handler_span, unit_xref, job);
+        let handler_ops = make_listener_handler_ops(
+            &output.handler,
+            &output.handler_span,
+            view.xref,
+            Some(&mut *view),
+            job,
+        );
 
         let output_type = if output.type_ == ParsedEventType::Regular
             && two_way_outputs.contains(&*output.name)
@@ -2223,7 +2257,7 @@ fn ingest_element_events(
                     false,                                         // host_listener
                     output.source_span.clone(),
                 );
-                push_create_op(job, unit_xref, animation_listener_op);
+                view.create.push(animation_listener_op);
             }
             ParsedEventType::Regular => {
                 let consumes_dollar_event = uses_dollar_event(&output.handler);
@@ -2240,7 +2274,7 @@ fn ingest_element_events(
                     output.source_span.clone(),
                     consumes_dollar_event,
                 );
-                push_create_op(job, unit_xref, listener_op);
+                view.create.push(listener_op);
             }
             ParsedEventType::TwoWay => {
                 // TwoWay events need special handling: wrap the handler expression with TwoWayBindingSetExpr
@@ -2249,8 +2283,9 @@ fn ingest_element_events(
                 let two_way_handler_ops = make_two_way_listener_handler_ops(
                     &output.handler,
                     &output.handler_span,
-                    unit_xref,
+                    view.xref,
                     job,
+                    Some(&mut *view),
                 );
                 let two_way_listener_op = ir::ops::create::create_two_way_listener_op(
                     job.allocate_xref_id(),
@@ -2261,7 +2296,7 @@ fn ingest_element_events(
                     two_way_handler_ops,
                     output.source_span.clone(),
                 );
-                push_create_op(job, unit_xref, two_way_listener_op);
+                view.create.push(two_way_listener_op);
             }
             ParsedEventType::LegacyAnimation => {
                 // LegacyAnimation events use phase instead of target
@@ -2279,7 +2314,7 @@ fn ingest_element_events(
                     output.source_span.clone(),
                     consumes_dollar_event,
                 );
-                push_create_op(job, unit_xref, listener_op);
+                view.create.push(listener_op);
             }
         }
     }
@@ -2367,6 +2402,7 @@ fn make_listener_handler_ops(
     handler: &crate::expression_parser::ast::AST,
     handler_span: &ParseSourceSpan,
     unit_xref: ir::XrefId,
+    mut external_view: Option<&mut ViewCompilationUnit>,
     job: &mut ComponentCompilationJob,
 ) -> crate::template::pipeline::ir::operations::OpList<
     Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
@@ -2404,6 +2440,7 @@ fn make_listener_handler_ops(
                 expr,
                 job,
                 unit_xref,
+                external_view.as_deref_mut(),
                 Some(handler_span),
             )
         })
@@ -2446,6 +2483,7 @@ fn make_two_way_listener_handler_ops(
     handler_span: &ParseSourceSpan,
     unit_xref: ir::XrefId,
     job: &mut ComponentCompilationJob,
+    mut external_view: Option<&mut ViewCompilationUnit>,
 ) -> crate::template::pipeline::ir::operations::OpList<
     Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
 > {
@@ -2485,6 +2523,7 @@ fn make_two_way_listener_handler_ops(
                 expr,
                 job,
                 unit_xref,
+                external_view.as_deref_mut(),
                 Some(handler_span),
             )
         })
@@ -2543,86 +2582,10 @@ fn make_two_way_listener_handler_ops(
     handler_ops.push(Box::new(stmt_op));
     handler_ops
 }
-/// Helper function to convert event handler AST into UpdateOps for host bindings
-fn make_host_listener_handler_ops(
-    handler: &crate::expression_parser::ast::AST,
-    handler_span: &ParseSourceSpan,
-    unit_xref: ir::XrefId,
-    job: &mut HostBindingCompilationJob,
-) -> crate::template::pipeline::ir::operations::OpList<
-    Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
-> {
-    use crate::expression_parser::ast::AST;
-    use crate::output::output_ast::{Expression, ExpressionStatement, ReturnStatement, Statement};
-    use crate::template::pipeline::ir::operations::OpList;
-    use crate::template::pipeline::ir::ops::shared::create_statement_op;
-
-    let mut handler_ops: OpList<
-        Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
-    > = OpList::new();
-
-    // Unwrap AST - AST doesn't have ASTWithSource wrapper in Rust
-    let handler_ast: &AST = handler;
-
-    // Handle Chain expressions - split into multiple statements
-    let handler_exprs: Vec<&AST> = match handler_ast {
-        AST::Chain(chain) => {
-            // chain.expressions is Vec<Box<AST>>, so we need to dereference
-            chain.expressions.iter().map(|expr| expr.as_ref()).collect()
-        }
-        _ => vec![handler_ast],
-    };
-
-    if handler_exprs.is_empty() {
-        panic!("Expected listener to have non-empty expression list");
-    }
-
-    // Convert expressions
-    let mut expressions: Vec<Expression> = handler_exprs
-        .iter()
-        .map(|expr| {
-            crate::template::pipeline::src::conversion::convert_ast(
-                expr,
-                job,
-                unit_xref,
-                Some(handler_span),
-            )
-        })
-        .collect();
-
-    // The last expression is the return value
-    let return_expr = expressions.pop().unwrap();
-
-    // Add statements for intermediate expressions
-    for expr in expressions {
-        let expr_stmt = ExpressionStatement {
-            expr: Box::new(expr),
-            source_span: Some(handler_span.clone()),
-        };
-        let stmt = Statement::Expression(expr_stmt);
-        let stmt_op = create_statement_op::<
-            Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
-        >(Box::new(stmt));
-        handler_ops.push(Box::new(stmt_op));
-    }
-
-    // Add return statement
-    let return_stmt_val = ReturnStatement {
-        value: Box::new(return_expr),
-        source_span: Some(handler_span.clone()),
-    };
-    let stmt = Statement::Return(return_stmt_val);
-    let stmt_op = create_statement_op::<
-        Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
-    >(Box::new(stmt));
-    handler_ops.push(Box::new(stmt_op));
-
-    handler_ops
-}
 
 /// Process all of the local references on an element-like structure in the template AST
 fn ingest_references(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     element_xref: ir::XrefId,
     element: &t::Element,
     job: &mut ComponentCompilationJob,
@@ -2630,7 +2593,8 @@ fn ingest_references(
     use crate::template::pipeline::ir::enums::OpKind;
     use crate::template::pipeline::ir::ops::create::{ElementStartOp, LocalRef};
 
-    let unit = get_unit_mut(job, unit_xref);
+    // We can access ops directly in the view
+    let unit = view;
 
     // Find the ElementStartOp in the create list and update its local_refs
     for op in unit.create.iter_mut() {
@@ -2665,7 +2629,7 @@ fn ingest_references(
 
 /// Process all of the events (outputs) on a template in the template AST
 fn ingest_template_events(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     template_xref: ir::XrefId,
     template_tag: Option<&str>,
     outputs: &[t::BoundEvent],
@@ -2681,8 +2645,13 @@ fn ingest_template_events(
     for output in outputs {
         // For NgTemplate, handle all event types
         if template_kind == ir::TemplateKind::NgTemplate {
-            let handler_ops =
-                make_listener_handler_ops(&output.handler, &output.handler_span, unit_xref, job);
+            let handler_ops = make_listener_handler_ops(
+                &output.handler,
+                &output.handler_span,
+                view.xref,
+                Some(&mut *view),
+                job,
+            );
 
             let consumes_dollar_event = uses_dollar_event(&output.handler);
             let listener_op = create_listener_op(
@@ -2698,7 +2667,7 @@ fn ingest_template_events(
                 output.source_span.clone(),
                 consumes_dollar_event,
             );
-            push_create_op(job, unit_xref, listener_op);
+            view.create.push(listener_op);
         }
 
         // For structural templates, only handle animation events
@@ -2707,7 +2676,8 @@ fn ingest_template_events(
                 let handler_ops = make_listener_handler_ops(
                     &output.handler,
                     &output.handler_span,
-                    unit_xref,
+                    view.xref,
+                    Some(&mut *view),
                     job,
                 );
 
@@ -2731,7 +2701,7 @@ fn ingest_template_events(
                     false, // host_listener
                     output.source_span.clone(),
                 );
-                push_create_op(job, unit_xref, animation_listener_op);
+                view.create.push(animation_listener_op);
             } else if let ParsedEventType::Regular = output.type_ {
                 // For regular events on structural directives, we don't create a ListenerOp
                 // because the listener belongs to the element inside the views.
@@ -2753,7 +2723,7 @@ fn ingest_template_events(
                     vec![SecurityContext::NONE],
                     Some(output.source_span.clone()),
                 );
-                push_create_op(job, unit_xref, extracted_attr_op);
+                view.create.push(extracted_attr_op);
             }
         }
     }
@@ -2761,7 +2731,7 @@ fn ingest_template_events(
 
 /// Process all of the local references on a template
 fn ingest_references_template(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     template_xref: ir::XrefId,
     tmpl: &t::Template,
     job: &mut ComponentCompilationJob,
@@ -2769,7 +2739,7 @@ fn ingest_references_template(
     use crate::template::pipeline::ir::enums::OpKind;
     use crate::template::pipeline::ir::ops::create::{LocalRef, TemplateOp};
 
-    let unit = get_unit_mut(job, unit_xref);
+    let unit = view;
 
     // Find the TemplateOp in the create list and update its local_refs
     for op in unit.create.iter_mut() {
@@ -2804,7 +2774,7 @@ fn ingest_references_template(
 
 /// Process all of the bindings on a template in the template AST
 fn ingest_template_bindings(
-    unit_xref: ir::XrefId,
+    view: &mut ViewCompilationUnit,
     template_xref: ir::XrefId,
     tmpl: &t::Template,
     template_kind: ir::TemplateKind,
@@ -2838,7 +2808,7 @@ fn ingest_template_bindings(
                 vec![input.security_context],
                 Some(input.source_span.clone()),
             );
-            push_create_op(job, unit_xref, extracted_op);
+            view.create.push(extracted_op);
             continue;
         }
 
@@ -2849,14 +2819,15 @@ fn ingest_template_bindings(
             crate::expression_parser::ast::BindingType::Style => ir::BindingKind::StyleProperty,
             crate::expression_parser::ast::BindingType::Animation => ir::BindingKind::Animation,
             crate::expression_parser::ast::BindingType::TwoWay => ir::BindingKind::TwoWayProperty,
-            _ => ir::BindingKind::Property,
+            _ => ir::BindingKind::Property, // Default fallback
         };
 
         // Convert input value
         let expression = crate::template::pipeline::src::conversion::convert_ast(
             &input.value,
             job,
-            unit_xref,
+            view.xref,
+            Some(&mut *view),
             input.value_span.as_ref(),
         );
 
@@ -2873,32 +2844,30 @@ fn ingest_template_bindings(
             BindingExpression::Expression(expression),
             input.unit.as_ref().map(|u| u.to_string()),
             vec![input.security_context],
-            false,                                         // is_text_attr
-            template_kind == ir::TemplateKind::Structural, // is_structural_template_attribute
-            Some(template_kind),                           // template_kind
+            false,               // is_text_attr
+            false,               // is_structural_template_attribute
+            Some(template_kind), // template_kind
             i18n_message,
             input.source_span.clone(),
         );
 
-        push_update_op(job, unit_xref, binding_op);
+        view.update.push(binding_op);
     }
 
-    // Process template attributes (text attributes on templates - directive-specific like ngFor)
-    // TemplateAttr is an enum with Bound and Text variants
+    // Process template attributes (e.g. structural directive attrs)
     for attr in &tmpl.template_attrs {
         match attr {
             t::TemplateAttr::Text(text_attr) => {
                 // Convert attribute value
-                let expression =
-                    BindingExpression::Expression(crate::output::output_ast::Expression::Literal(
-                        crate::output::output_ast::LiteralExpr {
-                            value: crate::output::output_ast::LiteralValue::String(
-                                text_attr.value.to_string(),
-                            ),
-                            type_: None,
-                            source_span: Some(text_attr.source_span.clone()),
-                        },
-                    ));
+                let expression = crate::output::output_ast::Expression::Literal(
+                    crate::output::output_ast::LiteralExpr {
+                        value: crate::output::output_ast::LiteralValue::String(
+                            text_attr.value.to_string(),
+                        ),
+                        type_: None,
+                        source_span: Some(text_attr.source_span.clone()),
+                    },
+                );
 
                 // Extract i18n message if present
                 let i18n_message = match &text_attr.i18n {
@@ -2910,17 +2879,17 @@ fn ingest_template_bindings(
                     template_xref,
                     ir::BindingKind::Attribute,
                     text_attr.name.clone(),
-                    expression,
+                    BindingExpression::Expression(expression),
                     None,                                          // unit
-                    vec![crate::core::SecurityContext::NONE], // Default security context for template attrs
-                    true,                                     // is_text_attr
+                    vec![crate::core::SecurityContext::NONE],      // Default security context
+                    true,                                          // is_text_attr
                     template_kind == ir::TemplateKind::Structural, // is_structural_template_attribute
                     Some(template_kind),                           // template_kind
                     i18n_message,
                     text_attr.source_span.clone(),
                 );
 
-                push_update_op(job, unit_xref, binding_op);
+                view.update.push(binding_op);
             }
             t::TemplateAttr::Bound(bound_attr) => {
                 // Process bound attributes on templates (like ngForOf for *ngFor)
@@ -2949,7 +2918,8 @@ fn ingest_template_bindings(
                 let expression = crate::template::pipeline::src::conversion::convert_ast(
                     &bound_attr.value,
                     job,
-                    unit_xref,
+                    view.xref,
+                    Some(&mut *view),
                     bound_attr.value_span.as_ref(),
                 );
 
@@ -2973,7 +2943,7 @@ fn ingest_template_bindings(
                     bound_attr.source_span.clone(),
                 );
 
-                push_update_op(job, unit_xref, binding_op);
+                view.update.push(binding_op);
 
                 // For structural directives, bound attributes (inputs) like `ngForOf` must also
                 // appear in the `consts` array as attributes for directive matching to work.
@@ -2999,7 +2969,7 @@ fn ingest_template_bindings(
                         vec![crate::core::SecurityContext::NONE],
                         Some(bound_attr.source_span.clone()),
                     );
-                    push_create_op(job, unit_xref, extracted_op);
+                    view.create.push(extracted_op);
                 }
             }
         }
@@ -3040,46 +3010,12 @@ fn ingest_template_bindings(
             attr.source_span.clone(),
         );
 
-        push_update_op(job, unit_xref, binding_op);
+        view.update.push(binding_op);
     }
 }
 
 // ingest_dom_property is now in ingest_helpers.rs
 // This duplicate implementation has been removed - use ingest_helpers::ingest_dom_property instead
-
-/// Ingest a host attribute binding
-fn ingest_host_attribute(
-    job: &mut HostBindingCompilationJob,
-    name: String,
-    value: Expression,
-    security_contexts: Vec<crate::core::SecurityContext>,
-) {
-    use crate::template::pipeline::ir::ops::update::{create_binding_op, BindingExpression};
-
-    // Host attributes should always be extracted to const hostAttrs
-    // Create binding op with is_text_attr = true
-    use crate::output::output_ast::ExpressionTrait;
-    let source_span = value.source_span().cloned().unwrap_or_else(|| {
-        let loc = ParseLocation::from_source("".to_string(), "".to_string(), 0, 0, 0);
-        ParseSourceSpan::new(loc.clone(), loc)
-    });
-
-    let binding_op = create_binding_op(
-        job.root.xref,
-        ir::BindingKind::Attribute,
-        name.into(),
-        BindingExpression::Expression(value.clone()),
-        None, // unit
-        security_contexts,
-        true,  // is_text_attr - always true for host attributes
-        false, // is_structural_template_attribute
-        None,  // template_kind
-        None,  // i18n_message
-        source_span,
-    );
-
-    job.root.update.push(binding_op);
-}
 
 // ingest_host_event is now in ingest_helpers.rs
 // This duplicate implementation has been removed - use ingest_helpers::ingest_host_event instead

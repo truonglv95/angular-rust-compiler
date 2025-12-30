@@ -453,10 +453,7 @@ impl Compiler {
             return vec![];
         }
 
-        let total_start = std::time::Instant::now();
-
         // 1. Setup Capturing FileSystem & Root Names
-        let fs_start = std::time::Instant::now();
         let fs = CapturingFileSystem::new();
         let mut root_names = Vec::new();
         let mut file_map = HashMap::new();
@@ -472,7 +469,6 @@ impl Compiler {
             root_names.push(abs_filename_str.clone());
             file_map.insert(abs_filename_str, &file.filename);
         }
-        println!("Rust [FS Setup]: {:?}", fs_start.elapsed());
 
         // 2. Setup Compiler Options
         let mut options = NgCompilerOptions::default();
@@ -482,12 +478,9 @@ impl Compiler {
         // Ensure we compile all inputs - default behavior is sufficient
 
         // 3. Create Program (ONCE)
-        let prog_start = std::time::Instant::now();
         let mut program = NgtscProgram::new(root_names.clone(), options, &fs);
-        println!("Rust [Program New]: {:?}", prog_start.elapsed());
 
         // 4. Load NG Structure
-        let load_start = std::time::Instant::now();
         let mut global_diagnostics = Vec::new();
         if let Err(e) = program.load_ng_structure(Path::new("/")) {
             return files
@@ -505,12 +498,9 @@ impl Compiler {
                 })
                 .collect();
         }
-        println!("Rust [Load Structure]: {:?}", load_start.elapsed());
 
         // 5. Emit
-        let emit_start = std::time::Instant::now();
         let emit_result = program.emit();
-        println!("Rust [Emit]: {:?}", emit_start.elapsed());
 
         if let Ok(diags) = &emit_result {
             for diag in diags {
@@ -540,7 +530,6 @@ impl Compiler {
         }
 
         // 6. Collect Results
-        let collect_start = std::time::Instant::now();
         let mut results = Vec::new();
 
         let mut file_diagnostics: HashMap<String, Vec<Diagnostic>> = HashMap::new();
@@ -563,8 +552,6 @@ impl Compiler {
                 diagnostics: diags,
             });
         }
-        println!("Rust [Collect Results]: {:?}", collect_start.elapsed());
-        println!("Rust [Total Batch Time]: {:?}", total_start.elapsed());
 
         results
     }

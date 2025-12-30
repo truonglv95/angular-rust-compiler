@@ -468,7 +468,7 @@ fn extract_defer_blocks(nodes: &[t::R3Node]) -> Vec<DeferredBlock> {
     for node in nodes {
         match node {
             t::R3Node::DeferredBlock(block) => {
-                blocks.push(block.clone());
+                blocks.push((**block).clone());
                 // Also check nested blocks
                 blocks.extend(extract_defer_blocks(&block.children));
                 if let Some(ref placeholder) = block.placeholder {
@@ -667,7 +667,7 @@ fn match_directives_in_template<DirectiveT: DirectiveMeta + Clone>(
                             });
                             if !matched_directives.is_empty() {
                                 let owner = DirectiveOwnerWrapper::from(&DirectiveOwner::Element(
-                                    el.clone(),
+                                    (**el).clone(),
                                 ));
                                 directives_map.insert(owner.clone(), matched_directives.clone());
                                 if !is_deferred {
@@ -681,7 +681,7 @@ fn match_directives_in_template<DirectiveT: DirectiveMeta + Clone>(
                                     &el.attributes,
                                     &matched_directives,
                                     bindings,
-                                    &DirectiveOwner::Element(el.clone()),
+                                    &DirectiveOwner::Element((**el).clone()),
                                 );
                             }
                         }
@@ -715,7 +715,7 @@ fn match_directives_in_template<DirectiveT: DirectiveMeta + Clone>(
                             });
                             if !matched_directives.is_empty() {
                                 let owner = DirectiveOwnerWrapper::from(&DirectiveOwner::Template(
-                                    tmpl.clone(),
+                                    (**tmpl).clone(),
                                 ));
                                 directives_map.insert(owner.clone(), matched_directives.clone());
                                 if !is_deferred {
@@ -729,7 +729,7 @@ fn match_directives_in_template<DirectiveT: DirectiveMeta + Clone>(
                                     &tmpl.attributes,
                                     &matched_directives,
                                     bindings,
-                                    &DirectiveOwner::Template(tmpl.clone()),
+                                    &DirectiveOwner::Template((**tmpl).clone()),
                                 );
                             }
                         }
@@ -768,7 +768,7 @@ fn match_directives_in_template<DirectiveT: DirectiveMeta + Clone>(
                         let matched = selectorless_matcher.match_name(&comp.component_name);
                         if !matched.is_empty() {
                             let owner = DirectiveOwnerWrapper::from(&DirectiveOwner::Component(
-                                comp.clone(),
+                                (**comp).clone(),
                             ));
                             directives_map.insert(owner, matched.clone());
                             if !is_deferred {
@@ -795,8 +795,9 @@ fn match_directives_in_template<DirectiveT: DirectiveMeta + Clone>(
                 if let DirectiveMatcher::Selectorless(selectorless_matcher) = matcher {
                     let matched = selectorless_matcher.match_name(&dir.name);
                     if !matched.is_empty() {
-                        let owner =
-                            DirectiveOwnerWrapper::from(&DirectiveOwner::Directive(dir.clone()));
+                        let owner = DirectiveOwnerWrapper::from(&DirectiveOwner::Directive(
+                            (**dir).clone(),
+                        ));
                         directives_map.insert(owner, matched.clone());
                         if !is_deferred {
                             eager_directives.extend(matched);
@@ -1131,7 +1132,8 @@ fn visit_expressions_in_template(
                 let wrapper = ScopedNodeWrapper {
                     key: span_key.clone(),
                 };
-                scoped_nodes_by_span.insert(span_key.clone(), ScopedNode::Template(tmpl.clone()));
+                scoped_nodes_by_span
+                    .insert(span_key.clone(), ScopedNode::Template((**tmpl).clone()));
                 nesting_level.insert(wrapper.clone(), current_level + 1);
 
                 // Collect entities for this template scope
@@ -1178,7 +1180,7 @@ fn visit_expressions_in_template(
 
                 // Add to entities of current scope
                 if let Some(entities) = scoped_node_entities.get_mut(&current_scope) {
-                    entities.push(TemplateEntity::LetDeclaration(decl.clone()));
+                    entities.push(TemplateEntity::LetDeclaration((*decl).as_ref().clone()));
                 } else {
                     // This creates a new entry if somehow missing, though it should be initialized
                     // For root scope, it is initialized. For branches, it might not be if we didn't init it yet.
@@ -1187,7 +1189,7 @@ fn visit_expressions_in_template(
                     // We must ensure it is initialized.
                     scoped_node_entities.insert(
                         current_scope.clone(),
-                        vec![TemplateEntity::LetDeclaration(decl.clone())],
+                        vec![TemplateEntity::LetDeclaration((*decl).as_ref().clone())],
                     );
                 }
 
@@ -1200,8 +1202,10 @@ fn visit_expressions_in_template(
                 let wrapper = ScopedNodeWrapper {
                     key: span_key.clone(),
                 };
-                scoped_nodes_by_span
-                    .insert(span_key.clone(), ScopedNode::ForLoopBlock(for_loop.clone()));
+                scoped_nodes_by_span.insert(
+                    span_key.clone(),
+                    ScopedNode::ForLoopBlock((**for_loop).clone()),
+                );
                 nesting_level.insert(wrapper.clone(), current_level + 1);
 
                 // Track item variable as symbol and entity
@@ -1234,8 +1238,10 @@ fn visit_expressions_in_template(
                 let wrapper = ScopedNodeWrapper {
                     key: span_key.clone(),
                 };
-                scoped_nodes_by_span
-                    .insert(span_key.clone(), ScopedNode::IfBlockBranch(branch.clone()));
+                scoped_nodes_by_span.insert(
+                    span_key.clone(),
+                    ScopedNode::IfBlockBranch((**branch).clone()),
+                );
                 nesting_level.insert(wrapper.clone(), current_level + 1);
 
                 // Collect entities for this branch scope
@@ -1279,8 +1285,10 @@ fn visit_expressions_in_template(
                 let wrapper = ScopedNodeWrapper {
                     key: span_key.clone(),
                 };
-                scoped_nodes_by_span
-                    .insert(span_key.clone(), ScopedNode::SwitchBlockCase(case.clone()));
+                scoped_nodes_by_span.insert(
+                    span_key.clone(),
+                    ScopedNode::SwitchBlockCase((**case).clone()),
+                );
                 nesting_level.insert(wrapper.clone(), current_level + 1);
 
                 // Initialize entities
@@ -1651,7 +1659,7 @@ fn extract_entities_recursive(nodes: &[t::R3Node], entities: &mut Vec<TemplateEn
                 // variables and children are in the inner scope - DO NOT recurse
             }
             t::R3Node::LetDeclaration(decl) => {
-                entities.push(TemplateEntity::LetDeclaration(decl.clone()));
+                entities.push(TemplateEntity::LetDeclaration((*decl).as_ref().clone()));
             }
             t::R3Node::IfBlock(_)
             | t::R3Node::ForLoopBlock(_)
@@ -1967,7 +1975,7 @@ impl<DirectiveT: DirectiveMeta + Clone + 'static> BoundTarget<DirectiveT>
                         return None;
                     }
                     if let t::R3Node::Element(el) = child {
-                        target = Some(el.clone());
+                        target = Some((*el).as_ref().clone());
                     }
                 }
                 return target;
@@ -2022,7 +2030,7 @@ fn find_element_by_reference(nodes: &[t::R3Node], ref_name: &str) -> Option<Elem
                 // Check if this element has a matching reference
                 for ref_node in &el.references {
                     if &*ref_node.name == ref_name {
-                        return Some(el.clone());
+                        return Some((*el).as_ref().clone());
                     }
                 }
                 // Recursively check children
@@ -2236,7 +2244,7 @@ fn find_reference_target_in_nodes<DirectiveT: DirectiveMeta>(
                 // Check if this element has a matching reference
                 for ref_node in &el.references {
                     if ref_node.name == reference.name {
-                        return Some(ReferenceTarget::Element(el.clone()));
+                        return Some(ReferenceTarget::Element((*el).as_ref().clone()));
                     }
                 }
                 // Recursively check children
@@ -2248,7 +2256,7 @@ fn find_reference_target_in_nodes<DirectiveT: DirectiveMeta>(
                 // Check references on template
                 for ref_node in &tmpl.references {
                     if ref_node.name == reference.name {
-                        return Some(ReferenceTarget::Template(tmpl.clone()));
+                        return Some(ReferenceTarget::Template((*tmpl).as_ref().clone()));
                     }
                 }
                 // Recursively check children
@@ -2402,7 +2410,7 @@ impl Scope {
                     self.ingest_nodes(&tmpl.children);
                 }
                 t::R3Node::LetDeclaration(decl) => {
-                    self.maybe_declare(TemplateEntity::LetDeclaration(decl.clone()));
+                    self.maybe_declare(TemplateEntity::LetDeclaration((*decl).as_ref().clone()));
                 }
                 t::R3Node::ForLoopBlock(for_loop) => {
                     // Item variable is in the loop's scope

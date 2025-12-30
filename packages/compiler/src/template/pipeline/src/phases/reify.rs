@@ -172,9 +172,13 @@ fn reify_create_operations(
                         .get_slot()
                         .expect("Expected a slot") as i32;
                     let view_xref = cond_op.base.base.xref;
-                    let fn_name = view_name_map
-                        .get(&view_xref)
-                        .expect("Template function name not assigned");
+                    let fn_name = view_name_map.get(&view_xref).unwrap_or_else(|| {
+                        eprintln!("Available views (named): {:?}", view_name_map.keys());
+                        panic!(
+                            "Template function name not assigned for view {:?}",
+                            view_xref
+                        )
+                    });
 
                     let decls = cond_op.decls.unwrap_or(0);
                     let vars = cond_op.vars.unwrap_or(0);
