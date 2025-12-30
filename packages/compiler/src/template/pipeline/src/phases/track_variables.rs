@@ -61,7 +61,7 @@ fn process_unit(unit: &mut crate::template::pipeline::src::compilation::ViewComp
                 &mut |expr, _flags| {
                     if let Expression::LexicalRead(ref lexical_read) = expr {
                         // Check if this is $index (check if name is in dollar_index vector)
-                        if dollar_index_names.contains(&lexical_read.name) {
+                        if dollar_index_names.iter().any(|n| n == &*lexical_read.name) {
                             return Expression::ReadVar(crate::output::output_ast::ReadVarExpr {
                                 name: "$index".to_string(),
                                 type_: None,
@@ -70,7 +70,7 @@ fn process_unit(unit: &mut crate::template::pipeline::src::compilation::ViewComp
                         }
 
                         // Check if this is $implicit (which becomes $item)
-                        if lexical_read.name == dollar_implicit_name {
+                        if &*lexical_read.name == dollar_implicit_name.as_str() {
                             return Expression::ReadVar(crate::output::output_ast::ReadVarExpr {
                                 name: "$item".to_string(),
                                 type_: None,

@@ -476,7 +476,6 @@ fn check_statement_for_reference(
 
 /// Create an empty ParseSourceSpan for cases where we don't have source span information
 fn create_empty_parse_source_span() -> ParseSourceSpan {
-    let empty_file = ParseSourceFile::new(String::new(), String::new());
-    let empty_loc = ParseLocation::new(empty_file, 0, 0, 0);
+    let empty_loc = ParseLocation::from_source(String::new(), String::new(), 0, 0, 0);
     ParseSourceSpan::new(empty_loc.clone(), empty_loc)
 }

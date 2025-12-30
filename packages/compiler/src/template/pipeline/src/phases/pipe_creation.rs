@@ -41,7 +41,7 @@ fn process_pipe_bindings_in_view(
     struct PipeInfo {
         target: ir::XrefId,
         target_slot: ir::SlotHandle,
-        name: String,
+        name: std::sync::Arc<str>,
         // for compatibility mode
         update_op_target: Option<ir::XrefId>,
     }
@@ -136,7 +136,7 @@ fn process_unit_pipe_usage(
                 if let Some(name) = name {
                     for (i, dep) in available_dependencies.iter().enumerate() {
                         if let R3TemplateDependencyMetadata::Pipe(pipe) = dep {
-                            if pipe.name == name {
+                            if &*pipe.name == &*name {
                                 used_indices.push(i);
                             }
                         }

@@ -65,7 +65,7 @@ fn process_unit(
 
             // Create IdentifierVariable
             let variable = SemanticVariable::Identifier(IdentifierVariable {
-                identifier: store_let.declared_name.clone(),
+                identifier: store_let.declared_name.to_string(),
                 local: true,
                 name: None,
             });

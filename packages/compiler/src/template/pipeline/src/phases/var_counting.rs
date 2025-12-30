@@ -350,7 +350,7 @@ fn is_singleton_interpolation(interp: &Interpolation) -> bool {
     if interp.expressions.len() != 1 || interp.strings.len() != 2 {
         return false;
     }
-    if interp.strings[0] != "" || interp.strings[1] != "" {
+    if &*interp.strings[0] != "" || &*interp.strings[1] != "" {
         return false;
     }
     true

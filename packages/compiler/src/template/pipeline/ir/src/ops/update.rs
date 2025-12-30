@@ -8,23 +8,24 @@ use crate::template::pipeline::ir::enums::OpKind;
 use crate::template::pipeline::ir::handle::{SlotHandle, XrefId};
 use crate::template::pipeline::ir::operations::{Op, UpdateOp};
 use crate::template::pipeline::ir::traits::{ConsumesVarsTrait, DependsOnSlotContextOpTrait};
+use std::sync::Arc;
 
 /// Interpolation structure for text interpolation
 #[derive(Debug, Clone)]
 pub struct Interpolation {
     /// Static strings in the interpolation
-    pub strings: Vec<String>,
+    pub strings: Vec<Arc<str>>,
     /// Dynamic expressions in the interpolation
     pub expressions: Vec<Expression>,
     /// i18n placeholders for the expressions
-    pub i18n_placeholders: Vec<String>,
+    pub i18n_placeholders: Vec<Arc<str>>,
 }
 
 impl Interpolation {
     pub fn new(
-        strings: Vec<String>,
+        strings: Vec<Arc<str>>,
         expressions: Vec<Expression>,
-        i18n_placeholders: Vec<String>,
+        i18n_placeholders: Vec<Arc<str>>,
     ) -> Self {
         // Validate that strings and expressions are compatible
         // strings.len() should equal expressions.len() + 1
@@ -127,7 +128,7 @@ pub fn create_interpolate_text_op(
 #[derive(Debug, Clone)]
 pub struct StoreLetOp {
     /// Name that the user set when declaring the `@let`
-    pub declared_name: String,
+    pub declared_name: Arc<str>,
     /// XrefId of the slot in which the call may write its value
     pub target: XrefId,
     /// Value of the `@let` declaration
@@ -139,7 +140,7 @@ pub struct StoreLetOp {
 impl StoreLetOp {
     pub fn new(
         target: XrefId,
-        declared_name: String,
+        declared_name: Arc<str>,
         value: Expression,
         source_span: ParseSourceSpan,
     ) -> Self {
@@ -195,7 +196,7 @@ unsafe impl Sync for StoreLetOp {}
 /// Create a StoreLetOp
 pub fn create_store_let_op(
     target: XrefId,
-    declared_name: String,
+    declared_name: Arc<str>,
     value: Expression,
     source_span: ParseSourceSpan,
 ) -> Box<dyn UpdateOp + Send + Sync> {
@@ -394,7 +395,7 @@ pub struct BindingOp {
     /// The kind of binding represented by this op
     pub binding_kind: BindingKind,
     /// The name of this binding
-    pub name: String,
+    pub name: Arc<str>,
     /// Expression which is bound to the property
     pub expression: BindingExpression,
     /// The unit of the bound value
@@ -419,7 +420,7 @@ impl BindingOp {
     pub fn new(
         target: XrefId,
         binding_kind: BindingKind,
-        name: String,
+        name: Arc<str>,
         expression: BindingExpression,
         unit: Option<String>,
         security_context: Vec<SecurityContext>,
@@ -490,7 +491,7 @@ unsafe impl Sync for BindingOp {}
 pub fn create_binding_op(
     target: XrefId,
     binding_kind: BindingKind,
-    name: String,
+    name: Arc<str>,
     expression: BindingExpression,
     unit: Option<String>,
     security_context: Vec<SecurityContext>,
@@ -522,7 +523,7 @@ pub struct PropertyOp {
     /// Reference to the element on which the property is bound.
     pub target: XrefId,
     /// Name of the bound property.
-    pub name: String,
+    pub name: Arc<str>,
     /// Expression which is bound to the property.
     pub expression: BindingExpression,
     /// Whether this property is an animation trigger.
@@ -546,7 +547,7 @@ pub struct PropertyOp {
 impl PropertyOp {
     pub fn new(
         target: XrefId,
-        name: String,
+        name: Arc<str>,
         expression: BindingExpression,
         binding_kind: BindingKind,
         security_context: Vec<SecurityContext>,
@@ -613,7 +614,7 @@ unsafe impl Sync for PropertyOp {}
 /// Create a PropertyOp.
 pub fn create_property_op(
     target: XrefId,
-    name: String,
+    name: Arc<str>,
     expression: BindingExpression,
     binding_kind: BindingKind,
     security_context: Vec<SecurityContext>,
@@ -643,7 +644,7 @@ pub struct TwoWayPropertyOp {
     /// Reference to the element on which the property is bound.
     pub target: XrefId,
     /// Name of the property.
-    pub name: String,
+    pub name: Arc<str>,
     /// Expression which is bound to the property.
     pub expression: Expression,
     /// The security context of the binding.
@@ -665,7 +666,7 @@ pub struct TwoWayPropertyOp {
 impl TwoWayPropertyOp {
     pub fn new(
         target: XrefId,
-        name: String,
+        name: Arc<str>,
         expression: Expression,
         security_context: Vec<SecurityContext>,
         is_structural_template_attribute: bool,
@@ -730,7 +731,7 @@ unsafe impl Sync for TwoWayPropertyOp {}
 /// Create a TwoWayPropertyOp.
 pub fn create_two_way_property_op(
     target: XrefId,
-    name: String,
+    name: Arc<str>,
     expression: Expression,
     security_context: Vec<SecurityContext>,
     is_structural_template_attribute: bool,
@@ -760,7 +761,7 @@ pub struct AttributeOp {
     /// The namespace of the attribute (or None if none).
     pub namespace: Option<String>,
     /// The name of the attribute.
-    pub name: String,
+    pub name: Arc<str>,
     /// The value of the attribute.
     pub expression: BindingExpression,
     /// The security context of the binding.
@@ -785,7 +786,7 @@ impl AttributeOp {
     pub fn new(
         target: XrefId,
         namespace: Option<String>,
-        name: String,
+        name: Arc<str>,
         expression: BindingExpression,
         security_context: Vec<SecurityContext>,
         is_text_attribute: bool,
@@ -853,7 +854,7 @@ unsafe impl Sync for AttributeOp {}
 pub fn create_attribute_op(
     target: XrefId,
     namespace: Option<String>,
-    name: String,
+    name: Arc<str>,
     expression: BindingExpression,
     security_context: Vec<SecurityContext>,
     is_text_attribute: bool,
@@ -882,7 +883,7 @@ pub struct StylePropOp {
     /// Reference to the element on which the property is bound.
     pub target: XrefId,
     /// Name of the bound property.
-    pub name: String,
+    pub name: Arc<str>,
     /// Expression which is bound to the property.
     pub expression: BindingExpression,
     /// The unit of the bound value.
@@ -894,7 +895,7 @@ pub struct StylePropOp {
 impl StylePropOp {
     pub fn new(
         target: XrefId,
-        name: String,
+        name: Arc<str>,
         expression: BindingExpression,
         unit: Option<String>,
         source_span: ParseSourceSpan,
@@ -950,7 +951,7 @@ unsafe impl Sync for StylePropOp {}
 /// Create a StylePropOp.
 pub fn create_style_prop_op(
     target: XrefId,
-    name: String,
+    name: Arc<str>,
     expression: BindingExpression,
     unit: Option<String>,
     source_span: ParseSourceSpan,
@@ -970,7 +971,7 @@ pub struct ClassPropOp {
     /// Reference to the element on which the property is bound.
     pub target: XrefId,
     /// Name of the bound property.
-    pub name: String,
+    pub name: Arc<str>,
     /// Expression which is bound to the property.
     pub expression: Expression,
     /// Source span.
@@ -980,7 +981,7 @@ pub struct ClassPropOp {
 impl ClassPropOp {
     pub fn new(
         target: XrefId,
-        name: String,
+        name: Arc<str>,
         expression: Expression,
         source_span: ParseSourceSpan,
     ) -> Self {
@@ -1034,7 +1035,7 @@ unsafe impl Sync for ClassPropOp {}
 /// Create a ClassPropOp.
 pub fn create_class_prop_op(
     target: XrefId,
-    name: String,
+    name: Arc<str>,
     expression: Expression,
     source_span: ParseSourceSpan,
 ) -> Box<dyn UpdateOp + Send + Sync> {
@@ -1240,7 +1241,7 @@ pub fn create_advance_op(
 #[derive(Debug, Clone)]
 pub struct AnimationBindingOp {
     /// The name of the extracted attribute.
-    pub name: String,
+    pub name: Arc<str>,
     /// Reference to the element on which the property is bound.
     pub target: XrefId,
     /// Animation kind.
@@ -1261,7 +1262,7 @@ pub struct AnimationBindingOp {
 
 impl AnimationBindingOp {
     pub fn new(
-        name: String,
+        name: Arc<str>,
         target: XrefId,
         animation_kind: AnimationKind,
         expression: BindingExpression,
@@ -1312,7 +1313,7 @@ unsafe impl Sync for AnimationBindingOp {}
 
 /// Create an AnimationBindingOp.
 pub fn create_animation_binding_op(
-    name: String,
+    name: Arc<str>,
     target: XrefId,
     animation_kind: AnimationKind,
     expression: BindingExpression,
@@ -1431,7 +1432,7 @@ pub struct I18nExpressionOp {
     /// Whether this i18n expression applies to a template or to a binding.
     pub usage: I18nExpressionFor,
     /// If this is an I18nExpressionContext.Binding, this expression is associated with a named attribute.
-    pub name: String,
+    pub name: Arc<str>,
     /// Source span.
     pub source_span: ParseSourceSpan,
 }
@@ -1447,7 +1448,7 @@ impl I18nExpressionOp {
         i18n_placeholder: Option<String>,
         resolution_time: I18nParamResolutionTime,
         usage: I18nExpressionFor,
-        name: String,
+        name: Arc<str>,
         source_span: ParseSourceSpan,
     ) -> Self {
         I18nExpressionOp {
@@ -1515,7 +1516,7 @@ pub fn create_i18n_expression_op(
     i18n_placeholder: Option<String>,
     resolution_time: I18nParamResolutionTime,
     usage: I18nExpressionFor,
-    name: String,
+    name: Arc<str>,
     source_span: ParseSourceSpan,
 ) -> Box<dyn UpdateOp + Send + Sync> {
     Box::new(I18nExpressionOp::new(

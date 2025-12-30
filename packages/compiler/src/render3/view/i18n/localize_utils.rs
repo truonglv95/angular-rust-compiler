@@ -293,12 +293,8 @@ pub fn serialize_i18n_message_for_localize(
 fn get_source_span(message: &i18n::Message) -> ParseSourceSpan {
     if message.nodes.is_empty() {
         // Create an empty source span
-        let empty_location = crate::parse_util::ParseLocation::new(
-            crate::parse_util::ParseSourceFile::new(String::new(), String::new()),
-            0,
-            0,
-            0,
-        );
+        let empty_location =
+            crate::parse_util::ParseLocation::from_source(String::new(), String::new(), 0, 0, 0);
         return ParseSourceSpan::new(empty_location.clone(), empty_location);
     }
 

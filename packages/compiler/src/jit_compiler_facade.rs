@@ -45,9 +45,6 @@ use crate::render3::view::compiler::{
     verify_host_bindings, ParsedHostBindings,
 };
 use crate::render3::view::template::{make_binding_parser, parse_template, ParseTemplateOptions};
-use crate::template::pipeline::src::compilation::{
-    CompilationJob, CompilationJobKind, CompilationUnit,
-};
 
 pub struct CompilerFacadeImpl {
     jit_evaluator: JitEvaluator,
@@ -895,27 +892,10 @@ fn create_wrapped_reference_from_value(value: serde_json::Value) -> R3Reference 
 }
 
 fn create_dummy_source_span() -> ParseSourceSpan {
-    ParseSourceSpan {
-        start: ParseLocation {
-            file: ParseSourceFile {
-                content: "".to_string(),
-                url: "".to_string(),
-            },
-            offset: 0,
-            line: 0,
-            col: 0,
-        },
-        end: ParseLocation {
-            file: ParseSourceFile {
-                content: "".to_string(),
-                url: "".to_string(),
-            },
-            offset: 0,
-            line: 0,
-            col: 0,
-        },
-        details: None,
-    }
+    ParseSourceSpan::new(
+        ParseLocation::from_source("".to_string(), "".to_string(), 0, 0, 0),
+        ParseLocation::from_source("".to_string(), "".to_string(), 0, 0, 0),
+    )
 }
 
 // Helper for Injectable conversion

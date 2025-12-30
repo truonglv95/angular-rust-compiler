@@ -210,27 +210,22 @@ fn handle_template_kind_op(
                                 close_name,
                                 Vec::new(),
                                 false,
-                                crate::parse_util::ParseSourceSpan {
-                                    start: crate::parse_util::ParseLocation::new(
-                                        crate::parse_util::ParseSourceFile::new(
-                                            String::new(),
-                                            String::new(),
-                                        ),
+                                crate::parse_util::ParseSourceSpan::new(
+                                    crate::parse_util::ParseLocation::from_source(
+                                        String::new(),
+                                        String::new(),
                                         0,
                                         0,
                                         0,
                                     ),
-                                    end: crate::parse_util::ParseLocation::new(
-                                        crate::parse_util::ParseSourceFile::new(
-                                            String::new(),
-                                            String::new(),
-                                        ),
+                                    crate::parse_util::ParseLocation::from_source(
+                                        String::new(),
+                                        String::new(),
                                         0,
                                         0,
                                         0,
                                     ),
-                                    details: None,
-                                },
+                                ),
                                 None,
                                 None,
                             );

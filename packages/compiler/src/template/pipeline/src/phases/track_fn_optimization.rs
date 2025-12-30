@@ -178,7 +178,7 @@ fn process_unit(
 
                     // Also check for IR LexicalReadExpr
                     if let Expression::LexicalRead(lexical_read) = &expr {
-                        if lexical_read.name == item_name {
+                        if &*lexical_read.name == item_name.as_str() {
                             return Expression::ReadVar(crate::output::output_ast::ReadVarExpr {
                                 name: "$item".to_string(),
                                 type_: None,

@@ -417,7 +417,7 @@ fn safe_transform(e: Expression, ctx: &SafeTransformContext) -> Expression {
         ),
         Expression::SafePropertyRead(safe_prop) => safe_ternary_with_temporary(
             *safe_prop.receiver,
-            |r| r.prop(safe_prop.name.clone(), safe_prop.source_span.clone()),
+            |r| r.prop(safe_prop.name.to_string(), safe_prop.source_span.clone()),
             ctx,
         ),
         Expression::SafeKeyedRead(safe_keyed) => safe_ternary_with_temporary(

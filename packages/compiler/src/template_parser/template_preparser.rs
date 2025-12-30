@@ -67,16 +67,16 @@ pub fn preparse_element(ast: &Element) -> PreparsedElement {
         let lc_attr_name = attr.name.to_lowercase();
 
         if lc_attr_name == NG_CONTENT_SELECT_ATTR {
-            select_attr = Some(attr.value.clone());
+            select_attr = Some(attr.value.to_string());
         } else if lc_attr_name == LINK_STYLE_HREF_ATTR {
-            href_attr = Some(attr.value.clone());
+            href_attr = Some(attr.value.to_string());
         } else if lc_attr_name == LINK_STYLE_REL_ATTR {
-            rel_attr = Some(attr.value.clone());
-        } else if attr.name == NG_NON_BINDABLE_ATTR {
+            rel_attr = Some(attr.value.to_string());
+        } else if lc_attr_name == NG_NON_BINDABLE_ATTR.to_lowercase() {
             non_bindable = true;
-        } else if attr.name == NG_PROJECT_AS {
+        } else if lc_attr_name == NG_PROJECT_AS.to_lowercase() {
             if !attr.value.is_empty() {
-                project_as = attr.value.clone();
+                project_as = attr.value.to_string();
             }
         }
     }
@@ -122,13 +122,12 @@ mod tests {
     use crate::parse_util::{ParseLocation, ParseSourceFile, ParseSourceSpan};
 
     fn create_element(name: &str, attrs: Vec<Attribute>) -> Element {
-        let source_file = ParseSourceFile::new(String::new(), "test.html".to_string());
         let source_span = ParseSourceSpan::new(
-            ParseLocation::new(source_file.clone(), 0, 1, 1),
-            ParseLocation::new(source_file.clone(), 0, 1, 1),
+            ParseLocation::from_source(String::new(), "test.html".to_string(), 0, 1, 1),
+            ParseLocation::from_source(String::new(), "test.html".to_string(), 0, 1, 1),
         );
         Element {
-            name: name.to_string(),
+            name: name.into(),
             attrs,
             directives: vec![],
             children: vec![],
@@ -151,16 +150,15 @@ mod tests {
 
     #[test]
     fn test_preparse_ng_content_with_select() {
-        let source_file = ParseSourceFile::new(String::new(), "test.html".to_string());
         let source_span = ParseSourceSpan::new(
-            ParseLocation::new(source_file.clone(), 0, 1, 1),
-            ParseLocation::new(source_file.clone(), 0, 1, 1),
+            ParseLocation::from_source(String::new(), "test.html".to_string(), 0, 1, 1),
+            ParseLocation::from_source(String::new(), "test.html".to_string(), 0, 1, 1),
         );
         let element = create_element(
             "ng-content",
             vec![Attribute {
-                name: "select".to_string(),
-                value: ".my-class".to_string(),
+                name: "select".into(),
+                value: ".my-class".into(),
                 source_span: source_span.clone(),
                 key_span: None,
                 value_span: None,
@@ -189,17 +187,16 @@ mod tests {
 
     #[test]
     fn test_preparse_stylesheet_link() {
-        let source_file = ParseSourceFile::new(String::new(), "test.html".to_string());
         let source_span = ParseSourceSpan::new(
-            ParseLocation::new(source_file.clone(), 0, 1, 1),
-            ParseLocation::new(source_file.clone(), 0, 1, 1),
+            ParseLocation::from_source(String::new(), "test.html".to_string(), 0, 1, 1),
+            ParseLocation::from_source(String::new(), "test.html".to_string(), 0, 1, 1),
         );
         let element = create_element(
             "link",
             vec![
                 Attribute {
-                    name: "rel".to_string(),
-                    value: "stylesheet".to_string(),
+                    name: "rel".into(),
+                    value: "stylesheet".into(),
                     source_span: source_span.clone(),
                     key_span: None,
                     value_span: None,
@@ -207,8 +204,8 @@ mod tests {
                     i18n: None,
                 },
                 Attribute {
-                    name: "href".to_string(),
-                    value: "styles.css".to_string(),
+                    name: "href".into(),
+                    value: "styles.css".into(),
                     source_span: source_span.clone(),
                     key_span: None,
                     value_span: None,
@@ -224,16 +221,15 @@ mod tests {
 
     #[test]
     fn test_preparse_non_bindable() {
-        let source_file = ParseSourceFile::new(String::new(), "test.html".to_string());
         let source_span = ParseSourceSpan::new(
-            ParseLocation::new(source_file.clone(), 0, 1, 1),
-            ParseLocation::new(source_file.clone(), 0, 1, 1),
+            ParseLocation::from_source(String::new(), "test.html".to_string(), 0, 1, 1),
+            ParseLocation::from_source(String::new(), "test.html".to_string(), 0, 1, 1),
         );
         let element = create_element(
             "div",
             vec![Attribute {
-                name: "ngNonBindable".to_string(),
-                value: "".to_string(),
+                name: "ngNonBindable".into(),
+                value: "".into(),
                 source_span: source_span.clone(),
                 key_span: None,
                 value_span: None,
@@ -247,16 +243,15 @@ mod tests {
 
     #[test]
     fn test_preparse_project_as() {
-        let source_file = ParseSourceFile::new(String::new(), "test.html".to_string());
         let source_span = ParseSourceSpan::new(
-            ParseLocation::new(source_file.clone(), 0, 1, 1),
-            ParseLocation::new(source_file.clone(), 0, 1, 1),
+            ParseLocation::from_source(String::new(), "test.html".to_string(), 0, 1, 1),
+            ParseLocation::from_source(String::new(), "test.html".to_string(), 0, 1, 1),
         );
         let element = create_element(
             "div",
             vec![Attribute {
-                name: "ngProjectAs".to_string(),
-                value: "my-component".to_string(),
+                name: "ngProjectAs".into(),
+                value: "my-component".into(),
                 source_span: source_span.clone(),
                 key_span: None,
                 value_span: None,

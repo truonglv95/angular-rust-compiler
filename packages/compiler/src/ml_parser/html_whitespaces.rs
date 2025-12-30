@@ -38,7 +38,9 @@ static WS_REPLACE_REGEXP: Lazy<Regex> =
     Lazy::new(|| Regex::new(&format!("[{}]+", regex::escape(WS_CHARS))).unwrap());
 
 fn has_preserve_whitespaces_attr(attrs: &[Attribute]) -> bool {
-    attrs.iter().any(|attr| attr.name == PRESERVE_WS_ATTR_NAME)
+    attrs
+        .iter()
+        .any(|attr| attr.name.as_ref() == PRESERVE_WS_ATTR_NAME)
 }
 
 /// &ngsp; is a placeholder for non-removable space
@@ -93,7 +95,7 @@ impl WhitespaceVisitor {
         element: &Element,
         _context: Option<&SiblingVisitorContext>,
     ) -> Option<Node> {
-        if SKIP_WS_TRIM_TAGS.contains(element.name.as_str())
+        if SKIP_WS_TRIM_TAGS.contains(element.name.as_ref())
             || has_preserve_whitespaces_attr(&element.attrs)
         {
             // don't descend into elements where we need to preserve whitespaces
@@ -135,7 +137,7 @@ impl WhitespaceVisitor {
         attribute: &Attribute,
         _context: Option<&SiblingVisitorContext>,
     ) -> Option<Attribute> {
-        if attribute.name != PRESERVE_WS_ATTR_NAME {
+        if attribute.name.as_ref() != PRESERVE_WS_ATTR_NAME {
             Some(attribute.clone())
         } else {
             None
@@ -175,7 +177,7 @@ impl WhitespaceVisitor {
             };
 
             let result = Text {
-                value: final_value,
+                value: final_value.into(),
                 source_span: text.source_span.clone(),
                 tokens: text.tokens.clone(),
                 i18n: text.i18n.clone(),
@@ -276,7 +278,7 @@ impl WhitespaceVisitor {
         component: &Component,
         _context: Option<&SiblingVisitorContext>,
     ) -> Option<Node> {
-        if SKIP_WS_TRIM_TAGS.contains(component.component_name.as_str())
+        if SKIP_WS_TRIM_TAGS.contains(component.component_name.as_ref())
             || has_preserve_whitespaces_attr(&component.attrs)
         {
             let new_attrs = visit_all_with_siblings_attrs(self, &component.attrs);
@@ -482,13 +484,12 @@ mod tests {
     fn test_has_preserve_whitespaces_attr() {
         use crate::parse_util::{ParseLocation, ParseSourceFile, ParseSourceSpan};
 
-        let file = ParseSourceFile::new(String::new(), "test.html".to_string());
-        let location = ParseLocation::new(file, 0, 0, 0);
+        let location = ParseLocation::from_source(String::new(), "test.html".to_string(), 0, 0, 0);
         let span = ParseSourceSpan::new(location.clone(), location);
 
         let attrs = vec![Attribute {
-            name: "ngPreserveWhitespaces".to_string(),
-            value: "true".to_string(),
+            name: "ngPreserveWhitespaces".into(),
+            value: "true".into(),
             source_span: span.clone(),
             key_span: None,
             value_span: None,

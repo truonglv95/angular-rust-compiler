@@ -261,7 +261,7 @@ pub fn parse_extracted_styles(job: &mut dyn CompilationJob) {
                                     continue;
                                 }
 
-                                if extracted.name == "style" {
+                                if &*extracted.name == "style" {
                                     // Get string literal value using helper
                                     if let Some(style_str) = extract_string_literal_value(expr) {
                                         let parsed_styles = parse_style(style_str);
@@ -276,7 +276,7 @@ pub fn parse_extracted_styles(job: &mut dyn CompilationJob) {
                                                     extracted.target,
                                                     BindingKind::StyleProperty,
                                                     None, // namespace
-                                                    prop_name,
+                                                    prop_name.into(),
                                                     Some(Expression::Literal(LiteralExpr {
                                                         value: LiteralValue::String(prop_value),
                                                         type_: None,
@@ -296,7 +296,7 @@ pub fn parse_extracted_styles(job: &mut dyn CompilationJob) {
                                             ops_to_remove.push(idx);
                                         }
                                     }
-                                } else if extracted.name == "class" {
+                                } else if &*extracted.name == "class" {
                                     // Get string literal value using helper
                                     if let Some(class_str) = extract_string_literal_value(expr) {
                                         let parsed_classes: Vec<&str> =
@@ -309,7 +309,7 @@ pub fn parse_extracted_styles(job: &mut dyn CompilationJob) {
                                                     extracted.target,
                                                     BindingKind::ClassName,
                                                     None, // namespace
-                                                    class_name.to_string(),
+                                                    class_name.into(),
                                                     None, // expression
                                                     None, // i18n_context
                                                     None, // i18n_message
@@ -375,7 +375,7 @@ pub fn parse_extracted_styles(job: &mut dyn CompilationJob) {
                                             continue;
                                         }
 
-                                        if extracted.name == "style" {
+                                        if &*extracted.name == "style" {
                                             // Get string literal value using helper
                                             if let Some(style_str) =
                                                 extract_string_literal_value(expr)
@@ -393,7 +393,7 @@ pub fn parse_extracted_styles(job: &mut dyn CompilationJob) {
                                                             extracted.target,
                                                             BindingKind::StyleProperty,
                                                             None,
-                                                            prop_name,
+                                                            prop_name.into(),
                                                             Some(Expression::Literal(
                                                                 LiteralExpr {
                                                                     value: LiteralValue::String(
@@ -417,7 +417,7 @@ pub fn parse_extracted_styles(job: &mut dyn CompilationJob) {
                                                     ops_to_remove.push(idx);
                                                 }
                                             }
-                                        } else if extracted.name == "class" {
+                                        } else if &*extracted.name == "class" {
                                             // Get string literal value using helper
                                             if let Some(class_str) =
                                                 extract_string_literal_value(expr)
@@ -432,7 +432,7 @@ pub fn parse_extracted_styles(job: &mut dyn CompilationJob) {
                                                             extracted.target,
                                                             BindingKind::ClassName,
                                                             None,
-                                                            class_name.to_string(),
+                                                            class_name.into(),
                                                             None,
                                                             None,
                                                             None,

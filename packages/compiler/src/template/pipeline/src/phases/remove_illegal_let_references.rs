@@ -81,7 +81,7 @@ fn process_unit(unit: &mut crate::template::pipeline::src::compilation::ViewComp
                         &mut *prev_op_mut_ptr,
                         &mut |expr, _flags| {
                             if let Expression::LexicalRead(lexical_read) = &expr {
-                                if lexical_read.name == let_name {
+                                if &*lexical_read.name == let_name.as_str() {
                                     // Replace with undefined literal (use null as equivalent to undefined)
                                     return Expression::Literal(
                                         crate::output::output_ast::LiteralExpr {

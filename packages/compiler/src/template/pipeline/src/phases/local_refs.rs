@@ -142,14 +142,14 @@ fn serialize_local_refs(refs: &[LocalRef]) -> Expression {
     for ref_item in refs {
         // Push name as literal
         const_refs.push(Expression::Literal(LiteralExpr {
-            value: LiteralValue::String(ref_item.name.clone()),
+            value: LiteralValue::String(ref_item.name.to_string()),
             type_: None,
             source_span: None,
         }));
 
         // Push target as literal (target is a String)
         const_refs.push(Expression::Literal(LiteralExpr {
-            value: LiteralValue::String(ref_item.target.clone()),
+            value: LiteralValue::String(ref_item.target.to_string()),
             type_: None,
             source_span: None,
         }));

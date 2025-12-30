@@ -198,11 +198,11 @@ export class App {
 
 ## 📈 Performance
 
-| Metric       | Rust Compiler   | TypeScript Compiler |
-| ------------ | --------------- | ------------------- |
-| Build Speed  | **2-5x faster** | Baseline            |
-| Memory Usage | **30-50% less** | Baseline            |
-| GC Pauses    | **None**        | Occasional          |
+| Metric | Rust Compiler | NGTSC (TypeScript) |
+| ------ | ------------- | ------------------ |
+| Full Build (123 files) | **~2.88s** | ~3.70s |
+| Speedup | **~1.3x faster** | Baseline |
+| Memory Usage | **Low (Native)** | High (V8 Heap) |
 
 ---
 

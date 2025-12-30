@@ -21,13 +21,13 @@ impl HasSourceSpan for MockSourceSpan {
 fn create_source_span(file: &ParseSourceFile, idx: usize) -> MockSourceSpan {
     let col = 2 * idx;
     let start = ParseLocation {
-        file: file.clone(),
+        file: file.clone().into(),
         col: col,
         line: 0,
         offset: col,
     };
     let end = ParseLocation {
-        file: file.clone(),
+        file: file.clone().into(),
         col: col + 2,
         line: 0,
         offset: col + 2,

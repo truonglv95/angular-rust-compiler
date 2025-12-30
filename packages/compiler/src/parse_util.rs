@@ -4,6 +4,7 @@
 
 use crate::chars;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ParseSourceFile {
@@ -19,16 +20,33 @@ impl ParseSourceFile {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ParseLocation {
-    pub file: ParseSourceFile,
+    pub file: Arc<ParseSourceFile>,
     pub offset: usize,
     pub line: usize,
     pub col: usize,
 }
 
 impl ParseLocation {
-    pub fn new(file: ParseSourceFile, offset: usize, line: usize, col: usize) -> Self {
+    pub fn new(file: Arc<ParseSourceFile>, offset: usize, line: usize, col: usize) -> Self {
         ParseLocation {
             file,
+            offset,
+            line,
+            col,
+        }
+    }
+
+    /// Helper to create ParseLocation from raw source content and url
+    /// This wraps the file in Arc automatically for convenience
+    pub fn from_source(
+        content: String,
+        url: String,
+        offset: usize,
+        line: usize,
+        col: usize,
+    ) -> Self {
+        ParseLocation {
+            file: Arc::new(ParseSourceFile::new(content, url)),
             offset,
             line,
             col,
@@ -77,7 +95,7 @@ impl ParseLocation {
             }
         }
 
-        ParseLocation::new(self.file.clone(), offset, line, col)
+        ParseLocation::new(Arc::clone(&self.file), offset, line, col)
     }
 
     /// Return the source around the location
@@ -211,9 +229,9 @@ pub struct CompileIdentifierMetadata {
 /// Generate source span object for a given R3 Type for JIT mode
 pub fn r3_jit_type_source_span(kind: &str, type_name: &str, source_url: &str) -> ParseSourceSpan {
     let source_file_name = format!("in {} {} in {}", kind, type_name, source_url);
-    let source_file = ParseSourceFile::new(String::new(), source_file_name);
+    let source_file = Arc::new(ParseSourceFile::new(String::new(), source_file_name));
     ParseSourceSpan::new(
-        ParseLocation::new(source_file.clone(), usize::MAX, usize::MAX, usize::MAX),
+        ParseLocation::new(Arc::clone(&source_file), usize::MAX, usize::MAX, usize::MAX),
         ParseLocation::new(source_file, usize::MAX, usize::MAX, usize::MAX),
     )
 }

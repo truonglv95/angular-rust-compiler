@@ -107,7 +107,8 @@ pub struct ComponentCompilationJob {
     pub schema_registry: DomElementSchemaRegistry,
     pub diagnostics: Vec<ParseError>,
 
-    next_xref_id: ir::XrefId,
+    pub next_xref_id: ir::XrefId,
+    pub temp_selector: CssSelector,
 }
 
 impl ComponentCompilationJob {
@@ -159,6 +160,7 @@ impl ComponentCompilationJob {
             schema_registry,
             diagnostics: Vec::new(),
             next_xref_id: ir::XrefId::new(1),
+            temp_selector: CssSelector::new(),
         }
     }
 
@@ -313,7 +315,7 @@ impl CompilationJob for ComponentCompilationJob {
 
         unit.pipes.insert(name.to_string(), (slot.clone(), xref));
 
-        let op = ir::ops::create::PipeOp::new(xref, slot.clone(), name.to_string());
+        let op = ir::ops::create::PipeOp::new(xref, slot.clone(), name.into());
         unit.create.push(Box::new(op));
 
         // Also mark as used
@@ -581,7 +583,7 @@ impl CompilationJob for HostBindingCompilationJob {
             let xref = ir::XrefId::new(0); // Dummy xref as before
             unit.pipes.insert(name.to_string(), (slot.clone(), xref));
 
-            let op = ir::ops::create::PipeOp::new(xref, slot.clone(), name.to_string());
+            let op = ir::ops::create::PipeOp::new(xref, slot.clone(), name.into());
             unit.create.push(Box::new(op));
 
             (slot, xref)

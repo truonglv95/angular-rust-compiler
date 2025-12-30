@@ -17,17 +17,15 @@ const INDENT_WITH: &str = "  ";
 
 #[derive(Debug, Clone)]
 struct EmittedLine {
-    parts_length: usize,
-    parts: Vec<String>,
-    src_spans: Vec<Option<ParseSourceSpan>>,
+    content: String,
+    src_spans: Vec<(usize, Option<ParseSourceSpan>)>,
     indent: usize,
 }
 
 impl EmittedLine {
     fn new(indent: usize) -> Self {
         EmittedLine {
-            parts_length: 0,
-            parts: Vec::new(),
+            content: String::with_capacity(100),
             src_spans: Vec::new(),
             indent,
         }
@@ -101,21 +99,20 @@ impl EmitterVisitorContext {
     }
 
     pub fn line_is_empty(&self) -> bool {
-        self.current_line().parts.is_empty()
+        self.current_line().content.is_empty()
     }
 
     pub fn line_length(&self) -> usize {
-        self.current_line().indent * INDENT_WITH.len() + self.current_line().parts_length
+        self.current_line().indent * INDENT_WITH.len() + self.current_line().content.len()
     }
 
     pub fn print(&mut self, from: Option<&dyn HasSourceSpan>, part: &str, new_line: bool) {
         if !part.is_empty() {
             let current = self.current_line_mut();
-            current.parts.push(part.to_string());
-            current.parts_length += part.len();
+            current.content.push_str(part);
             current
                 .src_spans
-                .push(from.and_then(|f| f.source_span()).cloned());
+                .push((part.len(), from.and_then(|f| f.source_span()).cloned()));
         }
         if new_line {
             self.lines.push(EmittedLine::new(self.indent));
@@ -146,8 +143,8 @@ impl EmitterVisitorContext {
         self.source_lines()
             .iter()
             .map(|l| {
-                if !l.parts.is_empty() {
-                    format!("{}{}", create_indent(l.indent), l.parts.join(""))
+                if !l.content.is_empty() {
+                    format!("{}{}", create_indent(l.indent), l.content)
                 } else {
                     String::new()
                 }
@@ -182,7 +179,7 @@ impl EmitterVisitorContext {
         }
 
         let lines = self.source_lines();
-        let effective_len = if !lines.is_empty() && lines.last().unwrap().parts.is_empty() {
+        let effective_len = if !lines.is_empty() && lines.last().unwrap().content.is_empty() {
             lines.len() - 1
         } else {
             lines.len()
@@ -192,9 +189,9 @@ impl EmitterVisitorContext {
             map.add_line();
             let mut col0 = line.indent * INDENT_WITH.len();
 
-            for (i, part) in line.parts.iter().enumerate() {
+            for (part_len, span_opt) in &line.src_spans {
                 if !first_offset_mapped {
-                    let has_span = line.src_spans.get(i).and_then(|s| s.as_ref()).is_some();
+                    let has_span = span_opt.is_some();
                     if !has_span || col0 > 0 {
                         // Add a single space so that tools won't try to load the file from disk
                         map.add_source(gen_file_path.to_string(), Some(" ".to_string()));
@@ -207,7 +204,7 @@ impl EmitterVisitorContext {
                     first_offset_mapped = true;
                 }
 
-                if let Some(Some(span)) = line.src_spans.get(i) {
+                if let Some(span) = span_opt {
                     let url = span.start.file.url.clone();
                     let line = span.start.line;
                     let col = span.start.col;
@@ -225,7 +222,7 @@ impl EmitterVisitorContext {
                         last_col = Some(col);
                     }
                 }
-                col0 += part.len();
+                col0 += part_len;
             }
         }
 

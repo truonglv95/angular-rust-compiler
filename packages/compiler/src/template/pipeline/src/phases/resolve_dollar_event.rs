@@ -63,7 +63,7 @@ fn transform_dollar_event_in_unit(
                                     handler_op.as_mut(),
                                     &mut |expr, _flags| {
                                         if let Expression::LexicalRead(ref lexical_read) = expr {
-                                            if lexical_read.name == "$event" {
+                                            if &*lexical_read.name == "$event" {
                                                 listener.consumes_dollar_event = true;
                                                 return Expression::ReadVar(
                                                     crate::output::output_ast::ReadVarExpr {
@@ -92,7 +92,7 @@ fn transform_dollar_event_in_unit(
                                     handler_op.as_mut(),
                                     &mut |expr, _flags| {
                                         if let Expression::LexicalRead(ref lexical_read) = expr {
-                                            if lexical_read.name == "$event" {
+                                            if &*lexical_read.name == "$event" {
                                                 animation_listener.consumes_dollar_event = true;
                                                 return Expression::ReadVar(
                                                     crate::output::output_ast::ReadVarExpr {
@@ -122,7 +122,7 @@ fn transform_dollar_event_in_unit(
                                     handler_op.as_mut(),
                                     &mut |expr, _flags| {
                                         if let Expression::LexicalRead(ref lexical_read) = expr {
-                                            if lexical_read.name == "$event" {
+                                            if &*lexical_read.name == "$event" {
                                                 return Expression::ReadVar(
                                                     crate::output::output_ast::ReadVarExpr {
                                                         name: "$event".to_string(),

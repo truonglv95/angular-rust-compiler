@@ -103,7 +103,7 @@ fn process_unit(
                             // placeholder for an interpolation.
                             let icu_placeholder_op = create_icu_placeholder_op(
                                 job.allocate_xref_id(),
-                                icu_placeholder.clone(),
+                                icu_placeholder.clone().into(),
                                 vec![text.initial_value.clone()],
                             );
                             let icu_placeholder_xref = icu_placeholder_op.xref();
@@ -193,10 +193,15 @@ fn process_unit(
                             i18n_op.base.handle.clone(),
                             expr.clone(),
                             icu_placeholder_xref,
-                            interpolate.interpolation.i18n_placeholders.get(i).cloned(),
+                            interpolate
+                                .interpolation
+                                .i18n_placeholders
+                                .get(i)
+                                .cloned()
+                                .map(|s| s.to_string()),
                             resolution_time,
                             I18nExpressionFor::I18nText,
-                            String::new(),
+                            String::new().into(),
                             expr.source_span()
                                 .cloned()
                                 .unwrap_or_else(|| interpolate.source_span.clone()),
@@ -211,7 +216,12 @@ fn process_unit(
                     if let Some(icu_placeholder_xref) = icu_placeholder_xref {
                         icu_placeholder_updates.push((
                             icu_placeholder_xref,
-                            interpolate.interpolation.strings.clone(),
+                            interpolate
+                                .interpolation
+                                .strings
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect(),
                         ));
                     }
                 }

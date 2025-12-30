@@ -174,6 +174,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                     } else {
                         directive_handler.compile_ivy(directive)
                     };
+
                     (results, dir.t2.name.clone(), dir.source_file.clone())
                 }
 
@@ -327,22 +328,31 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
 
                 let final_content = if let Some(ref src_file) = source_file {
                     let source_path = AbsoluteFsPath::from(src_file.as_path());
+
                     match fs.read_file(&source_path) {
                               Ok(source_content) => {
+
+
                                   let allocator = Allocator::default();
                                   let source_type = SourceType::ts();
                                   let file_path = src_file.to_string_lossy().to_string();
+
                                   // Parse
+
                                   let parser = Parser::new(&allocator, &source_content, source_type);
                                   let mut parse_result = parser.parse();
 
+
                                   if parse_result.errors.is_empty() {
                                       // Step 1: Run semantic analysis for scoping
+
                                       let semantic = oxc_semantic::SemanticBuilder::new()
                                           .with_excess_capacity(0.0)
                                           .build(&parse_result.program);
 
+
                                       // Step 2: Apply TypeScript transformer to strip types
+
                                       let transform_options = oxc_transformer::TransformOptions::default();
                                       let transformer = oxc_transformer::Transformer::new(
                                           &allocator,
@@ -354,16 +364,12 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                           &mut parse_result.program,
                                       );
 
-                                      // Step 3: AST-based Ivy transformation
-                                      // - Remove Angular decorators
-                                      // - Add import * as i0 from '@angular/core'
-                                      // - Append Ivy statements (hoisted functions + factory + component def)
 
-                                      // Generate expressions for ɵfac and ɵcmp separately
+                                      // Step 3: AST-based Ivy transformation
+
                                       let fac_expr_str = format!("function {}_Factory(t) {{ return new (t || {})(); }}", directive_name, directive_name);
                                       let cmp_expr_str = format!("/*@__PURE__*/ {}", initializer);
 
-                                      // Allocate expressions in the arena for lifetime compatibility
                                       let hoisted_statements_arena: &str = allocator.alloc_str(&hoisted_statements);
                                       let fac_expr_arena: &str = allocator.alloc_str(&fac_expr_str);
                                       let cmp_expr_arena: &str = allocator.alloc_str(&cmp_expr_str);
@@ -379,12 +385,15 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                           &result.additional_imports,
                                       );
 
+
                                       // Step 4: Codegen final JavaScript
+
                                       let codegen = oxc_codegen::Codegen::new().with_options(oxc_codegen::CodegenOptions {
                                           single_quote: true,
                                           ..oxc_codegen::CodegenOptions::default()
                                       });
                                       let code = codegen.build(&parse_result.program).code;
+
                                       code
                                   } else {
                                       // Fallback to empty class if parse fails
@@ -481,12 +490,14 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
 
                 // Read the source file
                 let source_path = AbsoluteFsPath::from(file.as_path());
+
                 match fs.read_file(&source_path) {
                     Ok(source_content) => {
                         // Transpilation: parse TypeScript, transform to strip types, then codegen
                         let allocator = Allocator::default();
                         let source_type = SourceType::ts();
                         let file_path = file.to_string_lossy().to_string();
+
                         let parser = Parser::new(&allocator, &source_content, source_type);
                         let mut parse_result = parser.parse();
 
@@ -495,11 +506,13 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                         }
 
                         // Run semantic analysis to get scoping information
+
                         let semantic = oxc_semantic::SemanticBuilder::new()
                             .with_excess_capacity(0.0)
                             .build(&parse_result.program);
 
                         // Apply TypeScript transformer to strip types
+
                         let transform_options = oxc_transformer::TransformOptions::default();
                         let transformer = oxc_transformer::Transformer::new(
                             &allocator,
@@ -512,6 +525,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                         );
 
                         // Use OXC codegen to emit JavaScript without types
+
                         let codegen =
                             oxc_codegen::Codegen::new().with_options(oxc_codegen::CodegenOptions {
                                 single_quote: true,

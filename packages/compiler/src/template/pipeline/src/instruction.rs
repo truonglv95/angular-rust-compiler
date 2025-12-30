@@ -25,10 +25,10 @@ pub fn call_update(
     call(fn_, args, source_span)
 }
 
-fn element_or_container_base(
+fn element_or_container_base<S: AsRef<str>>(
     instruction: o::ExternalReference,
     slot: i32,
-    tag: Option<String>,
+    tag: Option<S>,
     const_index: Option<i32>,
     local_ref_index: Option<i32>,
     source_span: ParseSourceSpan,
@@ -36,7 +36,7 @@ fn element_or_container_base(
     let mut args = vec![*o::literal(slot as f64)]; // unbox literal
 
     if let Some(t) = tag {
-        args.push(*o::literal(t));
+        args.push(*o::literal(t.as_ref().to_string()));
     }
 
     if let Some(local_ref) = local_ref_index {
@@ -52,9 +52,9 @@ fn element_or_container_base(
     call(instruction, args, Some(source_span))
 }
 
-pub fn element_start(
+pub fn element_start<S: AsRef<str>>(
     slot: i32,
-    tag: String,
+    tag: S,
     const_index: Option<i32>,
     local_ref_index: Option<i32>,
     source_span: ParseSourceSpan,
@@ -69,9 +69,9 @@ pub fn element_start(
     )
 }
 
-pub fn dom_element_start(
+pub fn dom_element_start<S: AsRef<str>>(
     slot: i32,
-    tag: String,
+    tag: S,
     const_index: Option<i32>,
     local_ref_index: Option<i32>,
     source_span: ParseSourceSpan,
@@ -86,9 +86,9 @@ pub fn dom_element_start(
     )
 }
 
-pub fn element(
+pub fn element<S: AsRef<str>>(
     slot: i32,
-    tag: String,
+    tag: S,
     const_index: Option<i32>,
     local_ref_index: Option<i32>,
     source_span: ParseSourceSpan,
@@ -111,22 +111,23 @@ pub fn dom_element_end(source_span: Option<ParseSourceSpan>) -> o::Statement {
     call(Identifiers::dom_element_end(), vec![], source_span)
 }
 
-pub fn text(
+pub fn text<S: AsRef<str>>(
     slot: i32,
-    initial_value: String,
+    initial_value: S,
     source_span: Option<ParseSourceSpan>,
 ) -> o::Statement {
     let mut args = vec![*o::literal(slot as f64)];
-    if !initial_value.is_empty() {
-        args.push(*o::literal(initial_value));
+    let val_ref = initial_value.as_ref();
+    if !val_ref.is_empty() {
+        args.push(*o::literal(val_ref));
     }
     call(Identifiers::text(), args, source_span)
 }
 
-pub fn pipe(slot: i32, name: String) -> o::Statement {
+pub fn pipe<S: AsRef<str>>(slot: i32, name: S) -> o::Statement {
     call(
         Identifiers::pipe(),
-        vec![*o::literal(slot as f64), *o::literal(name)],
+        vec![*o::literal(slot as f64), *o::literal(name.as_ref())],
         None,
     )
 }
@@ -140,13 +141,13 @@ pub fn advance(delta: i32, source_span: ParseSourceSpan) -> o::Statement {
     call(Identifiers::advance(), args, Some(source_span))
 }
 
-pub fn property(
-    name: String,
+pub fn property<S: AsRef<str>>(
+    name: S,
     expression: o::Expression,
     sanitizer: Option<o::Expression>,
     source_span: ParseSourceSpan,
 ) -> o::Statement {
-    let mut args = vec![*o::literal(name)];
+    let mut args = vec![*o::literal(name.as_ref())];
     args.push(expression);
     if let Some(san) = sanitizer {
         args.push(san);
@@ -154,13 +155,13 @@ pub fn property(
     call(Identifiers::property(), args, Some(source_span))
 }
 
-pub fn attribute(
-    name: String,
+pub fn attribute<S: AsRef<str>>(
+    name: S,
     expression: o::Expression,
     sanitizer: Option<o::Expression>,
     source_span: ParseSourceSpan,
 ) -> o::Statement {
-    let mut args = vec![*o::literal(name)];
+    let mut args = vec![*o::literal(name.as_ref())];
     args.push(expression);
     if let Some(san) = sanitizer {
         args.push(san);
@@ -176,26 +177,26 @@ pub fn enable_bindings() -> o::Statement {
     call(Identifiers::enable_bindings(), vec![], None)
 }
 
-pub fn two_way_listener(
-    name: String,
+pub fn two_way_listener<S: AsRef<str>>(
+    name: S,
     handler: o::Expression,
-    preventDefault: bool,
+    prevent_default: bool,
     source_span: Option<ParseSourceSpan>,
 ) -> o::Statement {
-    let mut args = vec![*o::literal(name), handler];
-    if preventDefault {
+    let mut args = vec![*o::literal(name.as_ref()), handler];
+    if prevent_default {
         args.push(*o::literal(false));
     }
     call(Identifiers::two_way_listener(), args, source_span)
 }
 
-pub fn two_way_property(
-    name: String,
+pub fn two_way_property<S: AsRef<str>>(
+    name: S,
     expression: o::Expression,
     sanitizer: Option<o::Expression>,
     source_span: ParseSourceSpan,
 ) -> o::Statement {
-    let mut args = vec![*o::literal(name)];
+    let mut args = vec![*o::literal(name.as_ref())];
     args.push(expression);
     if let Some(san) = sanitizer {
         args.push(san);
@@ -368,29 +369,29 @@ pub fn reference(slot: i32) -> o::Expression {
 
 /// Creates a classProp instruction.
 /// Generates ɵɵclassProp(className, expression) statement.
-pub fn class_prop(
-    name: String,
+pub fn class_prop<S: AsRef<str>>(
+    name: S,
     expression: o::Expression,
     source_span: Option<ParseSourceSpan>,
 ) -> o::Statement {
     call(
         Identifiers::class_prop(),
-        vec![*o::literal(name), expression],
+        vec![*o::literal(name.as_ref()), expression],
         source_span,
     )
 }
 
 /// Creates a styleProp instruction.
 /// Generates ɵɵstyleProp(styleName, expression, unit?) statement.
-pub fn style_prop(
-    name: String,
+pub fn style_prop<S: AsRef<str>, U: AsRef<str>>(
+    name: S,
     expression: o::Expression,
-    unit: Option<String>,
+    unit: Option<U>,
     source_span: Option<ParseSourceSpan>,
 ) -> o::Statement {
-    let mut args = vec![*o::literal(name), expression];
+    let mut args = vec![*o::literal(name.as_ref()), expression];
     if let Some(u) = unit {
-        args.push(*o::literal(u));
+        args.push(*o::literal(u.as_ref()));
     }
     call(Identifiers::style_prop(), args, source_span)
 }

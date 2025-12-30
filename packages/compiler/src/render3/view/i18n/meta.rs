@@ -122,13 +122,13 @@ impl I18nMetaVisitor {
             let mut attrs_meta: HashMap<String, String> = HashMap::new();
 
             for attr in &node.attrs {
-                if attr.name == I18N_ATTR {
+                if attr.name.as_ref() == I18N_ATTR {
                     // Root 'i18n' node attribute
                     // TODO: Generate i18n message
                 } else if attr.name.starts_with(I18N_ATTR_PREFIX) {
                     // 'i18n-*' attributes
                     let name = attr.name[I18N_ATTR_PREFIX.len()..].to_string();
-                    attrs_meta.insert(name, attr.value.clone());
+                    attrs_meta.insert(name, attr.value.to_string());
                 } else {
                     // non-i18n attributes
                     attrs.push(attr.clone());

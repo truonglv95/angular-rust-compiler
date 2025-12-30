@@ -325,7 +325,7 @@ fn process_icus_for_unit(
                         if let Some(msg) = i18n_messages_by_context.get_mut(&icu.context.unwrap()) {
                             let formatted = format_icu_placeholder(icu_ph);
                             msg.postprocessing_params.insert(
-                                icu_ph.name.clone(),
+                                icu_ph.name.to_string(),
                                 OutputExpression::Literal(LiteralExpr {
                                     value: LiteralValue::String(formatted),
                                     type_: None,

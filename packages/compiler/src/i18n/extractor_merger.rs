@@ -170,13 +170,12 @@ impl Visitor {
         self.translations = Some(translations as *mut TranslationBundle);
 
         // Construct a single fake root element
-        let file = ParseSourceFile::new(String::new(), String::new());
-        let start_loc = ParseLocation::new(file.clone(), 0, 0, 0);
-        let end_loc = ParseLocation::new(file, 0, 0, 0);
+        let start_loc = ParseLocation::from_source(String::new(), String::new(), 0, 0, 0);
+        let end_loc = ParseLocation::from_source(String::new(), String::new(), 0, 0, 0);
         let source_span = ParseSourceSpan::new(start_loc.clone(), end_loc.clone());
 
         let wrapper = html::Element {
-            name: "wrapper".to_string(),
+            name: "wrapper".into(),
             attrs: Vec::new(),
             directives: Vec::new(),
             children: nodes.to_vec(),
@@ -315,27 +314,29 @@ impl Visitor {
 
     // Helper to check if element has i18n attribute
     fn has_i18n_attr(el: &html::Element) -> bool {
-        el.attrs.iter().any(|attr| attr.name == I18N_ATTR)
+        el.attrs.iter().any(|attr| attr.name.as_ref() == I18N_ATTR)
     }
 
     fn has_i18n_attr_component(comp: &html::Component) -> bool {
-        comp.attrs.iter().any(|attr| attr.name == I18N_ATTR)
+        comp.attrs
+            .iter()
+            .any(|attr| attr.name.as_ref() == I18N_ATTR)
     }
 
     // Helper to get i18n meta value
     fn get_i18n_meta_value(el: &html::Element) -> String {
         el.attrs
             .iter()
-            .find(|attr| attr.name == I18N_ATTR)
-            .map(|a| a.value.clone())
+            .find(|attr| attr.name.as_ref() == I18N_ATTR)
+            .map(|a| a.value.to_string())
             .unwrap_or_default()
     }
 
     fn get_i18n_meta_value_component(comp: &html::Component) -> String {
         comp.attrs
             .iter()
-            .find(|attr| attr.name == I18N_ATTR)
-            .map(|a| a.value.clone())
+            .find(|attr| attr.name.as_ref() == I18N_ATTR)
+            .map(|a| a.value.to_string())
             .unwrap_or_default()
     }
 }
@@ -356,7 +357,7 @@ impl html::Visitor for Visitor {
         let node_name = element.name.clone();
         let has_i18n_attr = Self::has_i18n_attr(element);
         let i18n_meta = Self::get_i18n_meta_value(element);
-        let is_implicit = self.implicit_tags.contains(&node_name)
+        let is_implicit = self.implicit_tags.iter().any(|t| t == node_name.as_ref())
             && !self.in_icu
             && !self.is_in_translatable_section();
         let is_top_level_implicit = !was_in_implicit_node && is_implicit;
@@ -419,12 +420,12 @@ impl html::Visitor for Visitor {
         if self.mode == VisitorMode::Extract {
             let implicit_attr_names = self
                 .implicit_attrs
-                .get(&element.name)
+                .get(element.name.as_ref())
                 .cloned()
                 .unwrap_or_default();
 
             for attr in &element.attrs {
-                if implicit_attr_names.contains(&attr.name) {
+                if implicit_attr_names.iter().any(|n| n == attr.name.as_ref()) {
                     self.add_message(&[html::Node::Attribute(attr.clone())], None);
                 }
             }
@@ -467,7 +468,7 @@ impl html::Visitor for Visitor {
         let node_name = component.tag_name.clone().unwrap_or_default();
         let has_i18n_attr = Self::has_i18n_attr_component(component);
         let i18n_meta = Self::get_i18n_meta_value_component(component);
-        let is_implicit = self.implicit_tags.contains(&node_name)
+        let is_implicit = self.implicit_tags.iter().any(|t| t == node_name.as_ref())
             && !self.in_icu
             && !self.is_in_translatable_section();
         let is_top_level_implicit = !was_in_implicit_node && is_implicit;
@@ -537,7 +538,7 @@ impl html::Visitor for Visitor {
                 .unwrap_or_default();
 
             for attr in &component.attrs {
-                if implicit_attr_names.contains(&attr.name) {
+                if implicit_attr_names.iter().any(|n| n == attr.name.as_ref()) {
                     self.add_message(&[html::Node::Attribute(attr.clone())], None);
                 }
             }
@@ -773,7 +774,10 @@ fn is_opening_comment(n: &html::Comment) -> bool {
 }
 
 fn is_closing_comment(n: &html::Comment) -> bool {
-    n.value.as_ref().map(|v| v == "/i18n").unwrap_or(false)
+    n.value
+        .as_ref()
+        .map(|v| v.as_ref() == "/i18n")
+        .unwrap_or(false)
 }
 
 fn parse_message_meta(i18n: Option<&str>) -> MessageMeta {

@@ -94,20 +94,16 @@ fn process_unit(unit: &mut crate::template::pipeline::src::compilation::ViewComp
                     } else {
                         // If no source span, create a default one (same as ElementEndOp would have)
                         let default_source_span = crate::parse_util::ParseSourceSpan::new(
-                            crate::parse_util::ParseLocation::new(
-                                crate::parse_util::ParseSourceFile::new(
-                                    "".to_string(),
-                                    "".to_string(),
-                                ),
+                            crate::parse_util::ParseLocation::from_source(
+                                "".to_string(),
+                                "".to_string(),
                                 0,
                                 0,
                                 0,
                             ),
-                            crate::parse_util::ParseLocation::new(
-                                crate::parse_util::ParseSourceFile::new(
-                                    "".to_string(),
-                                    "".to_string(),
-                                ),
+                            crate::parse_util::ParseLocation::from_source(
+                                "".to_string(),
+                                "".to_string(),
                                 0,
                                 0,
                                 0,

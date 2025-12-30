@@ -447,7 +447,7 @@ fn remove_anys(e: Expression, _flags: VisitorContextFlag) -> Expression {
     if let Expression::InvokeFn(invoke) = &e {
         // Check if fn is a LexicalRead with name '$any'
         if let Expression::LexicalRead(lexical_read) = invoke.fn_.as_ref() {
-            if lexical_read.name == "$any" {
+            if &*lexical_read.name == "$any" {
                 // Check that there's exactly one argument
                 if invoke.args.len() != 1 {
                     panic!("The $any builtin function expects exactly one argument.");

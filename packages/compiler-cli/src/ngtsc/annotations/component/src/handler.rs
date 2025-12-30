@@ -595,26 +595,32 @@ impl ComponentDecoratorHandler {
             let processed_nodes = visit_all_with_siblings_nodes(&mut visitor, ast);
 
             let result = html_ast_to_render3_ast(&processed_nodes, &mut binding_parser, &options);
+            // Combine inline styles from template with any style URLs
+            let mut combined_styles = result.styles;
+            combined_styles.extend(result.style_urls);
             (
                 result.nodes,
                 result.ng_content_selectors,
-                false,
-                result.styles,
+                true, // TODO: Get from options
+                combined_styles,
             )
         } else {
-            let parsed_template = parse_template(
+            let parsed_template = angular_compiler::render3::view::template::parse_template(
                 &template_str,
                 &template_url,
-                ParseTemplateOptions {
+                angular_compiler::render3::view::template::ParseTemplateOptions {
                     preserve_whitespaces: Some(false),
                     ..Default::default()
                 },
             );
+            // Combine inline styles from template with any style URLs
+            let mut combined_styles = parsed_template.styles;
+            combined_styles.extend(parsed_template.style_urls);
             (
                 parsed_template.nodes,
                 parsed_template.ng_content_selectors,
                 parsed_template.preserve_whitespaces.unwrap_or(false),
-                parsed_template.styles,
+                combined_styles,
             )
         };
 
@@ -630,12 +636,17 @@ impl ComponentDecoratorHandler {
 
                 let source_span = dir.source_file.as_ref().and_then(|path| {
                     import_ref.span.map(|span| {
-                        let file = ParseSourceFile::new(
+                        let file = std::sync::Arc::new(ParseSourceFile::new(
                             "".to_string(),
                             path.to_string_lossy().to_string(),
-                        );
+                        ));
                         ParseSourceSpan {
-                            start: ParseLocation::new(file.clone(), span.start as usize, 0, 0),
+                            start: ParseLocation::new(
+                                std::sync::Arc::clone(&file),
+                                span.start as usize,
+                                0,
+                                0,
+                            ),
                             end: ParseLocation::new(file, span.end as usize, 0, 0),
                             details: None,
                         }
@@ -766,7 +777,8 @@ impl ComponentDecoratorHandler {
                         angular_compiler::parse_util::ParseSourceFile::new(
                             "".to_string(),
                             "".to_string(),
-                        ),
+                        )
+                        .into(),
                         0,
                         0,
                         0,
@@ -775,7 +787,8 @@ impl ComponentDecoratorHandler {
                         angular_compiler::parse_util::ParseSourceFile::new(
                             "".to_string(),
                             "".to_string(),
-                        ),
+                        )
+                        .into(),
                         0,
                         0,
                         0,
@@ -869,7 +882,9 @@ impl ComponentDecoratorHandler {
         // Use template pipeline instead of placeholder compile_component_from_metadata
         // 1. Ingest template into compilation job
 
-        let mut job = ingest_component(
+        // Ingest
+
+        let mut job = angular_compiler::template::pipeline::src::ingest::ingest_component(
             dir.t2.name.clone(),
             nodes, // Template AST nodes
             real_constant_pool,
@@ -889,10 +904,8 @@ impl ComponentDecoratorHandler {
             r3_metadata.declarations.clone(),
         );
 
-        phases::run(&mut job);
+        angular_compiler::template::pipeline::src::phases::run(&mut job);
 
-        // Filter declarations based on used_dependencies from the job
-        // This optimization removes unused directives and pipes that were brute-force added (e.g. from FormsModule)
         if !job.available_dependencies.is_empty() {
             let used_indices = &job.used_dependencies;
 
@@ -962,6 +975,7 @@ impl ComponentDecoratorHandler {
         }
 
         // 4. Emit component definition
+
         let compiled = emit_component(&job, &r3_metadata, host_job.as_ref());
 
         // Detect required imports based on metadata
@@ -1026,7 +1040,7 @@ impl ComponentDecoratorHandler {
 
         let initializer = ctx.to_source();
 
-        // Emit statements (hoisted functions like _forTrack)
+        // Emit statements (hoisted statements)
         let mut emitted_statements = vec![];
         for stmt in &compiled.statements {
             let mut stmt_ctx = EmitterVisitorContext::create_root();

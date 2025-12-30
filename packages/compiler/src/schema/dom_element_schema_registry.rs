@@ -317,101 +317,111 @@ fn custom_elements_schema_name() -> &'static str {
     "custom-elements"
 }
 
-/// DOM Element Schema Registry implementation
+/// DOM Element Schema Registry
 pub struct DomElementSchemaRegistry {
-    schema: HashMap<String, HashMap<String, String>>,
+    schema: std::sync::Arc<HashMap<String, HashMap<String, String>>>,
     // We don't allow binding to events for security reasons. Allowing event bindings would almost
     // certainly introduce bad XSS vulnerabilities. Instead, we store events in a separate schema.
-    event_schema: HashMap<String, HashSet<String>>,
+    event_schema: std::sync::Arc<HashMap<String, HashSet<String>>>,
 }
 
-impl DomElementSchemaRegistry {
-    pub fn new() -> Self {
-        let mut schema = HashMap::new();
-        let mut event_schema = HashMap::new();
+type ParsedSchema = (
+    HashMap<String, HashMap<String, String>>,
+    HashMap<String, HashSet<String>>,
+);
 
-        // Parse SCHEMA array
-        for encoded_type in SCHEMA.iter() {
-            let mut properties_map: HashMap<String, String> = HashMap::new();
-            let mut events_set: HashSet<String> = HashSet::new();
+static PARSED_DOM_SCHEMA: Lazy<ParsedSchema> = Lazy::new(|| {
+    let mut schema = HashMap::new();
+    let mut event_schema = HashMap::new();
 
-            // Split by '|' to get type and properties
-            let parts: Vec<&str> = encoded_type.split('|').collect();
-            if parts.len() != 2 {
-                continue;
-            }
+    // Parse SCHEMA array
+    for encoded_type in SCHEMA.iter() {
+        let mut properties_map: HashMap<String, String> = HashMap::new();
+        let mut events_set: HashSet<String> = HashSet::new();
 
-            let str_type = parts[0];
-            let str_properties = parts[1];
+        // Split by '|' to get type and properties
+        let parts: Vec<&str> = encoded_type.split('|').collect();
+        if parts.len() != 2 {
+            continue;
+        }
 
-            // Split type to get element names and parent
-            let type_parts: Vec<&str> = str_type.split('^').collect();
-            let type_names = type_parts[0];
-            let super_name = type_parts.get(1).copied();
+        let str_type = parts[0];
+        let str_properties = parts[1];
 
-            // Register all element names with same schema
-            for tag in type_names.split(',') {
-                let tag_lower = tag.to_lowercase();
-                schema.insert(tag_lower.clone(), properties_map.clone());
-                event_schema.insert(tag_lower, events_set.clone());
-            }
+        // Split type to get element names and parent
+        let type_parts: Vec<&str> = str_type.split('^').collect();
+        let type_names = type_parts[0];
+        let super_name = type_parts.get(1).copied();
 
-            // Inherit from parent if specified
-            if let Some(super_name) = super_name {
-                let super_lower = super_name.to_lowercase();
-                if let Some(super_type) = schema.get(&super_lower) {
-                    for (prop, value) in super_type {
-                        properties_map.insert(prop.clone(), value.clone());
-                    }
-                }
-                if let Some(super_events) = event_schema.get(&super_lower) {
-                    for event in super_events {
-                        events_set.insert(event.clone());
-                    }
+        // Register all element names with same schema
+        for tag in type_names.split(',') {
+            let tag_lower = tag.to_lowercase();
+            schema.insert(tag_lower.clone(), properties_map.clone());
+            event_schema.insert(tag_lower, events_set.clone());
+        }
+
+        // Inherit from parent if specified
+        if let Some(super_name) = super_name {
+            let super_lower = super_name.to_lowercase();
+            if let Some(super_type) = schema.get(&super_lower) {
+                for (prop, value) in super_type {
+                    properties_map.insert(prop.clone(), value.clone());
                 }
             }
-
-            // Parse properties
-            for property in str_properties.split(',') {
-                if property.is_empty() {
-                    continue;
+            if let Some(super_events) = event_schema.get(&super_lower) {
+                for event in super_events {
+                    events_set.insert(event.clone());
                 }
-
-                match property.chars().next() {
-                    Some('*') => {
-                        // Event
-                        events_set.insert(property[1..].to_string());
-                    }
-                    Some('!') => {
-                        // Boolean
-                        properties_map.insert(property[1..].to_string(), BOOLEAN.to_string());
-                    }
-                    Some('#') => {
-                        // Number
-                        properties_map.insert(property[1..].to_string(), NUMBER.to_string());
-                    }
-                    Some('%') => {
-                        // Object
-                        properties_map.insert(property[1..].to_string(), OBJECT.to_string());
-                    }
-                    _ => {
-                        // String (default)
-                        properties_map.insert(property.to_string(), STRING.to_string());
-                    }
-                }
-            }
-
-            // Update the schema with inherited properties
-            for tag in type_names.split(',') {
-                let tag_lower = tag.to_lowercase();
-                schema.insert(tag_lower.clone(), properties_map.clone());
-                event_schema.insert(tag_lower, events_set.clone());
             }
         }
 
+        // Parse properties
+        for property in str_properties.split(',') {
+            if property.is_empty() {
+                continue;
+            }
+
+            match property.chars().next() {
+                Some('*') => {
+                    // Event
+                    events_set.insert(property[1..].to_string());
+                }
+                Some('!') => {
+                    // Boolean
+                    properties_map.insert(property[1..].to_string(), BOOLEAN.to_string());
+                }
+                Some('#') => {
+                    // Number
+                    properties_map.insert(property[1..].to_string(), NUMBER.to_string());
+                }
+                Some('%') => {
+                    // Object
+                    properties_map.insert(property[1..].to_string(), OBJECT.to_string());
+                }
+                _ => {
+                    // String (default)
+                    properties_map.insert(property.to_string(), STRING.to_string());
+                }
+            }
+        }
+
+        // Update the schema with inherited properties
+        for tag in type_names.split(',') {
+            let tag_lower = tag.to_lowercase();
+            schema.insert(tag_lower.clone(), properties_map.clone());
+            event_schema.insert(tag_lower, events_set.clone());
+        }
+    }
+
+    (schema, event_schema)
+});
+
+impl DomElementSchemaRegistry {
+    pub fn new() -> Self {
+        let (schema, event_schema) = &*PARSED_DOM_SCHEMA;
         DomElementSchemaRegistry {
-            schema,
-            event_schema,
+            schema: std::sync::Arc::new(schema.clone()),
+            event_schema: std::sync::Arc::new(event_schema.clone()),
         }
     }
 

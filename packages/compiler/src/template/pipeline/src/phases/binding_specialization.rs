@@ -124,7 +124,7 @@ fn process_unit(
     for (index, binding_op) in ops_to_replace.iter().rev() {
         let replacement = match binding_op.binding_kind {
             BindingKind::Attribute => {
-                if binding_op.name == "ngNonBindable" {
+                if &*binding_op.name == "ngNonBindable" {
                     // Set non_bindable flag on element and remove op
                     if elements_map.contains_key(&binding_op.target) {
                         let base = lookup_element(elements_map, unit, binding_op.target);
@@ -133,7 +133,7 @@ fn process_unit(
                     None // Remove op
                 } else if binding_op.name.starts_with("animate.") {
                     // Convert to AnimationBindingOp
-                    let animation_kind = if binding_op.name == "animate.enter" {
+                    let animation_kind = if &*binding_op.name == "animate.enter" {
                         AnimationKind::Enter
                     } else {
                         AnimationKind::Leave
@@ -150,12 +150,12 @@ fn process_unit(
                 } else {
                     // Convert to AttributeOp
                     let (namespace_opt, name) = split_ns_name(&binding_op.name, false)
-                        .unwrap_or((None, binding_op.name.clone()));
+                        .unwrap_or((None, binding_op.name.to_string()));
 
                     Some(create_attribute_op(
                         binding_op.target,
                         namespace_opt,
-                        name,
+                        name.into(),
                         binding_op.expression.clone(),
                         binding_op.security_context.clone(),
                         binding_op.is_text_attribute,
@@ -167,7 +167,7 @@ fn process_unit(
                 }
             }
             BindingKind::Animation => {
-                let animation_kind = if binding_op.name == "animate.enter" {
+                let animation_kind = if &*binding_op.name == "animate.enter" {
                     AnimationKind::Enter
                 } else {
                     AnimationKind::Leave
@@ -188,7 +188,7 @@ fn process_unit(
                     Some(
                         crate::template::pipeline::ir::ops::update::create_style_prop_op(
                             binding_op.target,
-                            style_prop_name,
+                            style_prop_name.into(),
                             binding_op.expression.clone(),
                             binding_op.unit.clone(),
                             binding_op.source_span.clone(),
@@ -211,7 +211,7 @@ fn process_unit(
                     Some(
                         crate::template::pipeline::ir::ops::update::create_class_prop_op(
                             binding_op.target,
-                            class_prop_name,
+                            class_prop_name.into(),
                             expression,
                             binding_op.source_span.clone(),
                         ),
@@ -248,7 +248,7 @@ fn process_unit(
                             binding_op.i18n_message.clone(),
                             binding_op.source_span.clone(),
                         ))
-                    } else if binding_op.name == "field" {
+                    } else if binding_op.name.as_ref() == "field" {
                         // Convert to ControlOp
                         Some(create_control_op(binding_op))
                     } else {

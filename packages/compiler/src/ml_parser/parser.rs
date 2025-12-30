@@ -11,6 +11,7 @@ use super::lexer::{tokenize, TokenizeOptions};
 use super::tags::{get_ns_prefix, merge_ns_and_name, TagDefinition};
 use super::tokens::*;
 use crate::parse_util::{ParseError, ParseSourceSpan};
+use std::sync::Arc;
 
 /// Node containers (can contain child nodes)
 #[derive(Debug, Clone)]
@@ -257,7 +258,7 @@ impl TreeBuilder {
                     /*
                     if el.end_source_span.is_none() && !el.is_self_closing && !el.is_void {
                         self.errors.push(TreeError::create(
-                            Some(el.name.clone()),
+                            Some(el.name.to_string()),
                             el.source_span.clone(),
                             format!("Unclosed element \"{}\"", el.name),
                         ));
@@ -271,7 +272,7 @@ impl TreeBuilder {
                     // Blocks without { (incomplete like @if()) should not error
                     if block.has_opening_brace && block.end_source_span.is_none() {
                         self.errors.push(TreeError::create(
-                            Some(block.name.clone()),
+                            Some(block.name.to_string()),
                             block.source_span.clone(),
                             format!("Unclosed block \"@{}\"", block.name),
                         ));
@@ -284,7 +285,7 @@ impl TreeBuilder {
                     /*
                     if comp.end_source_span.is_none() && !comp.is_self_closing {
                         self.errors.push(TreeError::create(
-                            Some(comp.full_name.clone()),
+                            Some(comp.full_name.to_string()),
                             comp.source_span.clone(),
                             format!("Unclosed component \"{}\"", comp.full_name),
                         ));
@@ -409,7 +410,7 @@ impl TreeBuilder {
             let full_span = ParseSourceSpan::new(start_span.start, last_span.end);
 
             self.add_to_parent(Node::Text(Text::new(
-                text,
+                text.into(),
                 full_span,
                 tokens_converted,
                 None,
@@ -475,8 +476,8 @@ impl TreeBuilder {
             let source_span = exp_token.source_span.clone(); // TODO: Merge with _end_span
 
             let expansion = Expansion {
-                switch_value,
-                expansion_type: exp_type,
+                switch_value: switch_value.into(),
+                expansion_type: exp_type.into(),
                 cases,
                 source_span,
                 switch_value_source_span: switch_value_span,
@@ -582,8 +583,8 @@ impl TreeBuilder {
             // Get element name from token parts
             let (token_prefix, token_name) = match start_token.parts.len() {
                 2 => (start_token.parts[0].clone(), start_token.parts[1].clone()),
-                1 => (String::new(), start_token.parts[0].clone()),
-                _ => (String::new(), String::new()),
+                1 => (Arc::from(""), start_token.parts[0].clone()),
+                _ => (Arc::from(""), Arc::from("")),
             };
 
             let mut prefix = if token_prefix.is_empty() {
@@ -599,17 +600,17 @@ impl TreeBuilder {
                     let parent_tag_def = self.get_tag_definition(&parent_el.name);
                     if !parent_tag_def.prevent_namespace_inheritance() {
                         if let Some(ns) = get_ns_prefix(Some(&parent_el.name)) {
-                            prefix = Some(ns.to_string());
+                            prefix = Some(ns.to_string().into());
                         }
                     }
                 }
             }
 
-            let full_name = merge_ns_and_name(prefix.as_deref(), &token_name);
+            let full_name: Arc<str> = Arc::from(merge_ns_and_name(prefix.as_deref(), &token_name));
 
             let tag_def = self.get_tag_definition(&full_name);
             let full_name = if let Some(implicit_ns) = tag_def.implicit_namespace_prefix() {
-                merge_ns_and_name(Some(implicit_ns), &full_name)
+                Arc::from(merge_ns_and_name(Some(implicit_ns), &full_name))
             } else {
                 full_name
             };
@@ -720,22 +721,22 @@ impl TreeBuilder {
             let (end_token_prefix, end_token_name) = match end_token.parts.len() {
                 3 => (end_token.parts[0].clone(), end_token.parts[2].clone()),
                 2 => (end_token.parts[0].clone(), end_token.parts[1].clone()),
-                1 => (String::new(), end_token.parts[0].clone()),
-                _ => (String::new(), String::new()),
+                1 => (Arc::from(""), end_token.parts[0].clone()),
+                _ => (Arc::from(""), Arc::from("")),
             };
 
-            let full_name = merge_ns_and_name(
+            let full_name: Arc<str> = Arc::from(merge_ns_and_name(
                 if end_token_prefix.is_empty() {
                     None
                 } else {
                     Some(&end_token_prefix)
                 },
                 &end_token_name,
-            );
+            ));
 
             let tag_def = self.get_tag_definition(&full_name);
             let full_name = if let Some(implicit_ns) = tag_def.implicit_namespace_prefix() {
-                merge_ns_and_name(Some(implicit_ns), &full_name)
+                Arc::from(merge_ns_and_name(Some(implicit_ns), &full_name))
             } else {
                 full_name
             };
@@ -780,7 +781,7 @@ impl TreeBuilder {
                             let parent_tag_def = self.get_tag_definition(&parent_el.name);
                             if !parent_tag_def.prevent_namespace_inheritance() {
                                 if let Some(ns) = get_ns_prefix(Some(&parent_el.name)) {
-                                    prefix = Some(ns.to_string());
+                                    prefix = Some(ns.to_string().into());
                                 }
                             }
                         }
@@ -794,7 +795,7 @@ impl TreeBuilder {
                         target_name = merge_ns_and_name(Some(implicit_ns), &target_name);
                     }
 
-                    if el.name == target_name {
+                    if el.name == target_name.clone().into() {
                         match_index = Some(i);
                         break;
                     } else {
@@ -909,8 +910,9 @@ impl TreeBuilder {
         } else {
             merge_ns_and_name(
                 Some(&attr_name.parts[0]),
-                &attr_name.parts.get(1).map(|s| s.as_str()).unwrap_or(""),
+                &attr_name.parts.get(1).map(|s| s.as_ref()).unwrap_or(""),
             )
+            .into()
         };
         let name = full_name;
 
@@ -965,7 +967,7 @@ impl TreeBuilder {
 
         Attribute {
             name,
-            value,
+            value: value.into(),
             source_span,
             key_span: Some(attr_name.source_span),
             value_span,
@@ -1023,8 +1025,8 @@ impl TreeBuilder {
         if !value.is_empty() {
             let key_span = name_token.source_span.clone();
             attributes.push(Attribute {
-                name: "".to_string(), // The name is in directive.name
-                value: value.clone(),
+                name: "".into(), // The name is in directive.name
+                value: value.clone().into(),
                 source_span: key_span.clone(),
                 key_span: Some(key_span.clone()),
                 value_span: value_span.clone(),
@@ -1070,7 +1072,7 @@ impl TreeBuilder {
             || full_name.starts_with('@')
             || full_name.starts_with(':')
         {
-            full_name[1..].to_string()
+            full_name[1..].into()
         } else {
             full_name
         };
@@ -1116,7 +1118,7 @@ impl TreeBuilder {
             || full_name.starts_with('@')
             || full_name.starts_with(':')
         {
-            full_name[1..].to_string()
+            full_name[1..].into()
         } else {
             full_name
         };
@@ -1225,7 +1227,7 @@ impl TreeBuilder {
             // Assuming it's similar to LetStart but incomplete.
             let decl = LetDeclaration {
                 name: let_token.parts.get(0).cloned().unwrap_or_default(),
-                value: String::new(), // Incomplete
+                value: Arc::from(""), // Incomplete
                 source_span: span.clone(),
                 name_span: span.clone(),
                 value_span: span.clone(),
@@ -1310,7 +1312,7 @@ impl TreeBuilder {
             let value = if let Some(Token::LetValue(val)) = self.advance_if(TokenType::LetValue) {
                 val.parts.get(0).cloned().unwrap_or_default()
             } else {
-                String::new()
+                Arc::from("")
             };
 
             // Consume LET_END
@@ -1345,8 +1347,8 @@ impl TreeBuilder {
             let (token_prefix, token_name) = match start_token.parts.len() {
                 3 => (start_token.parts[0].clone(), start_token.parts[2].clone()),
                 2 => (start_token.parts[0].clone(), start_token.parts[1].clone()),
-                1 => (String::new(), start_token.parts[0].clone()),
-                _ => (String::new(), String::new()),
+                1 => (Arc::from(""), start_token.parts[0].clone()),
+                _ => (Arc::from(""), Arc::from("")),
             };
 
             let prefix = if token_prefix.is_empty() {
@@ -1354,7 +1356,7 @@ impl TreeBuilder {
             } else {
                 Some(token_prefix.clone())
             };
-            let full_name = merge_ns_and_name(prefix.as_deref(), &token_name);
+            let full_name: Arc<str> = Arc::from(merge_ns_and_name(prefix.as_deref(), &token_name));
 
             let component_name = if !token_prefix.is_empty()
                 && token_prefix
@@ -1410,8 +1412,8 @@ impl TreeBuilder {
             let (end_token_prefix, end_token_name) = match end_token.parts.len() {
                 3 => (end_token.parts[0].clone(), end_token.parts[2].clone()),
                 2 => (end_token.parts[0].clone(), end_token.parts[1].clone()),
-                1 => (String::new(), end_token.parts[0].clone()),
-                _ => (String::new(), String::new()),
+                1 => (Arc::from(""), end_token.parts[0].clone()),
+                _ => (Arc::from(""), Arc::from("")),
             };
 
             let full_name = merge_ns_and_name(
@@ -1427,7 +1429,7 @@ impl TreeBuilder {
             let mut found = false;
             for i in (0..self.container_stack.len()).rev() {
                 if let NodeContainer::Component(comp) = &self.container_stack[i] {
-                    if comp.full_name == full_name {
+                    if comp.full_name.as_ref() == full_name {
                         // Found matching component - pop it
                         let removed = self.container_stack.remove(i);
 
@@ -1518,7 +1520,9 @@ impl TreeBuilder {
             };
 
             // println!("DEBUG: Merging text. Last: {:?} ({:?}), New: {:?} ({:?})", last_text.value, last_text.source_span, new_text.value, new_text.source_span);
-            last_text.value.push_str(&new_text.value);
+            let mut new_val = last_text.value.to_string();
+            new_val.push_str(&new_text.value);
+            last_text.value = Arc::from(new_val);
             last_text.tokens.extend(new_text.tokens);
             last_text.source_span.end = new_text.source_span.end;
             // println!("DEBUG: Result span: {:?}", last_text.source_span);
@@ -1606,18 +1610,8 @@ fn get_token_source_span(token: &Token) -> ParseSourceSpan {
         Token::RawText(t) => t.source_span.clone(),
         Token::EscapableRawText(t) => t.source_span.clone(),
         _ => ParseSourceSpan::new(
-            crate::parse_util::ParseLocation::new(
-                crate::parse_util::ParseSourceFile::new(String::new(), String::new()),
-                0,
-                0,
-                0,
-            ),
-            crate::parse_util::ParseLocation::new(
-                crate::parse_util::ParseSourceFile::new(String::new(), String::new()),
-                0,
-                0,
-                0,
-            ),
+            crate::parse_util::ParseLocation::from_source(String::new(), String::new(), 0, 0, 0),
+            crate::parse_util::ParseLocation::from_source(String::new(), String::new(), 0, 0, 0),
         ),
     }
 }
@@ -1628,7 +1622,7 @@ fn get_token_text(token: &Token) -> String {
         Token::RawText(t) => t.parts.join(""),
         Token::EscapableRawText(t) => t.parts.join(""),
         Token::Interpolation(t) => t.parts.join(""),
-        Token::EncodedEntity(t) => t.parts.get(0).cloned().unwrap_or_default(),
+        Token::EncodedEntity(t) => t.parts.get(0).cloned().unwrap_or_default().to_string(),
         Token::AttrValueText(t) => t.parts.join(""),
         Token::AttrValueInterpolation(t) => t.parts.join(""),
         _ => String::new(),
@@ -1639,18 +1633,8 @@ fn get_token_text(token: &Token) -> String {
 // Helper to create discriminant for token type matching
 fn create_token_discriminant(token_type: TokenType) -> Token {
     let dummy_span = ParseSourceSpan::new(
-        crate::parse_util::ParseLocation::new(
-            crate::parse_util::ParseSourceFile::new(String::new(), String::new()),
-            0,
-            0,
-            0,
-        ),
-        crate::parse_util::ParseLocation::new(
-            crate::parse_util::ParseSourceFile::new(String::new(), String::new()),
-            0,
-            0,
-            0,
-        ),
+        crate::parse_util::ParseLocation::from_source(String::new(), String::new(), 0, 0, 0),
+        crate::parse_util::ParseLocation::from_source(String::new(), String::new(), 0, 0, 0),
     );
 
     match token_type {
@@ -1840,20 +1824,16 @@ mod tests {
     #[test]
     fn test_tree_error_creation() {
         let span = ParseSourceSpan::new(
-            crate::parse_util::ParseLocation::new(
-                crate::parse_util::ParseSourceFile::new(
-                    "test".to_string(),
-                    "test.html".to_string(),
-                ),
+            crate::parse_util::ParseLocation::from_source(
+                "test".to_string(),
+                "test.html".to_string(),
                 0,
                 0,
                 0,
             ),
-            crate::parse_util::ParseLocation::new(
-                crate::parse_util::ParseSourceFile::new(
-                    "test".to_string(),
-                    "test.html".to_string(),
-                ),
+            crate::parse_util::ParseLocation::from_source(
+                "test".to_string(),
+                "test.html".to_string(),
                 0,
                 0,
                 0,

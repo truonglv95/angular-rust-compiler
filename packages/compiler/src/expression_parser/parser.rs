@@ -531,8 +531,9 @@ impl ParseAST {
     }
 
     fn record_error(&mut self, message: String) {
-        let location = ParseLocation::new(
-            ParseSourceFile::new(self.input.clone(), "".to_string()),
+        let location = ParseLocation::from_source(
+            self.input.clone(),
+            "".to_string(),
             self.input_index(),
             0,
             0,
@@ -1725,14 +1726,16 @@ impl ParseAST {
                             let span = self.source_span(self.input_index());
                             errors.push(ParseUtilError::new(
                                 ParseSourceSpan::new(
-                                    ParseLocation::new(
-                                        ParseSourceFile::new(self.input.clone(), "".to_string()),
+                                    ParseLocation::from_source(
+                                        self.input.clone(),
+                                        "".to_string(),
                                         span.start,
                                         0,
                                         0,
                                     ),
-                                    ParseLocation::new(
-                                        ParseSourceFile::new(self.input.clone(), "".to_string()),
+                                    ParseLocation::from_source(
+                                        self.input.clone(),
+                                        "".to_string(),
                                         span.end,
                                         0,
                                         0,
@@ -1753,20 +1756,16 @@ impl ParseAST {
                                 let span = self.source_span(self.input_index());
                                 errors.push(ParseUtilError::new(
                                     ParseSourceSpan::new(
-                                        ParseLocation::new(
-                                            ParseSourceFile::new(
-                                                self.input.clone(),
-                                                "".to_string(),
-                                            ),
+                                        ParseLocation::from_source(
+                                            self.input.clone(),
+                                            "".to_string(),
                                             span.start,
                                             0,
                                             0,
                                         ),
-                                        ParseLocation::new(
-                                            ParseSourceFile::new(
-                                                self.input.clone(),
-                                                "".to_string(),
-                                            ),
+                                        ParseLocation::from_source(
+                                            self.input.clone(),
+                                            "".to_string(),
                                             span.end,
                                             0,
                                             0,
@@ -1884,20 +1883,16 @@ impl ParseAST {
                                                 let span = self.source_span(self.input_index());
                                                 errors.push(ParseUtilError::new(
                                                     ParseSourceSpan::new(
-                                                        ParseLocation::new(
-                                                            ParseSourceFile::new(
-                                                                self.input.clone(),
-                                                                "".to_string(),
-                                                            ),
+                                                        ParseLocation::from_source(
+                                                            self.input.clone(),
+                                                            "".to_string(),
                                                             span.start,
                                                             0,
                                                             0,
                                                         ),
-                                                        ParseLocation::new(
-                                                            ParseSourceFile::new(
-                                                                self.input.clone(),
-                                                                "".to_string(),
-                                                            ),
+                                                        ParseLocation::from_source(
+                                                            self.input.clone(),
+                                                            "".to_string(),
                                                             span.end,
                                                             0,
                                                             0,
@@ -1950,20 +1945,16 @@ impl ParseAST {
                                                 let span = self.source_span(self.input_index());
                                                 errors.push(ParseUtilError::new(
                                                     ParseSourceSpan::new(
-                                                        ParseLocation::new(
-                                                            ParseSourceFile::new(
-                                                                self.input.clone(),
-                                                                "".to_string(),
-                                                            ),
+                                                        ParseLocation::from_source(
+                                                            self.input.clone(),
+                                                            "".to_string(),
                                                             span.start,
                                                             0,
                                                             0,
                                                         ),
-                                                        ParseLocation::new(
-                                                            ParseSourceFile::new(
-                                                                self.input.clone(),
-                                                                "".to_string(),
-                                                            ),
+                                                        ParseLocation::from_source(
+                                                            self.input.clone(),
+                                                            "".to_string(),
                                                             span.end,
                                                             0,
                                                             0,
@@ -1980,20 +1971,16 @@ impl ParseAST {
                                 let span = self.source_span(self.input_index());
                                 errors.push(ParseUtilError::new(
                                     ParseSourceSpan::new(
-                                        ParseLocation::new(
-                                            ParseSourceFile::new(
-                                                self.input.clone(),
-                                                "".to_string(),
-                                            ),
+                                        ParseLocation::from_source(
+                                            self.input.clone(),
+                                            "".to_string(),
                                             span.start,
                                             0,
                                             0,
                                         ),
-                                        ParseLocation::new(
-                                            ParseSourceFile::new(
-                                                self.input.clone(),
-                                                "".to_string(),
-                                            ),
+                                        ParseLocation::from_source(
+                                            self.input.clone(),
+                                            "".to_string(),
                                             span.end,
                                             0,
                                             0,

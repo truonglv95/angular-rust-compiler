@@ -144,12 +144,17 @@ impl PartialComponentLinker2 {
         };
 
         // Create a dummy source file for source spans
-        let dummy_file = angular_compiler::parse_util::ParseSourceFile::new(
+        let dummy_file = std::sync::Arc::new(angular_compiler::parse_util::ParseSourceFile::new(
             "".to_string(),
             "unknown".to_string(),
-        );
+        ));
         let dummy_span = ParseSourceSpan::new(
-            angular_compiler::parse_util::ParseLocation::new(dummy_file.clone(), 0, 0, 0),
+            angular_compiler::parse_util::ParseLocation::new(
+                std::sync::Arc::clone(&dummy_file),
+                0,
+                0,
+                0,
+            ),
             angular_compiler::parse_util::ParseLocation::new(dummy_file, 0, 0, 0),
         );
 

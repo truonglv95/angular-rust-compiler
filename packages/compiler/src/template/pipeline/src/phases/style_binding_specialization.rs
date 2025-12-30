@@ -79,13 +79,13 @@ fn process_unit(unit: &mut crate::template::pipeline::src::compilation::ViewComp
             }
             BindingKind::Property | BindingKind::Template => {
                 // Property or Template binding - check if name is 'style' or 'class'
-                if binding_op.name == "style" {
+                if &*binding_op.name == "style" {
                     Some(create_style_map_op(
                         binding_op.target,
                         binding_op.expression.clone(),
                         binding_op.source_span.clone(),
                     ))
-                } else if binding_op.name == "class" {
+                } else if &*binding_op.name == "class" {
                     Some(create_class_map_op(
                         binding_op.target,
                         binding_op.expression.clone(),

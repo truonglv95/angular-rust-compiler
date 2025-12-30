@@ -9,6 +9,8 @@ use super::entities::NAMED_ENTITIES;
 use super::html_tags;
 use super::tags::TagDefinition;
 use super::tokens::*;
+use std::sync::Arc;
+
 use crate::chars;
 use crate::parse_util::{ParseError, ParseLocation, ParseSourceFile, ParseSourceSpan};
 use once_cell::sync::Lazy;
@@ -68,7 +70,7 @@ pub fn tokenize(
     get_tag_definition: fn(&str) -> &'static dyn TagDefinition,
     options: TokenizeOptions,
 ) -> TokenizeResult {
-    let file = ParseSourceFile::new(source, url);
+    let file = Arc::new(ParseSourceFile::new(source, url));
     let mut tokenizer = Tokenizer::new(file, get_tag_definition, options);
     tokenizer.tokenize();
 
@@ -127,7 +129,7 @@ trait CharacterCursor {
 
 /// Plain character cursor (no escape sequences)
 struct PlainCharacterCursor {
-    file: ParseSourceFile,
+    file: Arc<ParseSourceFile>,
     range: LexerRange,
     state: CursorState,
 }
@@ -141,7 +143,7 @@ struct CursorState {
 }
 
 impl PlainCharacterCursor {
-    fn new(file: ParseSourceFile, range: Option<LexerRange>) -> Self {
+    fn new(file: Arc<ParseSourceFile>, range: Option<LexerRange>) -> Self {
         let default_range = LexerRange {
             start_pos: 0,
             start_line: 0,
@@ -197,7 +199,7 @@ impl CharacterCursor for PlainCharacterCursor {
 
     fn clone_cursor(&self) -> Box<dyn CharacterCursor> {
         Box::new(PlainCharacterCursor {
-            file: self.file.clone(),
+            file: Arc::clone(&self.file),
             range: self.range.clone(),
             state: self.state.clone(),
         })
@@ -217,13 +219,13 @@ impl CharacterCursor for PlainCharacterCursor {
 
     fn get_span(&self, start: &dyn CharacterCursor) -> ParseSourceSpan {
         let start_location = ParseLocation::new(
-            self.file.clone(),
+            Arc::clone(&self.file),
             start.get_offset(),
             start.get_line(),
             start.get_column(),
         );
         let end_location = ParseLocation::new(
-            self.file.clone(),
+            Arc::clone(&self.file),
             self.state.offset,
             self.state.line,
             self.state.column,
@@ -254,7 +256,7 @@ impl CharacterCursor for PlainCharacterCursor {
 
 /// Character cursor that handles escape sequences in strings
 struct EscapedCharacterCursor {
-    file: ParseSourceFile,
+    file: Arc<ParseSourceFile>,
     range: LexerRange,
     internal_state: EscapedCursorState,
 }
@@ -269,7 +271,7 @@ struct EscapedCursorState {
 }
 
 impl EscapedCharacterCursor {
-    fn new(file: ParseSourceFile, range: Option<LexerRange>) -> Self {
+    fn new(file: Arc<ParseSourceFile>, range: Option<LexerRange>) -> Self {
         let default_range = LexerRange {
             start_pos: 0,
             start_line: 0,
@@ -411,7 +413,7 @@ impl CharacterCursor for EscapedCharacterCursor {
 
     fn clone_cursor(&self) -> Box<dyn CharacterCursor> {
         Box::new(EscapedCharacterCursor {
-            file: self.file.clone(),
+            file: Arc::clone(&self.file),
             range: self.range.clone(),
             internal_state: self.internal_state.clone(),
         })
@@ -475,13 +477,13 @@ impl CharacterCursor for EscapedCharacterCursor {
         // So we return logical spans.
 
         let start_location = ParseLocation::new(
-            self.file.clone(),
+            Arc::clone(&self.file),
             start.get_offset(),
             start.get_line(),
             start.get_column(),
         );
         let end_location = ParseLocation::new(
-            self.file.clone(),
+            Arc::clone(&self.file),
             self.internal_state.offset,
             self.internal_state.line,
             self.internal_state.column,
@@ -535,15 +537,15 @@ struct Tokenizer {
 
 impl Tokenizer {
     fn new(
-        file: ParseSourceFile,
+        file: Arc<ParseSourceFile>,
         get_tag_definition: fn(&str) -> &'static dyn TagDefinition,
         options: TokenizeOptions,
     ) -> Self {
         let range = options.range.clone();
         let cursor: Box<dyn CharacterCursor> = if options.escaped_string {
-            Box::new(EscapedCharacterCursor::new(file.clone(), range))
+            Box::new(EscapedCharacterCursor::new(Arc::clone(&file), range))
         } else {
-            Box::new(PlainCharacterCursor::new(file.clone(), range))
+            Box::new(PlainCharacterCursor::new(Arc::clone(&file), range))
         };
 
         let leading_trivia = options.leading_trivia_chars.as_ref().map(|chars| {
@@ -941,6 +943,7 @@ impl Tokenizer {
     }
 
     fn end_token(&mut self, parts: Vec<String>) -> Token {
+        let parts: Vec<Arc<str>> = parts.into_iter().map(Arc::from).collect();
         let start = self.current_token_start.as_ref().expect("No token start");
         let token_type = self.current_token_type.take().unwrap_or(TokenType::Eof);
 
@@ -2715,7 +2718,7 @@ impl Tokenizer {
 fn merge_text_tokens(src_tokens: Vec<Token>) -> Vec<Token> {
     // println!("Running merge_text_tokens");
     let mut merged = Vec::new();
-    let mut pending_parts: Vec<String> = Vec::new();
+    let mut pending_parts: Vec<Arc<str>> = Vec::new();
     let mut pending_span: Option<ParseSourceSpan> = None;
 
     for token in src_tokens {

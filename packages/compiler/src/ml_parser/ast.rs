@@ -6,6 +6,7 @@
 use super::tokens::{InterpolatedAttributeToken, InterpolatedTextToken};
 use crate::i18n::I18nMeta;
 use crate::parse_util::ParseSourceSpan;
+use std::sync::Arc;
 
 /// Base trait for all AST nodes
 pub trait BaseNode {
@@ -49,7 +50,7 @@ impl NodeWithI18n {
 /// Text node
 #[derive(Debug, Clone)]
 pub struct Text {
-    pub value: String,
+    pub value: Arc<str>,
     pub source_span: ParseSourceSpan,
     pub tokens: Vec<InterpolatedTextToken>,
     pub i18n: Option<I18nMeta>,
@@ -57,7 +58,7 @@ pub struct Text {
 
 impl Text {
     pub fn new(
-        value: String,
+        value: Arc<str>,
         source_span: ParseSourceSpan,
         tokens: Vec<InterpolatedTextToken>,
         i18n: Option<I18nMeta>,
@@ -74,8 +75,8 @@ impl Text {
 /// Expansion (ICU message format)
 #[derive(Debug, Clone)]
 pub struct Expansion {
-    pub switch_value: String,
-    pub expansion_type: String,
+    pub switch_value: Arc<str>,
+    pub expansion_type: Arc<str>,
     pub cases: Vec<ExpansionCase>,
     pub source_span: ParseSourceSpan,
     pub switch_value_source_span: ParseSourceSpan,
@@ -85,7 +86,7 @@ pub struct Expansion {
 /// Expansion case
 #[derive(Debug, Clone)]
 pub struct ExpansionCase {
-    pub value: String,
+    pub value: Arc<str>,
     pub expression: Vec<Node>,
     pub source_span: ParseSourceSpan,
     pub value_source_span: ParseSourceSpan,
@@ -95,8 +96,8 @@ pub struct ExpansionCase {
 /// Attribute node
 #[derive(Debug, Clone)]
 pub struct Attribute {
-    pub name: String,
-    pub value: String,
+    pub name: Arc<str>,
+    pub value: Arc<str>,
     pub source_span: ParseSourceSpan,
     pub key_span: Option<ParseSourceSpan>,
     pub value_span: Option<ParseSourceSpan>,
@@ -107,7 +108,7 @@ pub struct Attribute {
 /// Element node
 #[derive(Debug, Clone)]
 pub struct Element {
-    pub name: String,
+    pub name: Arc<str>,
     pub attrs: Vec<Attribute>,
     pub directives: Vec<Directive>,
     pub children: Vec<Node>,
@@ -122,12 +123,12 @@ pub struct Element {
 /// Comment node
 #[derive(Debug, Clone)]
 pub struct Comment {
-    pub value: Option<String>,
+    pub value: Option<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 impl Comment {
-    pub fn new(value: Option<String>, source_span: ParseSourceSpan) -> Self {
+    pub fn new(value: Option<Arc<str>>, source_span: ParseSourceSpan) -> Self {
         Comment { value, source_span }
     }
 }
@@ -135,7 +136,7 @@ impl Comment {
 /// Block node (@if, @for, @switch)
 #[derive(Debug, Clone)]
 pub struct Block {
-    pub name: String,
+    pub name: Arc<str>,
     pub parameters: Vec<BlockParameter>,
     pub has_opening_brace: bool, // Track if block received { token
     pub children: Vec<Node>,
@@ -149,9 +150,9 @@ pub struct Block {
 /// Component node (Angular component usage)
 #[derive(Debug, Clone)]
 pub struct Component {
-    pub component_name: String,
-    pub tag_name: Option<String>,
-    pub full_name: String,
+    pub component_name: Arc<str>,
+    pub tag_name: Option<Arc<str>>,
+    pub full_name: Arc<str>,
     pub attrs: Vec<Attribute>,
     pub directives: Vec<Directive>,
     pub children: Vec<Node>,
@@ -165,7 +166,7 @@ pub struct Component {
 /// Directive node
 #[derive(Debug, Clone)]
 pub struct Directive {
-    pub name: String,
+    pub name: Arc<str>,
     pub attrs: Vec<Attribute>,
     pub source_span: ParseSourceSpan,
     pub start_source_span: ParseSourceSpan,
@@ -175,12 +176,12 @@ pub struct Directive {
 /// Block parameter
 #[derive(Debug, Clone)]
 pub struct BlockParameter {
-    pub expression: String,
+    pub expression: Arc<str>,
     pub source_span: ParseSourceSpan,
 }
 
 impl BlockParameter {
-    pub fn new(expression: String, source_span: ParseSourceSpan) -> Self {
+    pub fn new(expression: Arc<str>, source_span: ParseSourceSpan) -> Self {
         BlockParameter {
             expression,
             source_span,
@@ -191,8 +192,8 @@ impl BlockParameter {
 /// Let declaration (@let x = value)
 #[derive(Debug, Clone)]
 pub struct LetDeclaration {
-    pub name: String,
-    pub value: String,
+    pub name: Arc<str>,
+    pub value: Arc<str>,
     pub source_span: ParseSourceSpan,
     pub name_span: ParseSourceSpan,
     pub value_span: ParseSourceSpan,

@@ -199,7 +199,7 @@ pub fn parse_on_trigger(
         let is_hydration_trigger = expression.starts_with("hydrate");
 
         let mut parser = OnTriggerParser::new(
-            expression.clone(),
+            expression.to_string(),
             binding_parser,
             start,
             source_span.clone(),
@@ -571,7 +571,7 @@ impl<'a> OnTriggerParser<'a> {
             self.triggers,
             self.errors,
             DeferredTrigger::Hover(HoverDeferredTrigger {
-                reference,
+                reference: reference.map(|r| r.into()),
                 name_span,
                 source_span,
                 prefetch_span,
@@ -600,7 +600,7 @@ impl<'a> OnTriggerParser<'a> {
             self.triggers,
             self.errors,
             DeferredTrigger::Interaction(InteractionDeferredTrigger {
-                reference,
+                reference: reference.map(|r| r.into()),
                 name_span,
                 source_span,
                 prefetch_span,
@@ -636,7 +636,7 @@ impl<'a> OnTriggerParser<'a> {
             self.triggers,
             self.errors,
             DeferredTrigger::Viewport(ViewportDeferredTrigger {
-                reference,
+                reference: reference.map(|r| r.into()),
                 options,
                 name_span,
                 source_span,

@@ -11,6 +11,7 @@ use crate::expression_parser::ast::{
 use crate::i18n::i18n_ast::I18nMeta;
 use crate::parse_util::ParseSourceSpan;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Base trait for all R3 AST nodes
 pub trait Node {
@@ -21,12 +22,12 @@ pub trait Node {
 /// Comment node - wrapper for raw html.Comment
 #[derive(Debug, Clone)]
 pub struct Comment {
-    pub value: String,
+    pub value: Arc<str>,
     pub source_span: ParseSourceSpan,
 }
 
 impl Comment {
-    pub fn new(value: String, source_span: ParseSourceSpan) -> Self {
+    pub fn new(value: Arc<str>, source_span: ParseSourceSpan) -> Self {
         Comment { value, source_span }
     }
 }
@@ -44,12 +45,12 @@ impl Node for Comment {
 /// Text node
 #[derive(Debug, Clone)]
 pub struct Text {
-    pub value: String,
+    pub value: Arc<str>,
     pub source_span: ParseSourceSpan,
 }
 
 impl Text {
-    pub fn new(value: String, source_span: ParseSourceSpan) -> Self {
+    pub fn new(value: Arc<str>, source_span: ParseSourceSpan) -> Self {
         Text { value, source_span }
     }
 }
@@ -95,8 +96,8 @@ impl Node for BoundText {
 /// Text attribute in the template
 #[derive(Debug, Clone)]
 pub struct TextAttribute {
-    pub name: String,
-    pub value: String,
+    pub name: Arc<str>,
+    pub value: Arc<str>,
     pub source_span: ParseSourceSpan,
     pub key_span: Option<ParseSourceSpan>,
     pub value_span: Option<ParseSourceSpan>,
@@ -105,8 +106,8 @@ pub struct TextAttribute {
 
 impl TextAttribute {
     pub fn new(
-        name: String,
-        value: String,
+        name: Arc<str>,
+        value: Arc<str>,
         source_span: ParseSourceSpan,
         key_span: Option<ParseSourceSpan>,
         value_span: Option<ParseSourceSpan>,
@@ -136,11 +137,11 @@ impl Node for TextAttribute {
 /// Bound attribute node
 #[derive(Debug, Clone)]
 pub struct BoundAttribute {
-    pub name: String,
+    pub name: Arc<str>,
     pub type_: ExprBindingType,
     pub security_context: SecurityContext,
     pub value: ExprAST,
-    pub unit: Option<String>,
+    pub unit: Option<Arc<str>>,
     pub source_span: ParseSourceSpan,
     pub key_span: ParseSourceSpan,
     pub value_span: Option<ParseSourceSpan>,
@@ -149,11 +150,11 @@ pub struct BoundAttribute {
 
 impl BoundAttribute {
     pub fn new(
-        name: String,
+        name: Arc<str>,
         type_: ExprBindingType,
         security_context: SecurityContext,
         value: ExprAST,
-        unit: Option<String>,
+        unit: Option<Arc<str>>,
         source_span: ParseSourceSpan,
         key_span: ParseSourceSpan,
         value_span: Option<ParseSourceSpan>,
@@ -188,11 +189,11 @@ impl Node for BoundAttribute {
 /// Bound event node
 #[derive(Debug, Clone)]
 pub struct BoundEvent {
-    pub name: String,
+    pub name: Arc<str>,
     pub type_: ExprParsedEventType,
     pub handler: ExprAST,
-    pub target: Option<String>,
-    pub phase: Option<String>,
+    pub target: Option<Arc<str>>,
+    pub phase: Option<Arc<str>>,
     pub source_span: ParseSourceSpan,
     pub handler_span: ParseSourceSpan,
     pub key_span: ParseSourceSpan,
@@ -200,11 +201,11 @@ pub struct BoundEvent {
 
 impl BoundEvent {
     pub fn new(
-        name: String,
+        name: Arc<str>,
         type_: ExprParsedEventType,
         handler: ExprAST,
-        target: Option<String>,
-        phase: Option<String>,
+        target: Option<Arc<str>>,
+        phase: Option<Arc<str>>,
         source_span: ParseSourceSpan,
         handler_span: ParseSourceSpan,
         key_span: ParseSourceSpan,
@@ -235,7 +236,7 @@ impl Node for BoundEvent {
 /// Element node
 #[derive(Debug, Clone)]
 pub struct Element {
-    pub name: String,
+    pub name: Arc<str>,
     pub attributes: Vec<TextAttribute>,
     pub inputs: Vec<BoundAttribute>,
     pub outputs: Vec<BoundEvent>,
@@ -252,7 +253,7 @@ pub struct Element {
 
 impl Element {
     pub fn new(
-        name: String,
+        name: Arc<str>,
         attributes: Vec<TextAttribute>,
         inputs: Vec<BoundAttribute>,
         outputs: Vec<BoundEvent>,
@@ -399,7 +400,7 @@ pub struct ImmediateDeferredTrigger {
 
 #[derive(Debug, Clone)]
 pub struct HoverDeferredTrigger {
-    pub reference: Option<String>,
+    pub reference: Option<Arc<str>>,
     pub name_span: ParseSourceSpan,
     pub source_span: ParseSourceSpan,
     pub prefetch_span: Option<ParseSourceSpan>,
@@ -419,7 +420,7 @@ pub struct TimerDeferredTrigger {
 
 #[derive(Debug, Clone)]
 pub struct InteractionDeferredTrigger {
-    pub reference: Option<String>,
+    pub reference: Option<Arc<str>>,
     pub name_span: ParseSourceSpan,
     pub source_span: ParseSourceSpan,
     pub prefetch_span: Option<ParseSourceSpan>,
@@ -429,7 +430,7 @@ pub struct InteractionDeferredTrigger {
 
 #[derive(Debug, Clone)]
 pub struct ViewportDeferredTrigger {
-    pub reference: Option<String>,
+    pub reference: Option<Arc<str>>,
     pub options: Option<LiteralMap>,
     pub name_span: ParseSourceSpan,
     pub source_span: ParseSourceSpan,
@@ -654,7 +655,7 @@ impl Node for IfBlockBranch {
 /// Unknown block (for autocompletion)
 #[derive(Debug, Clone)]
 pub struct UnknownBlock {
-    pub name: String,
+    pub name: Arc<str>,
     pub source_span: ParseSourceSpan,
     pub name_span: ParseSourceSpan,
 }
@@ -672,7 +673,7 @@ impl Node for UnknownBlock {
 /// Let declaration
 #[derive(Debug, Clone)]
 pub struct LetDeclaration {
-    pub name: String,
+    pub name: Arc<str>,
     pub value: ExprAST,
     pub source_span: ParseSourceSpan,
     pub name_span: ParseSourceSpan,
@@ -692,9 +693,9 @@ impl Node for LetDeclaration {
 /// Component node
 #[derive(Debug, Clone)]
 pub struct Component {
-    pub component_name: String,
-    pub tag_name: Option<String>,
-    pub full_name: String,
+    pub component_name: Arc<str>,
+    pub tag_name: Option<Arc<str>>,
+    pub full_name: Arc<str>,
     pub attributes: Vec<TextAttribute>,
     pub inputs: Vec<BoundAttribute>,
     pub outputs: Vec<BoundEvent>,
@@ -721,7 +722,7 @@ impl Node for Component {
 /// Directive node
 #[derive(Debug, Clone)]
 pub struct Directive {
-    pub name: String,
+    pub name: Arc<str>,
     pub attributes: Vec<TextAttribute>,
     pub inputs: Vec<BoundAttribute>,
     pub outputs: Vec<BoundEvent>,
@@ -745,7 +746,7 @@ impl Node for Directive {
 /// Template node
 #[derive(Debug, Clone)]
 pub struct Template {
-    pub tag_name: Option<String>,
+    pub tag_name: Option<Arc<str>>,
     pub attributes: Vec<TextAttribute>,
     pub inputs: Vec<BoundAttribute>,
     pub outputs: Vec<BoundEvent>,
@@ -781,7 +782,7 @@ impl Node for Template {
 /// Content node (ng-content)
 #[derive(Debug, Clone)]
 pub struct Content {
-    pub selector: String,
+    pub selector: Arc<str>,
     pub attributes: Vec<TextAttribute>,
     pub children: Vec<R3Node>,
     pub is_self_closing: bool,
@@ -810,8 +811,8 @@ impl Node for Content {
 /// Variable node
 #[derive(Debug, Clone)]
 pub struct Variable {
-    pub name: String,
-    pub value: String,
+    pub name: Arc<str>,
+    pub value: Arc<str>,
     pub source_span: ParseSourceSpan,
     pub key_span: ParseSourceSpan,
     pub value_span: Option<ParseSourceSpan>,
@@ -830,8 +831,8 @@ impl Node for Variable {
 /// Reference node
 #[derive(Debug, Clone)]
 pub struct Reference {
-    pub name: String,
-    pub value: String,
+    pub name: Arc<str>,
+    pub value: Arc<str>,
     pub source_span: ParseSourceSpan,
     pub key_span: ParseSourceSpan,
     pub value_span: Option<ParseSourceSpan>,
@@ -850,8 +851,8 @@ impl Node for Reference {
 /// ICU node
 #[derive(Debug, Clone)]
 pub struct Icu {
-    pub vars: HashMap<String, BoundText>,
-    pub placeholders: HashMap<String, IcuPlaceholder>,
+    pub vars: HashMap<Arc<str>, BoundText>,
+    pub placeholders: HashMap<Arc<str>, IcuPlaceholder>,
     pub source_span: ParseSourceSpan,
     pub i18n: Option<I18nMeta>,
 }

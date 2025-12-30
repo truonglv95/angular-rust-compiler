@@ -17,14 +17,15 @@ use crate::template::pipeline::ir::ops::update::BindingExpression;
 use crate::template::pipeline::ir::traits::ConsumesSlotOpTrait;
 use crate::template::pipeline::ir::traits::ConsumesVarsTrait;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Local reference on an element
 #[derive(Debug, Clone)]
 pub struct LocalRef {
     /// User-defined name of the local ref variable
-    pub name: String,
+    pub name: Arc<str>,
     /// Target of the local reference variable (often empty string)
-    pub target: String,
+    pub target: Arc<str>,
 }
 
 /// Base fields shared by element and container operations
@@ -1316,7 +1317,7 @@ pub struct ListenerOp {
     /// Whether this listener is from a host binding
     pub host_listener: bool,
     /// Name of the event which is being listened to
-    pub name: String,
+    pub name: Arc<str>,
     /// Tag name of the element on which this listener is placed
     pub tag: Option<String>,
     /// A list of UpdateOps representing the body of the event listener
@@ -1340,7 +1341,7 @@ impl ListenerOp {
         target: XrefId,
         element: XrefId,
         target_slot: SlotHandle,
-        name: String,
+        name: Arc<str>,
         tag: Option<String>,
         handler_ops: IrOpList<Box<dyn UpdateOp + Send + Sync>>,
         legacy_animation_phase: Option<String>,
@@ -1483,7 +1484,7 @@ pub fn create_listener_op(
     target: XrefId,
     element: XrefId,
     target_slot: SlotHandle,
-    name: String,
+    name: Arc<str>,
     tag: Option<String>,
     handler_ops: IrOpList<Box<dyn UpdateOp + Send + Sync>>,
     legacy_animation_phase: Option<String>,
@@ -1764,13 +1765,13 @@ pub struct DeclareLetOp {
     /// Slot handle
     pub handle: SlotHandle,
     /// The declared name
-    pub declared_name: String,
+    pub declared_name: Arc<str>,
     /// Source span
     pub source_span: ParseSourceSpan,
 }
 
 impl DeclareLetOp {
-    pub fn new(xref: XrefId, declared_name: String, source_span: ParseSourceSpan) -> Self {
+    pub fn new(xref: XrefId, declared_name: Arc<str>, source_span: ParseSourceSpan) -> Self {
         DeclareLetOp {
             xref,
             handle: SlotHandle::default(),
@@ -1821,7 +1822,7 @@ impl ConsumesSlotOpTrait for DeclareLetOp {
 /// Create a DeclareLetOp
 pub fn create_declare_let_op(
     xref: XrefId,
-    declared_name: String,
+    declared_name: Arc<str>,
     source_span: ParseSourceSpan,
 ) -> Box<dyn CreateOp + Send + Sync> {
     Box::new(DeclareLetOp::new(xref, declared_name, source_span))
@@ -1839,7 +1840,7 @@ pub struct TwoWayListenerOp {
     /// Target slot handle
     pub target_slot: SlotHandle,
     /// Name of the event which is being listened to
-    pub name: String,
+    pub name: Arc<str>,
     /// Tag name of the element on which this listener is placed
     pub tag: Option<String>,
     /// A list of UpdateOps representing the body of the event listener
@@ -1855,7 +1856,7 @@ impl TwoWayListenerOp {
         target: XrefId,
         element: XrefId,
         target_slot: SlotHandle,
-        name: String,
+        name: Arc<str>,
         tag: Option<String>,
         handler_ops: IrOpList<Box<dyn UpdateOp + Send + Sync>>,
         source_span: ParseSourceSpan,
@@ -1905,7 +1906,7 @@ pub fn create_two_way_listener_op(
     target: XrefId,
     element: XrefId,
     target_slot: SlotHandle,
-    name: String,
+    name: Arc<str>,
     tag: Option<String>,
     handler_ops: IrOpList<Box<dyn UpdateOp + Send + Sync>>,
     source_span: ParseSourceSpan,
@@ -1929,11 +1930,11 @@ pub struct PipeOp {
     /// Slot handle
     pub handle: SlotHandle,
     /// Name of the pipe
-    pub name: String,
+    pub name: Arc<str>,
 }
 
 impl PipeOp {
-    pub fn new(xref: XrefId, slot: SlotHandle, name: String) -> Self {
+    pub fn new(xref: XrefId, slot: SlotHandle, name: Arc<str>) -> Self {
         PipeOp {
             xref,
             handle: slot,
@@ -2115,7 +2116,7 @@ pub struct ExtractedAttributeOp {
     /// The namespace of the attribute (or None if none)
     pub namespace: Option<String>,
     /// The name of the extracted attribute
-    pub name: String,
+    pub name: Arc<str>,
     /// The value expression of the extracted attribute
     pub expression: Option<OutputExpression>,
     /// If this attribute has a corresponding i18n attribute, then this is the i18n context for it
@@ -2135,7 +2136,7 @@ impl ExtractedAttributeOp {
         target: XrefId,
         binding_kind: BindingKind,
         namespace: Option<String>,
-        name: String,
+        name: Arc<str>,
         expression: Option<OutputExpression>,
         i18n_context: Option<XrefId>,
         i18n_message: Option<I18nMessage>,
@@ -2189,7 +2190,7 @@ pub fn create_extracted_attribute_op(
     target: XrefId,
     binding_kind: BindingKind,
     namespace: Option<String>,
-    name: String,
+    name: Arc<str>,
     expression: Option<OutputExpression>,
     i18n_context: Option<XrefId>,
     i18n_message: Option<I18nMessage>,
@@ -2481,7 +2482,7 @@ pub struct IcuPlaceholderOp {
     /// The ID of the ICU placeholder
     pub xref: XrefId,
     /// The name of the placeholder in the ICU expression
-    pub name: String,
+    pub name: Arc<str>,
     /// The static strings to be combined with dynamic expression values
     pub strings: Vec<String>,
     /// Placeholder values for the i18n expressions
@@ -2489,7 +2490,7 @@ pub struct IcuPlaceholderOp {
 }
 
 impl IcuPlaceholderOp {
-    pub fn new(xref: XrefId, name: String, strings: Vec<String>) -> Self {
+    pub fn new(xref: XrefId, name: Arc<str>, strings: Vec<String>) -> Self {
         IcuPlaceholderOp {
             xref,
             name,
@@ -2529,7 +2530,7 @@ unsafe impl Sync for IcuPlaceholderOp {}
 /// Create an IcuPlaceholderOp
 pub fn create_icu_placeholder_op(
     xref: XrefId,
-    name: String,
+    name: Arc<str>,
     strings: Vec<String>,
 ) -> Box<dyn CreateOp + Send + Sync> {
     Box::new(IcuPlaceholderOp::new(xref, name, strings))
@@ -2708,7 +2709,7 @@ pub struct AnimationListenerOp {
     /// Whether this listener is from a host binding
     pub host_listener: bool,
     /// Name of the event which is being listened to
-    pub name: String,
+    pub name: Arc<str>,
     /// Whether the event is on enter or leave
     pub animation_kind: AnimationKind,
     /// Tag name of the element on which this listener is placed
@@ -2730,7 +2731,7 @@ impl AnimationListenerOp {
         target: XrefId,
         element: XrefId,
         target_slot: SlotHandle,
-        name: String,
+        name: Arc<str>,
         tag: Option<String>,
         handler_ops: IrOpList<Box<dyn UpdateOp + Send + Sync>>,
         animation_kind: AnimationKind,
@@ -2787,7 +2788,7 @@ pub fn create_animation_listener_op(
     target: XrefId,
     element: XrefId,
     target_slot: SlotHandle,
-    name: String,
+    name: Arc<str>,
     tag: Option<String>,
     handler_ops: IrOpList<Box<dyn UpdateOp + Send + Sync>>,
     animation_kind: AnimationKind,
@@ -2815,7 +2816,7 @@ pub struct AnimationStringOp {
     /// Target XrefId
     pub target: XrefId,
     /// The name of the extracted attribute
-    pub name: String,
+    pub name: Arc<str>,
     /// Kind of animation (enter or leave)
     pub animation_kind: AnimationKind,
     /// Expression which is bound to the property
@@ -2832,7 +2833,7 @@ pub struct AnimationStringOp {
 
 impl AnimationStringOp {
     pub fn new(
-        name: String,
+        name: Arc<str>,
         target: XrefId,
         animation_kind: AnimationKind,
         expression: BindingExpression,
@@ -2881,7 +2882,7 @@ unsafe impl Sync for AnimationStringOp {}
 
 /// Create an AnimationStringOp
 pub fn create_animation_string_op(
-    name: String,
+    name: Arc<str>,
     target: XrefId,
     animation_kind: AnimationKind,
     expression: BindingExpression,
@@ -2904,7 +2905,7 @@ pub struct AnimationOp {
     /// Target XrefId
     pub target: XrefId,
     /// The name of the extracted attribute
-    pub name: String,
+    pub name: Arc<str>,
     /// Kind of animation (enter or leave)
     pub animation_kind: AnimationKind,
     /// A list of UpdateOps representing the body of the callback function
@@ -2917,7 +2918,7 @@ pub struct AnimationOp {
 
 impl AnimationOp {
     pub fn new(
-        name: String,
+        name: Arc<str>,
         target: XrefId,
         animation_kind: AnimationKind,
         handler_ops: IrOpList<Box<dyn UpdateOp + Send + Sync>>,
@@ -2963,7 +2964,7 @@ unsafe impl Sync for AnimationOp {}
 
 /// Create an AnimationOp
 pub fn create_animation_op(
-    name: String,
+    name: Arc<str>,
     target: XrefId,
     animation_kind: AnimationKind,
     handler_ops: IrOpList<Box<dyn UpdateOp + Send + Sync>>,
@@ -3099,11 +3100,11 @@ pub struct CreatePipeOp {
     /// Slot handle
     pub handle: SlotHandle,
     /// Name of the pipe
-    pub name: String,
+    pub name: Arc<str>,
 }
 
 impl CreatePipeOp {
-    pub fn new(xref: XrefId, handle: SlotHandle, name: String) -> Self {
+    pub fn new(xref: XrefId, handle: SlotHandle, name: Arc<str>) -> Self {
         CreatePipeOp { xref, handle, name }
     }
 }
@@ -3152,7 +3153,7 @@ unsafe impl Sync for CreatePipeOp {}
 pub fn create_pipe_op(
     xref: XrefId,
     handle: SlotHandle,
-    name: String,
+    name: Arc<str>,
 ) -> Box<dyn CreateOp + Send + Sync> {
     Box::new(CreatePipeOp::new(xref, handle, name))
 }

@@ -255,23 +255,22 @@ fn process_blocks_for_unit(
                 let i18n = &*i18n_ptr;
 
                 if i18n.base.xref == i18n.base.root {
-                    let default_file =
-                        crate::parse_util::ParseSourceFile::new(String::new(), String::new());
-                    let default_source_span = crate::parse_util::ParseSourceSpan {
-                        start: crate::parse_util::ParseLocation {
-                            file: default_file.clone(),
-                            line: 0,
-                            col: 0,
-                            offset: 0,
-                        },
-                        end: crate::parse_util::ParseLocation {
-                            file: default_file,
-                            line: 0,
-                            col: 0,
-                            offset: 0,
-                        },
-                        details: None,
-                    };
+                    let default_source_span = crate::parse_util::ParseSourceSpan::new(
+                        crate::parse_util::ParseLocation::from_source(
+                            String::new(),
+                            String::new(),
+                            0,
+                            0,
+                            0,
+                        ),
+                        crate::parse_util::ParseLocation::from_source(
+                            String::new(),
+                            String::new(),
+                            0,
+                            0,
+                            0,
+                        ),
+                    );
 
                     root_i18n_ops.push((
                         idx,

@@ -446,4 +446,139 @@ impl Compiler {
 
         result
     }
+
+    #[napi]
+    pub fn compile_batch(&self, files: Vec<FileEntry>) -> Vec<BatchEntryResult> {
+        if files.is_empty() {
+            return vec![];
+        }
+
+        let total_start = std::time::Instant::now();
+
+        // 1. Setup Capturing FileSystem & Root Names
+        let fs_start = std::time::Instant::now();
+        let fs = CapturingFileSystem::new();
+        let mut root_names = Vec::new();
+        let mut file_map = HashMap::new();
+
+        for file in &files {
+            let abs_filename_str = fs.resolve(&[&file.filename]).to_string();
+            let abs_filename = AbsoluteFsPath::from(Path::new(&abs_filename_str));
+
+            // Write to virtual FS
+            fs.write_file(&abs_filename, file.content.as_bytes(), None)
+                .ok();
+
+            root_names.push(abs_filename_str.clone());
+            file_map.insert(abs_filename_str, &file.filename);
+        }
+        println!("Rust [FS Setup]: {:?}", fs_start.elapsed());
+
+        // 2. Setup Compiler Options
+        let mut options = NgCompilerOptions::default();
+        let first_file = &root_names[0];
+        options.project = first_file.clone();
+        options.out_dir = Some(fs.dirname(first_file));
+        // Ensure we compile all inputs - default behavior is sufficient
+
+        // 3. Create Program (ONCE)
+        let prog_start = std::time::Instant::now();
+        let mut program = NgtscProgram::new(root_names.clone(), options, &fs);
+        println!("Rust [Program New]: {:?}", prog_start.elapsed());
+
+        // 4. Load NG Structure
+        let load_start = std::time::Instant::now();
+        let mut global_diagnostics = Vec::new();
+        if let Err(e) = program.load_ng_structure(Path::new("/")) {
+            return files
+                .iter()
+                .map(|f| BatchEntryResult {
+                    filename: f.filename.clone(),
+                    code: None,
+                    diagnostics: vec![Diagnostic {
+                        file: None,
+                        message: format!("Global Load Error: {}", e),
+                        code: 0,
+                        start: None,
+                        length: None,
+                    }],
+                })
+                .collect();
+        }
+        println!("Rust [Load Structure]: {:?}", load_start.elapsed());
+
+        // 5. Emit
+        let emit_start = std::time::Instant::now();
+        let emit_result = program.emit();
+        println!("Rust [Emit]: {:?}", emit_start.elapsed());
+
+        if let Ok(diags) = &emit_result {
+            for diag in diags {
+                global_diagnostics.push(Diagnostic {
+                    file: diag.file.as_ref().map(|p| p.to_string_lossy().to_string()),
+                    message: diag.message.clone(),
+                    code: diag.code as u32,
+                    start: diag.start.map(|s| s as u32),
+                    length: diag.length.map(|l| l as u32),
+                });
+            }
+        } else if let Err(e) = emit_result {
+            return files
+                .iter()
+                .map(|f| BatchEntryResult {
+                    filename: f.filename.clone(),
+                    code: None,
+                    diagnostics: vec![Diagnostic {
+                        file: None,
+                        message: format!("Global Emit Error: {}", e),
+                        code: 0,
+                        start: None,
+                        length: None,
+                    }],
+                })
+                .collect();
+        }
+
+        // 6. Collect Results
+        let collect_start = std::time::Instant::now();
+        let mut results = Vec::new();
+
+        let mut file_diagnostics: HashMap<String, Vec<Diagnostic>> = HashMap::new();
+        for diag in global_diagnostics {
+            if let Some(ref f) = diag.file {
+                file_diagnostics.entry(f.clone()).or_default().push(diag);
+            }
+        }
+
+        for (abs_path_str, original_filename) in file_map {
+            let output_path_str = abs_path_str.replace(".ts", ".js");
+            let output_path = AbsoluteFsPath::from(Path::new(&output_path_str));
+
+            let code = fs.read_file(&output_path).ok();
+            let diags = file_diagnostics.remove(&abs_path_str).unwrap_or_default();
+
+            results.push(BatchEntryResult {
+                filename: original_filename.clone(),
+                code,
+                diagnostics: diags,
+            });
+        }
+        println!("Rust [Collect Results]: {:?}", collect_start.elapsed());
+        println!("Rust [Total Batch Time]: {:?}", total_start.elapsed());
+
+        results
+    }
+}
+
+#[napi(object)]
+pub struct FileEntry {
+    pub filename: String,
+    pub content: String,
+}
+
+#[napi(object)]
+pub struct BatchEntryResult {
+    pub filename: String,
+    pub code: Option<String>,
+    pub diagnostics: Vec<Diagnostic>,
 }

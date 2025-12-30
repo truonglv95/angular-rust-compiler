@@ -333,20 +333,20 @@ fn transform_lexical_reads_in_op(
                 // `expr` is a read of a name within the lexical scope of this view.
                 // Either that name is defined within the current view, or it represents a property from the
                 // property from the main component context.
-                if let Some(entry) = local_definitions.get(&lexical_read.name) {
+                if let Some(entry) = local_definitions.get(lexical_read.name.as_ref()) {
                     return Expression::ReadVariable(ReadVariableExpr {
                         xref: entry.xref,
                         name: None,
                         source_span: lexical_read.source_span.clone(),
                     });
-                } else if is_listener && lexical_read.name == "$event" {
+                } else if is_listener && &*lexical_read.name == "$event" {
                     // Explicitly handle $event in listeners
                     return Expression::ReadVar(crate::output::output_ast::ReadVarExpr {
                         name: "$event".to_string(),
                         type_: None,
                         source_span: lexical_read.source_span.clone(),
                     });
-                } else if let Some(entry) = scope.get(&lexical_read.name) {
+                } else if let Some(entry) = scope.get(lexical_read.name.as_ref()) {
                     // This was a defined variable in the current scope.
                     // If we are in a listener, and the variable is a Context variable,
                     // we should read it from the context instead of the local variable
@@ -380,7 +380,7 @@ fn transform_lexical_reads_in_op(
                             view: root_xref,
                             source_span: None,
                         })),
-                        name: lexical_read.name.clone(),
+                        name: lexical_read.name.to_string(),
                         type_: None,
                         source_span: lexical_read.source_span.clone(),
                     });

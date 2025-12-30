@@ -243,7 +243,7 @@ fn process_op_with_var_names(
                 let prop_ptr = op_ptr as *mut PropertyOp;
                 let prop = &mut *prop_ptr;
                 if prop.binding_kind == ir::BindingKind::LegacyAnimation {
-                    prop.name = format!("@{}", prop.name);
+                    prop.name = format!("@{}", prop.name).into();
                 }
             }
 
@@ -318,7 +318,7 @@ fn process_op_with_var_names(
                         let phase = listener.legacy_animation_phase.as_ref().expect(
                             "legacy_animation_phase must be set for legacy animation listener",
                         );
-                        event_name = format!("@{}.{}", listener.name, phase);
+                        event_name = format!("@{}.{}", listener.name, phase).into();
                         animation = "_animation".to_string();
                     }
 
@@ -596,16 +596,16 @@ fn process_op_with_var_names(
             ir::OpKind::StyleProp => {
                 let style_ptr = op_ptr as *mut StylePropOp;
                 let style = &mut *style_ptr;
-                style.name = normalize_style_prop_name(&style.name);
+                style.name = normalize_style_prop_name(&style.name).into();
                 if compatibility {
-                    style.name = strip_important(&style.name);
+                    style.name = strip_important(&style.name).into();
                 }
             }
             ir::OpKind::ClassProp => {
                 let class_ptr = op_ptr as *mut ClassPropOp;
                 let class = &mut *class_ptr;
                 if compatibility {
-                    class.name = strip_important(&class.name);
+                    class.name = strip_important(&class.name).into();
                 }
             }
             ir::OpKind::Attribute => {

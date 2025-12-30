@@ -181,7 +181,7 @@ pub fn collect_element_consts(job: &mut dyn CompilationJob) {
 
                 attributes.add(
                     extracted_attr.binding_kind,
-                    extracted_attr.name.clone(),
+                    extracted_attr.name.to_string(),
                     extracted_attr.expression.clone(),
                     extracted_attr.namespace.clone(),
                     extracted_attr.trusted_value_fn.clone(),

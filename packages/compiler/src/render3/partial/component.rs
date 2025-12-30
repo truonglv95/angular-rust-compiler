@@ -250,16 +250,15 @@ fn get_template_expression(
 
     // The template is external so we must synthesize an expression node with source-span
     let contents = &template_info.content;
-    let file = ParseSourceFile::new(contents.clone(), template_info.source_url.clone());
-    let file_clone = file.clone();
-    let start = ParseLocation::new(file, 0, 0, 0);
-    let end = compute_end_location(file_clone, contents);
+    let start =
+        ParseLocation::from_source(contents.clone(), template_info.source_url.clone(), 0, 0, 0);
+    let end = compute_end_location(&contents, &template_info.source_url);
     let span = ParseSourceSpan::new(start, end);
 
     literal_with_span(LiteralValue::String(contents.clone()), Some(span))
 }
 
-fn compute_end_location(file: ParseSourceFile, contents: &str) -> ParseLocation {
+fn compute_end_location(contents: &str, source_url: &str) -> ParseLocation {
     let length = contents.len();
     let mut _line_start: i32 = 0;
     let mut last_line_start = 0usize;
@@ -275,7 +274,13 @@ fn compute_end_location(file: ParseSourceFile, contents: &str) -> ParseLocation 
         }
     }
 
-    ParseLocation::new(file, length, line, length - last_line_start)
+    ParseLocation::from_source(
+        contents.to_string(),
+        source_url.to_string(),
+        length,
+        line,
+        length - last_line_start,
+    )
 }
 
 fn compile_used_dependencies_metadata(meta: &R3ComponentMetadata) -> Option<Expression> {

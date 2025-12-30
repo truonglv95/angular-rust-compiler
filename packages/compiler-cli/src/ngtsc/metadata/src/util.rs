@@ -653,9 +653,9 @@ pub fn get_all_metadata<'a>(
                 for decorator in decorators {
                     if decorator.name == "Component" || decorator.name == "Directive" {
                         if class_name == "HostBindingTest" {
-                            println!(
-                                "DEBUG: Found Component/Directive decorator for HostBindingTest"
-                            );
+                            // println!(
+                            //     "DEBUG: Found Component/Directive decorator for HostBindingTest"
+                            // );
                         }
                         if let Some(metadata) = extract_directive_metadata(
                             class_decl,
@@ -664,14 +664,14 @@ pub fn get_all_metadata<'a>(
                             path,
                         ) {
                             if class_name == "HostBindingTest" {
-                                println!(
-                                    "DEBUG: SUCCESSFULLY extracted metadata for HostBindingTest"
-                                );
+                                // println!(
+                                //     "DEBUG: SUCCESSFULLY extracted metadata for HostBindingTest"
+                                // );
                             }
                             directives.push(metadata);
                         } else {
                             if class_name == "HostBindingTest" {
-                                println!("DEBUG: FAILED to extract metadata for HostBindingTest");
+                                // println!("DEBUG: FAILED to extract metadata for HostBindingTest");
                             }
                         }
                     } else if decorator.name == "Pipe" {

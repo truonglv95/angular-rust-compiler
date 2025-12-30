@@ -13,6 +13,7 @@ use crate::template::pipeline::ir::traits::{
     ConsumesVarsTrait, DependsOnSlotContextOpTrait, UsesVarOffsetTrait,
 };
 use bitflags::bitflags;
+use std::sync::Arc;
 
 /// An `Expression` subtype representing a logical expression in the intermediate representation.
 #[derive(Debug, Clone)]
@@ -143,14 +144,14 @@ pub trait IRExpressionTrait {
 /// Logical expression representing a lexical read of a variable name.
 #[derive(Debug, Clone)]
 pub struct LexicalReadExpr {
-    pub name: String,
+    pub name: Arc<str>,
     pub source_span: Option<ParseSourceSpan>,
 }
 
 impl LexicalReadExpr {
     pub fn new(name: String) -> Self {
         LexicalReadExpr {
-            name,
+            name: name.into(),
             source_span: None,
         }
     }
@@ -582,7 +583,7 @@ pub struct PipeBindingExpr {
     pub var_offset: Option<usize>,
     pub target: XrefId,
     pub target_slot: SlotHandle,
-    pub name: String,
+    pub name: Arc<str>,
     pub args: Vec<Expression>,
     pub source_span: Option<ParseSourceSpan>,
 }
@@ -598,7 +599,7 @@ impl PipeBindingExpr {
             var_offset: None,
             target,
             target_slot,
-            name,
+            name: name.into(),
             args,
             source_span: None,
         }
@@ -642,7 +643,7 @@ pub struct PipeBindingVariadicExpr {
     pub var_offset: Option<usize>,
     pub target: XrefId,
     pub target_slot: SlotHandle,
-    pub name: String,
+    pub name: Arc<str>,
     pub args: Box<Expression>,
     pub num_args: usize,
     pub source_span: Option<ParseSourceSpan>,
@@ -652,7 +653,7 @@ impl PipeBindingVariadicExpr {
     pub fn new(
         target: XrefId,
         target_slot: SlotHandle,
-        name: String,
+        name: Arc<str>,
         args: Box<Expression>,
         num_args: usize,
     ) -> Self {
@@ -701,12 +702,12 @@ impl UsesVarOffsetTrait for PipeBindingVariadicExpr {
 #[derive(Debug, Clone)]
 pub struct SafePropertyReadExpr {
     pub receiver: Box<Expression>,
-    pub name: String,
+    pub name: Arc<str>,
     pub source_span: Option<ParseSourceSpan>,
 }
 
 impl SafePropertyReadExpr {
-    pub fn new(receiver: Box<Expression>, name: String) -> Self {
+    pub fn new(receiver: Box<Expression>, name: Arc<str>) -> Self {
         SafePropertyReadExpr {
             receiver,
             name,

@@ -144,8 +144,8 @@ pub fn parse_template(
             Some(errors)
         },
         nodes: r3_result.nodes,
-        style_urls: vec![], // TODO: Extract from metadata
-        styles: vec![],     // TODO: Extract from metadata
+        style_urls: r3_result.style_urls,
+        styles: r3_result.styles,
         ng_content_selectors: r3_result.ng_content_selectors,
         comment_nodes: if collect_comment_nodes {
             r3_result.comment_nodes

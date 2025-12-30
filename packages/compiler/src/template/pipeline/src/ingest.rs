@@ -13,8 +13,9 @@ use crate::parse_util::ParseSourceSpan;
 use crate::render3::r3_ast as t;
 use crate::render3::view::api::R3ComponentDeferMetadata;
 use crate::template_parser::binding_parser::{ParsedEvent, ParsedProperty};
+use std::sync::Arc;
 // Note: DomElementSchemaRegistry is created per-call in ingest_element_bindings
-use crate::directive_matching::CssSelector;
+
 use crate::render3::view::api::R3TemplateDependencyMetadata;
 use crate::template::pipeline::ir;
 use crate::template::pipeline::src::compilation::{
@@ -154,7 +155,8 @@ fn ingest_nodes_internal(
     job: &mut ComponentCompilationJob,
 ) {
     let mut iter = template.into_iter().peekable();
-    while let Some(node) = iter.next() {
+
+    while let Some(node) = { iter.next() } {
         match node {
             t::R3Node::Element(el) => {
                 ingest_element(unit_xref, el, job);
@@ -166,7 +168,7 @@ fn ingest_nodes_internal(
                 ingest_content(unit_xref, content, job);
             }
             t::R3Node::Text(text) => {
-                let mut prefix = text.value;
+                let mut prefix = text.value.to_string();
 
                 // Coalesce adjacent text nodes and skip comments
                 loop {
@@ -199,13 +201,15 @@ fn ingest_nodes_internal(
                 } else {
                     // Standard text node - skip whitespace-only
                     if !prefix.trim().is_empty() {
-                        let text_op = ir::ops::create::create_text_op(
-                            job.allocate_xref_id(),
-                            prefix,
+                        ingest_text(
+                            unit_xref,
+                            t::Text {
+                                value: prefix.into(),
+                                source_span: text.source_span.clone(),
+                            },
                             None,
-                            Some(text.source_span.clone()),
+                            job,
                         );
-                        push_create_op(job, unit_xref, text_op);
                     }
                 }
             }
@@ -239,10 +243,12 @@ fn ingest_nodes_internal(
             }
         }
     }
+    drop(iter);
 }
 
 use crate::expression_parser::parser::Parser;
-use crate::parse_util::{ParseError, ParseLocation, ParseSourceFile};
+use crate::parse_util::ParseLocation;
+
 use crate::schema::dom_element_schema_registry::DomElementSchemaRegistry;
 use crate::schema::element_schema_registry::ElementSchemaRegistry;
 use crate::template_parser::binding_parser::BindingParser;
@@ -273,8 +279,7 @@ pub fn ingest_host_binding(
     let errors = Vec::new();
     let mut binding_parser = BindingParser::new(&expr_parser, &schema_registry, errors);
 
-    let dummy_file = ParseSourceFile::new("".to_string(), "".to_string());
-    let dummy_loc = ParseLocation::new(dummy_file, 0, 0, 0);
+    let dummy_loc = ParseLocation::from_source("".to_string(), "".to_string(), 0, 0, 0);
     let dummy_span = ParseSourceSpan::new(dummy_loc.clone(), dummy_loc);
 
     // Process properties
@@ -384,47 +389,45 @@ fn maybe_record_directive_usage(
     outputs: &Vec<t::BoundEvent>,
     template_attrs: &Vec<t::TemplateAttr>,
 ) -> bool {
-    // Construct selector for current element
-    let mut element_selector = CssSelector::new();
-    element_selector.set_element(tag_name);
+    // Reset and populate temp_selector
+    job.temp_selector.reset();
+    job.temp_selector.set_element(tag_name);
 
     // Add attributes
     for attr in attributes {
-        element_selector.add_attribute(&attr.name, &attr.value);
+        job.temp_selector.add_attribute(&attr.name, &attr.value);
     }
 
     // Add inputs as attributes (Angular matching rule: bindings are also attributes)
     for input in inputs {
-        element_selector.add_attribute(&input.name, "");
+        job.temp_selector.add_attribute(&input.name, "");
     }
 
     // Add outputs as attributes
     for output in outputs {
-        element_selector.add_attribute(&output.name, "");
+        job.temp_selector.add_attribute(&output.name, "");
     }
 
     // Add template attrs
     for attr in template_attrs {
         match attr {
-            t::TemplateAttr::Text(a) => element_selector.add_attribute(&a.name, &a.value),
-            t::TemplateAttr::Bound(a) => element_selector.add_attribute(&a.name, ""),
+            t::TemplateAttr::Text(a) => job.temp_selector.add_attribute(&a.name, &a.value),
+            t::TemplateAttr::Bound(a) => job.temp_selector.add_attribute(&a.name, ""),
             _ => {}
         }
     }
 
     // Match against available dependencies
-    let mut matched_indices = Vec::new();
+    // Split borrows to allow matching
+    let matcher = &job.selector_matcher;
+    let selector = &job.temp_selector;
+    let used_dependencies = &mut job.used_dependencies;
 
-    job.selector_matcher
-        .match_selector(&element_selector, |_, &dep_index| {
-            matched_indices.push(dep_index);
-        });
-
-    let has_directives = !matched_indices.is_empty();
-
-    for idx in matched_indices {
-        job.used_dependencies.insert(idx);
-    }
+    let mut has_directives = false;
+    matcher.match_selector(selector, |_, &dep_index| {
+        used_dependencies.insert(dep_index);
+        has_directives = true;
+    });
 
     has_directives
 }
@@ -447,7 +450,7 @@ fn ingest_element(unit_xref: ir::XrefId, element: t::Element, job: &mut Componen
 
     let (namespace_key, element_name) = match split_ns_name(&element.name, false) {
         Ok((ns, name)) => (ns, name),
-        Err(_) => (None, element.name.clone()),
+        Err(_) => (None, element.name.to_string()),
     };
 
     let namespace = namespace_for_key(namespace_key.as_deref());
@@ -467,6 +470,7 @@ fn ingest_element(unit_xref: ir::XrefId, element: t::Element, job: &mut Componen
     );
 
     // Create element start op
+
     let mut start_op = ir::ops::create::ElementStartOp::new(
         element_name.clone(),
         id,
@@ -481,8 +485,11 @@ fn ingest_element(unit_xref: ir::XrefId, element: t::Element, job: &mut Componen
     push_create_op(job, unit_xref, Box::new(start_op));
 
     // Ingest element bindings, events, and references
+
     ingest_element_bindings(unit_xref, id, &element, job);
+
     ingest_element_events(unit_xref, id, &element_name, &element, handle, job);
+
     ingest_references(unit_xref, id, &element, job);
 
     // Handle i18n start if needed
@@ -500,8 +507,10 @@ fn ingest_element(unit_xref: ir::XrefId, element: t::Element, job: &mut Componen
     }
 
     // Ingest children
+
     ingest_nodes(unit_xref, element.children, job);
 
+    // Handle i18n end if needed (before element end)
     // Handle i18n end if needed (before element end)
     if let Some(i18n_id) = i18n_block_id {
         let i18n_end_op =
@@ -510,11 +519,12 @@ fn ingest_element(unit_xref: ir::XrefId, element: t::Element, job: &mut Componen
     }
 
     // Create element end op
+
     let end_op = ir::ops::create::create_element_end_op(id, element.end_source_span.clone());
     push_create_op(job, unit_xref, end_op);
 }
 
-/// Ingest an `ng-template` node from the AST into the given `ViewCompilationUnit`.
+/// Ingest a template AST node
 fn ingest_template(unit_xref: ir::XrefId, tmpl: t::Template, job: &mut ComponentCompilationJob) {
     // Check i18n metadata
     if let Some(ref i18n_meta) = tmpl.i18n {
@@ -529,11 +539,12 @@ fn ingest_template(unit_xref: ir::XrefId, tmpl: t::Template, job: &mut Component
     }
 
     let child_view_xref = job.allocate_view(Some(unit_xref));
+    let xref = child_view_xref; // Use child_view_xref as the template's own xref
 
     let (namespace_prefix, tag_name_without_namespace) = if let Some(ref tag_name) = tmpl.tag_name {
         match split_ns_name(tag_name, false) {
             Ok((ns, name)) => (ns, Some(name)),
-            Err(_) => (None, Some(tag_name.clone())),
+            Err(_) => (None, Some(tag_name.to_string())),
         }
     } else {
         (None, None)
@@ -603,11 +614,14 @@ fn ingest_template(unit_xref: ir::XrefId, tmpl: t::Template, job: &mut Component
             let value = if v.value.is_empty() {
                 "$implicit".to_string()
             } else {
-                v.value.clone()
+                v.value.to_string()
             };
-            (v.name.clone(), value)
+            (v.name.to_string(), value)
         })
         .collect();
+
+    // Create template end op
+    // Templates do not have an end op in IR
 
     ingest_children_into_view(job, child_view_xref, tmpl.children);
 
@@ -671,7 +685,8 @@ fn ingest_content(unit_xref: ir::XrefId, content: t::Content, job: &mut Componen
 
     if has_non_empty_content {
         let fallback_view_xref = job.allocate_view(Some(unit_xref));
-        ingest_nodes_internal(fallback_view_xref, content.children.clone(), job);
+        // Take ownership - no clone needed!
+        ingest_nodes_internal(fallback_view_xref, content.children, job);
         fallback_view = Some(fallback_view_xref);
     }
 
@@ -683,7 +698,7 @@ fn ingest_content(unit_xref: ir::XrefId, content: t::Content, job: &mut Componen
 
     let op = ir::ops::create::create_projection_op(
         id,
-        content.selector.clone(),
+        content.selector.to_string(),
         i18n_placeholder,
         fallback_view,
         content.source_span.clone(),
@@ -692,15 +707,18 @@ fn ingest_content(unit_xref: ir::XrefId, content: t::Content, job: &mut Componen
     push_create_op(job, unit_xref, op);
 
     // Ingest content attributes as bindings
-    use crate::schema::dom_element_schema_registry::DomElementSchemaRegistry;
-    use crate::schema::element_schema_registry::ElementSchemaRegistry;
-    let dom_schema = DomElementSchemaRegistry::new();
+    // use crate::schema::dom_element_schema_registry::DomElementSchemaRegistry; // Unused
+    // use crate::schema::element_schema_registry::ElementSchemaRegistry; // Unused
+    // let dom_schema = DomElementSchemaRegistry::new();
 
     for attr in content.attributes {
-        let security_context = dom_schema.security_context("ng-content", &attr.name, false);
+        let security_context =
+            job.schema_registry
+                .security_context("ng-content", &attr.name, false);
+
         let expression = crate::output::output_ast::Expression::Literal(
             crate::output::output_ast::LiteralExpr {
-                value: crate::output::output_ast::LiteralValue::String(attr.value),
+                value: crate::output::output_ast::LiteralValue::String(attr.value.to_string()),
                 type_: None,
                 source_span: Some(attr.source_span.clone()),
             },
@@ -737,7 +755,7 @@ fn ingest_text(
 
     let text_op = ir::ops::create::create_text_op(
         job.allocate_xref_id(),
-        text.value.clone(),
+        text.value.to_string(),
         icu_placeholder,
         Some(text.source_span.clone()),
     );
@@ -783,13 +801,13 @@ fn ingest_bound_text(
     }
 
     // Extract i18n placeholders from Container
-    let i18n_placeholders: Vec<String> = match &bound_text.i18n {
+    let i18n_placeholders: Vec<Arc<str>> = match &bound_text.i18n {
         Some(I18nMeta::Node(I18nNode::Container(container))) => container
             .children
             .iter()
             .filter_map(|child| {
                 if let I18nNode::Placeholder(ph) = child {
-                    Some(ph.name.clone())
+                    Some(ph.name.clone().into())
                 } else {
                     None
                 }
@@ -842,7 +860,11 @@ fn ingest_bound_text(
 
     // Create Interpolation
     let interpolation = ir::ops::update::Interpolation::new(
-        interpolation_ast.strings,
+        interpolation_ast
+            .strings
+            .iter()
+            .map(|s| Arc::from(s.clone()))
+            .collect(),
         converted_expressions,
         i18n_placeholders,
     );
@@ -863,13 +885,12 @@ fn ingest_if_block(unit_xref: ir::XrefId, if_block: t::IfBlock, job: &mut Compon
     let mut first_xref: Option<ir::XrefId> = None;
     let mut conditions: Vec<ConditionalCaseExpr> = Vec::new();
 
-    for (i, branch) in if_block.branches.iter().enumerate() {
-        // Clone children before borrowing job
-        let children = branch.children.clone();
+    for (i, branch) in if_block.branches.into_iter().enumerate() {
+        // Take ownership of children - no clone needed!
+        let children = branch.children;
 
         let c_view_xref = job.allocate_view(Some(unit_xref));
 
-        // Extract tag name from single root element/template for content projection
         // Extract tag name from single root element/template for content projection
         let tag_name = ingest_control_flow_insertion_point_from_children(unit_xref, job, &children);
 
@@ -929,9 +950,10 @@ fn ingest_if_block(unit_xref: ir::XrefId, if_block: t::IfBlock, job: &mut Compon
         // Get view and set expression alias if present
         if let Some(ref expr_alias) = branch.expression_alias {
             if let Some(c_view) = job.views.get_mut(&c_view_xref) {
-                c_view
-                    .context_variables
-                    .insert(expr_alias.name.clone(), ir::variable::CTX_REF.to_string());
+                c_view.context_variables.insert(
+                    expr_alias.name.to_string(),
+                    ir::variable::CTX_REF.to_string(),
+                );
             }
         }
 
@@ -947,7 +969,7 @@ fn ingest_if_block(unit_xref: ir::XrefId, if_block: t::IfBlock, job: &mut Compon
             case_expr,
             c_view_xref,
             conditional_handle,
-            branch.expression_alias.clone(),
+            branch.expression_alias,
         );
         conditions.push(conditional_case_expr);
 
@@ -981,13 +1003,12 @@ fn ingest_switch_block(
     let mut first_xref: Option<ir::XrefId> = None;
     let mut conditions: Vec<ConditionalCaseExpr> = Vec::new();
 
-    for (i, case) in switch_block.cases.iter().enumerate() {
-        // Clone children before borrowing job
-        let children = case.children.clone();
+    for (i, case) in switch_block.cases.into_iter().enumerate() {
+        // Take ownership of children - no clone needed!
+        let children = case.children;
 
         let c_view_xref = job.allocate_view(Some(unit_xref));
 
-        // Extract tag name from single root element/template for content projection
         // Extract tag name from single root element/template for content projection
         let tag_name = ingest_control_flow_insertion_point_from_children(unit_xref, job, &children);
 
@@ -1301,7 +1322,7 @@ fn ingest_defer_triggers(
         let defer_on_op = ir::ops::create::create_defer_on_op(
             defer_xref,
             IRDeferTrigger::Hover {
-                target_name: hover.reference.clone(),
+                target_name: hover.reference.as_ref().map(|r| r.to_string()),
                 target_xref: None, // Will be resolved later
                 target_slot: None,
                 target_view: None,
@@ -1318,7 +1339,7 @@ fn ingest_defer_triggers(
         let defer_on_op = ir::ops::create::create_defer_on_op(
             defer_xref,
             IRDeferTrigger::Interaction {
-                target_name: interaction.reference.clone(),
+                target_name: interaction.reference.as_ref().map(|r| r.to_string()),
                 target_xref: None, // Will be resolved later
                 target_slot: None,
                 target_view: None,
@@ -1337,7 +1358,7 @@ fn ingest_defer_triggers(
         let defer_on_op = ir::ops::create::create_defer_on_op(
             defer_xref,
             IRDeferTrigger::Viewport {
-                target_name: viewport.reference.clone(),
+                target_name: viewport.reference.as_ref().map(|r| r.to_string()),
                 target_xref: None, // Will be resolved later
                 target_slot: None,
                 target_view: None,
@@ -1416,7 +1437,7 @@ fn ingest_icu(unit_xref: ir::XrefId, icu: t::Icu, job: &mut ComponentCompilation
                 ingest_bound_text(
                     unit_xref,
                     bound_text.clone(),
-                    Some(placeholder.clone()),
+                    Some(placeholder.to_string()),
                     String::new(),
                     job,
                 );
@@ -1426,13 +1447,13 @@ fn ingest_icu(unit_xref: ir::XrefId, icu: t::Icu, job: &mut ComponentCompilation
             for (placeholder, icu_ph) in &icu.placeholders {
                 match icu_ph {
                     t::IcuPlaceholder::Text(text) => {
-                        ingest_text(unit_xref, text.clone(), Some(placeholder.clone()), job);
+                        ingest_text(unit_xref, text.clone(), Some(placeholder.to_string()), job);
                     }
                     t::IcuPlaceholder::BoundText(bound_text) => {
                         ingest_bound_text(
                             unit_xref,
                             bound_text.clone(),
-                            Some(placeholder.clone()),
+                            Some(placeholder.to_string()),
                             String::new(),
                             job,
                         );
@@ -1463,7 +1484,7 @@ fn get_computed_for_loop_variable_expression(
     use crate::output::output_ast::BinaryOperator;
     use crate::template::pipeline::ir::expression::LexicalReadExpr;
 
-    match variable.value.as_str() {
+    match variable.value.as_ref() {
         "$index" => Expression::LexicalRead(LexicalReadExpr::new(index_name.to_string())),
         "$count" => Expression::LexicalRead(LexicalReadExpr::new(count_name.to_string())),
         "$first" => {
@@ -1653,7 +1674,7 @@ fn ingest_control_flow_insertion_point_from_children(
                         let expression = crate::output::output_ast::Expression::Literal(
                             crate::output::output_ast::LiteralExpr {
                                 value: crate::output::output_ast::LiteralValue::String(
-                                    attr.value.clone(),
+                                    attr.value.to_string(),
                                 ),
                                 type_: None,
                                 source_span: Some(attr.source_span.clone()),
@@ -1666,7 +1687,7 @@ fn ingest_control_flow_insertion_point_from_children(
                             _ => None,
                         };
 
-                        if attr.name == "class" {
+                        if &*attr.name.as_ref() == "class" {
                             if let crate::output::output_ast::Expression::Literal(lit) = &expression
                             {
                                 if let crate::output::output_ast::LiteralValue::String(
@@ -1679,7 +1700,7 @@ fn ingest_control_flow_insertion_point_from_children(
                                                 unit_xref,
                                                 ir::BindingKind::ClassName,
                                                 None, // namespace
-                                                class_name.to_string(),
+                                                class_name.to_string().into(),
                                                 None, // value
                                                 None, // i18n_context
                                                 i18n_message.clone(),
@@ -1731,13 +1752,13 @@ fn ingest_control_flow_insertion_point_from_children(
                     }
                 }
 
-                let tag_name = &el.name;
+                let tag_name = el.name.clone();
 
                 // Don't pass along `ng-template` tag name since it enables directive matching.
-                if tag_name == NG_TEMPLATE_TAG_NAME {
+                if &*tag_name == NG_TEMPLATE_TAG_NAME {
                     return None;
                 }
-                return Some(tag_name.clone());
+                return Some(tag_name.to_string());
             }
             t::R3Node::Template(tmpl) => {
                 // Similar logic for template nodes
@@ -1749,7 +1770,7 @@ fn ingest_control_flow_insertion_point_from_children(
                         let expression = crate::output::output_ast::Expression::Literal(
                             crate::output::output_ast::LiteralExpr {
                                 value: crate::output::output_ast::LiteralValue::String(
-                                    attr.value.clone(),
+                                    attr.value.to_string(),
                                 ),
                                 type_: None,
                                 source_span: Some(attr.source_span.clone()),
@@ -1801,10 +1822,10 @@ fn ingest_control_flow_insertion_point_from_children(
                 }
 
                 if let Some(tag_name) = &tmpl.tag_name {
-                    if tag_name == NG_TEMPLATE_TAG_NAME {
+                    if tag_name.as_ref() == NG_TEMPLATE_TAG_NAME {
                         return None;
                     }
-                    return Some(tag_name.clone());
+                    return Some(tag_name.to_string());
                 }
             }
             _ => {}
@@ -1831,7 +1852,7 @@ fn ingest_for_block(
 
         // Set context variable for the item - read from ctx.$implicit
         repeater_view.context_variables.insert(
-            for_loop.item.name.clone(),
+            for_loop.item.name.to_string(),
             "$implicit".to_string(), // Item is accessed via ctx.$implicit
         );
 
@@ -1844,10 +1865,10 @@ fn ingest_for_block(
 
         // Set all the context variables and aliases available in the repeater
         for variable in &for_loop.context_variables {
-            if variable.value == "$index" {
+            if variable.value.as_ref() == "$index" {
                 index_var_names.insert(variable.name.clone());
             }
-            if variable.name == "$index" {
+            if &*variable.name == "$index" {
                 // $index should be read as ctx.$index property, not ctx directly
                 repeater_view.context_variables.insert(
                     "$index".to_string(),
@@ -1856,7 +1877,7 @@ fn ingest_for_block(
                 repeater_view
                     .context_variables
                     .insert(index_name.clone(), "$index".to_string());
-            } else if variable.name == "$count" {
+            } else if &*variable.name == "$count" {
                 // $count should be read as ctx.$count property, not ctx directly
                 repeater_view.context_variables.insert(
                     "$count".to_string(),
@@ -1869,9 +1890,10 @@ fn ingest_for_block(
                 // For other variables, we need to create an alias
                 let expression =
                     get_computed_for_loop_variable_expression(variable, &index_name, &count_name);
-                repeater_view
-                    .aliases
-                    .push(ir::AliasVariable::new(variable.name.clone(), expression));
+                repeater_view.aliases.push(ir::AliasVariable::new(
+                    variable.name.to_string(),
+                    expression,
+                ));
             }
         }
     }
@@ -1880,7 +1902,7 @@ fn ingest_for_block(
     let index_name = format!("ɵ$index_{}", repeater_view_xref.as_usize());
     let mut index_var_names = std::collections::HashSet::new();
     for variable in &for_loop.context_variables {
-        if variable.value == "$index" {
+        if &*variable.value == "$index" {
             index_var_names.insert(variable.name.clone());
         }
     }
@@ -1919,8 +1941,8 @@ fn ingest_for_block(
 
     // Build var names
     let var_names = ir::ops::create::RepeaterVarNames {
-        dollar_index: index_var_names.into_iter().collect(),
-        dollar_implicit: for_loop.item.name.clone(),
+        dollar_index: index_var_names.into_iter().map(|s| s.to_string()).collect(),
+        dollar_implicit: for_loop.item.name.to_string(),
     };
 
     // Validate i18n metadata
@@ -2042,6 +2064,7 @@ fn ingest_element_bindings(
     use crate::template::pipeline::ir::ops::update::{create_binding_op, BindingExpression};
 
     // PHASE 1: Collect security contexts using immutable borrow
+
     let attr_security_contexts: Vec<SecurityContext> = element
         .attributes
         .iter()
@@ -2061,7 +2084,7 @@ fn ingest_element_bindings(
         let expression =
             BindingExpression::Expression(crate::output::output_ast::Expression::Literal(
                 crate::output::output_ast::LiteralExpr {
-                    value: crate::output::output_ast::LiteralValue::String(attr.value.clone()),
+                    value: crate::output::output_ast::LiteralValue::String(attr.value.to_string()),
                     type_: None,
                     source_span: Some(attr.source_span.clone()),
                 },
@@ -2130,7 +2153,7 @@ fn ingest_element_bindings(
             binding_kind,
             input.name.clone(),
             BindingExpression::Expression(expression),
-            input.unit.clone(),
+            input.unit.as_ref().map(|u| u.to_string()),
             vec![input.security_context],
             false, // is_text_attr
             false, // is_structural_template_attribute
@@ -2169,12 +2192,13 @@ fn ingest_element_events(
         let handler_ops =
             make_listener_handler_ops(&output.handler, &output.handler_span, unit_xref, job);
 
-        let output_type =
-            if output.type_ == ParsedEventType::Regular && two_way_outputs.contains(&output.name) {
-                ParsedEventType::TwoWay
-            } else {
-                output.type_
-            };
+        let output_type = if output.type_ == ParsedEventType::Regular
+            && two_way_outputs.contains(&*output.name)
+        {
+            ParsedEventType::TwoWay
+        } else {
+            output.type_
+        };
 
         match output_type {
             ParsedEventType::Animation => {
@@ -2195,8 +2219,8 @@ fn ingest_element_events(
                     Some(element_tag.to_string()),
                     handler_ops,
                     animation_kind,
-                    output.target.clone(), // event_target
-                    false,                 // host_listener
+                    output.target.as_ref().map(|t| t.to_string()), // event_target
+                    false,                                         // host_listener
                     output.source_span.clone(),
                 );
                 push_create_op(job, unit_xref, animation_listener_op);
@@ -2210,9 +2234,9 @@ fn ingest_element_events(
                     output.name.clone(),
                     Some(element_tag.to_string()),
                     handler_ops,
-                    None,                  // legacy_animation_phase
-                    output.target.clone(), // event_target
-                    false,                 // host_listener
+                    None,                                          // legacy_animation_phase
+                    output.target.as_ref().map(|t| t.to_string()), // event_target
+                    false,                                         // host_listener
                     output.source_span.clone(),
                     consumes_dollar_event,
                 );
@@ -2249,9 +2273,9 @@ fn ingest_element_events(
                     output.name.clone(),
                     Some(element_tag.to_string()),
                     handler_ops,
-                    output.target.clone(), // legacy_animation_phase (phase is stored in target for LegacyAnimation)
-                    None,                  // event_target (null for LegacyAnimation)
-                    false,                 // host_listener
+                    output.target.as_ref().map(|t| t.to_string()), // legacy_animation_phase (phase is stored in target for LegacyAnimation)
+                    None,  // event_target (null for LegacyAnimation)
+                    false, // host_listener
                     output.source_span.clone(),
                     consumes_dollar_event,
                 );
@@ -2668,8 +2692,8 @@ fn ingest_template_events(
                 output.name.clone(),
                 template_tag.map(|s| s.to_string()),
                 handler_ops,
-                output.phase.clone(),
-                output.target.clone(),
+                output.phase.as_ref().map(|p| p.to_string()),
+                output.target.as_ref().map(|t| t.to_string()),
                 false,
                 output.source_span.clone(),
                 consumes_dollar_event,
@@ -2703,7 +2727,7 @@ fn ingest_template_events(
                     template_tag.map(|s| s.to_string()),
                     handler_ops,
                     animation_kind,
-                    output.target.clone(),
+                    output.target.as_ref().map(|t| t.to_string()),
                     false, // host_listener
                     output.source_span.clone(),
                 );
@@ -2847,7 +2871,7 @@ fn ingest_template_bindings(
             binding_kind,
             input.name.clone(),
             BindingExpression::Expression(expression),
-            input.unit.clone(),
+            input.unit.as_ref().map(|u| u.to_string()),
             vec![input.security_context],
             false,                                         // is_text_attr
             template_kind == ir::TemplateKind::Structural, // is_structural_template_attribute
@@ -2869,7 +2893,7 @@ fn ingest_template_bindings(
                     BindingExpression::Expression(crate::output::output_ast::Expression::Literal(
                         crate::output::output_ast::LiteralExpr {
                             value: crate::output::output_ast::LiteralValue::String(
-                                text_attr.value.clone(),
+                                text_attr.value.to_string(),
                             ),
                             type_: None,
                             source_span: Some(text_attr.source_span.clone()),
@@ -2940,7 +2964,7 @@ fn ingest_template_bindings(
                     binding_kind,
                     bound_attr.name.clone(),
                     BindingExpression::Expression(expression),
-                    bound_attr.unit.clone(),
+                    bound_attr.unit.as_ref().map(|u| u.to_string()),
                     vec![bound_attr.security_context],
                     false,                                         // is_text_attr
                     template_kind == ir::TemplateKind::Structural, // is_structural_template_attribute
@@ -2990,7 +3014,7 @@ fn ingest_template_bindings(
         let expression =
             BindingExpression::Expression(crate::output::output_ast::Expression::Literal(
                 crate::output::output_ast::LiteralExpr {
-                    value: crate::output::output_ast::LiteralValue::String(attr.value.clone()),
+                    value: crate::output::output_ast::LiteralValue::String(attr.value.to_string()),
                     type_: None,
                     source_span: Some(attr.source_span.clone()),
                 },
@@ -3035,17 +3059,15 @@ fn ingest_host_attribute(
     // Host attributes should always be extracted to const hostAttrs
     // Create binding op with is_text_attr = true
     use crate::output::output_ast::ExpressionTrait;
-    use crate::parse_util::{ParseLocation, ParseSourceFile};
     let source_span = value.source_span().cloned().unwrap_or_else(|| {
-        let file = ParseSourceFile::new("".to_string(), "".to_string());
-        let loc = ParseLocation::new(file, 0, 0, 0);
+        let loc = ParseLocation::from_source("".to_string(), "".to_string(), 0, 0, 0);
         ParseSourceSpan::new(loc.clone(), loc)
     });
 
     let binding_op = create_binding_op(
         job.root.xref,
         ir::BindingKind::Attribute,
-        name,
+        name.into(),
         BindingExpression::Expression(value.clone()),
         None, // unit
         security_contexts,

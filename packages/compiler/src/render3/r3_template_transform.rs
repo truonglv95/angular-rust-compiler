@@ -4,6 +4,7 @@
 //! Contains HTML AST to Ivy AST transformation
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -301,8 +302,8 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
 
                 for v in parsed_variables {
                     prepared.template_variables.push(t::Variable {
-                        name: v.name,
-                        value: v.value,
+                        name: v.name.into(),
+                        value: v.value.into(),
                         source_span: v.source_span,
                         key_span: v.key_span,
                         value_span: v.value_span,
@@ -332,7 +333,10 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                 );
 
                 // Check for duplicate directives
-                if r3_directives.iter().any(|d| d.name == directive.name) {
+                if r3_directives
+                    .iter()
+                    .any(|d| d.name.as_ref() == directive.name.as_ref())
+                {
                     self.report_error(
                         &format!(
                             "Directive @{} has already been applied to this element",
@@ -343,7 +347,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                 }
 
                 r3_directives.push(t::Directive {
-                    name: directive.name.clone(),
+                    name: directive.name.clone().into(),
                     attributes: dir_prepared.attributes,
                     inputs: categorized.bound,
                     outputs: dir_prepared.bound_events,
@@ -372,7 +376,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                 .collect();
             self.ng_content_selectors.push(selector.clone());
             t::R3Node::Content(t::Content {
-                selector,
+                selector: selector.clone().into(),
                 attributes: attrs,
                 children,
                 is_self_closing: element.is_self_closing,
@@ -410,7 +414,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                 &prepared.i18n_attrs_meta,
             );
 
-            if element.name == "ng-container" {
+            if element.name.as_ref() == "ng-container" {
                 for bound in &attrs.bound {
                     use crate::expression_parser::ast::BindingType as ExprBindingType;
                     if bound.type_ == ExprBindingType::Attribute {
@@ -465,7 +469,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
 
     fn visit_attribute(&self, attribute: &html::Attribute) -> t::TextAttribute {
         t::TextAttribute::new(
-            attribute.name.clone(),
+            attribute.name.clone().into(),
             attribute.value.clone(),
             attribute.source_span.clone(),
             attribute.key_span.clone(),
@@ -519,11 +523,11 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                 if let Some(node) = r3_node {
                     match node {
                         t::R3Node::BoundText(bt) => {
-                            let key = bt.source_span.to_string();
+                            let key: Arc<str> = bt.source_span.to_string().into();
                             placeholders.insert(key, t::IcuPlaceholder::BoundText(bt));
                         }
                         t::R3Node::Text(txt) => {
-                            let key = txt.source_span.to_string();
+                            let key: Arc<str> = txt.source_span.to_string().into();
                             placeholders.insert(key, t::IcuPlaceholder::Text(txt));
                         }
                         t::R3Node::Icu(nested_icu) => {
@@ -548,7 +552,12 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
     fn visit_comment(&mut self, comment: &html::Comment) -> Option<t::R3Node> {
         if self.options.collect_comment_nodes {
             let comment_node = t::Comment::new(
-                comment.value.clone().unwrap_or_default(),
+                comment
+                    .value
+                    .as_ref()
+                    .map(|v| v.to_string())
+                    .unwrap_or_default()
+                    .into(),
                 comment.source_span.clone(),
             );
             self.comment_nodes.push(comment_node);
@@ -590,7 +599,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
         }
 
         if let Some(ref tag_name) = component.tag_name {
-            if UNSUPPORTED_SELECTORLESS_TAGS.contains(tag_name.as_str()) {
+            if UNSUPPORTED_SELECTORLESS_TAGS.contains(tag_name.as_ref()) {
                 self.report_error(
                     &format!(
                         "Tag name \"{}\" cannot be used as a component tag",
@@ -605,14 +614,18 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
         let mut prepared = self.prepare_attributes(&component.attrs, false);
         self.validate_selectorless_references(&prepared.references);
 
-        let children = if component.attrs.iter().any(|a| a.name == "ngNonBindable") {
+        let children = if component
+            .attrs
+            .iter()
+            .any(|a| a.name.as_ref() == "ngNonBindable")
+        {
             visit_all_non_bindable(&component.children)
         } else {
             self.visit_all(&component.children)
         };
 
         let attrs = self.categorize_property_attributes(
-            component.tag_name.as_ref().map(|s| s.as_str()),
+            component.tag_name.as_ref().map(|s| s.as_ref()),
             &prepared.parsed_properties,
             &prepared.i18n_attrs_meta,
         );
@@ -656,8 +669,8 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
 
                 for v in parsed_variables {
                     prepared.template_variables.push(t::Variable {
-                        name: v.name,
-                        value: v.value,
+                        name: v.name.into(),
+                        value: v.value.into(),
                         source_span: v.source_span,
                         key_span: v.key_span,
                         value_span: v.value_span,
@@ -688,7 +701,10 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
 
                 // Check for duplicate directives
                 // println!("Checking duplicate for {}. Existing: {:?}", directive.name, r3_directives.iter().map(|d| &d.name).collect::<Vec<_>>());
-                if r3_directives.iter().any(|d| d.name == directive.name) {
+                if r3_directives
+                    .iter()
+                    .any(|d| d.name.as_ref() == directive.name.as_ref())
+                {
                     // println!("Found duplicate!");
                     self.report_error(
                         &format!(
@@ -700,7 +716,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                 }
 
                 r3_directives.push(t::Directive {
-                    name: directive.name.clone(),
+                    name: directive.name.clone().into(),
                     attributes: dir_prepared.attributes,
                     inputs: categorized.bound,
                     outputs: dir_prepared.bound_events,
@@ -762,7 +778,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
             return None;
         }
 
-        let result = match block.name.as_str() {
+        let result = match block.name.as_ref() {
             "defer" => {
                 let connected =
                     self.find_connected_blocks(index, siblings, is_connected_defer_loop_block);
@@ -775,7 +791,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                 // Transform and populate children for connected blocks (placeholder, loading, error)
                 for connected_block in &connected {
                     let children = self.visit_all(&connected_block.children);
-                    match connected_block.name.as_str() {
+                    match connected_block.name.as_ref() {
                         "placeholder" => {
                             if let Some(ref mut pl) = result.node.placeholder {
                                 pl.children = children;
@@ -836,7 +852,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                     if let Some(ref mut empty) = for_block.empty {
                         // Find the empty connected block to get its children
                         for conn_block in &connected {
-                            if conn_block.name == "empty" {
+                            if conn_block.name.as_ref() == "empty" {
                                 empty.children = self.visit_all(&conn_block.children);
                                 break;
                             }
@@ -966,8 +982,8 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
         for prop in properties {
             if prop.is_literal && !prop.is_legacy_animation {
                 literal.push(t::TextAttribute::new(
-                    prop.name.clone(),
-                    prop.expression.source.clone().unwrap_or_default(),
+                    prop.name.clone().into(),
+                    prop.expression.source.clone().unwrap_or_default().into(),
                     prop.source_span.clone(),
                     prop.key_span.clone(),
                     prop.value_span.clone(),
@@ -1008,11 +1024,11 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
                 let key_span = bep.key_span.unwrap_or_else(|| bep.source_span.clone());
                 let source_span = bep.source_span.clone();
                 bound.push(t::BoundAttribute::new(
-                    bep.name,
+                    bep.name.into(),
                     expr_binding_type,
                     bep.security_context,
                     (*bep.value.ast).clone(),
-                    bep.unit,
+                    bep.unit.map(|u| u.into()),
                     source_span,
                     key_span,
                     bep.value_span,
@@ -1046,7 +1062,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
             let mut is_template_binding = false;
 
             if let Some(ref i18n) = attribute.i18n {
-                i18n_attrs_meta.insert(attribute.name.clone(), i18n.clone());
+                i18n_attrs_meta.insert(attribute.name.to_string(), i18n.clone());
             }
 
             if normalized_name.starts_with(TEMPLATE_ATTR_PREFIX) {
@@ -1082,8 +1098,8 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
 
                 for v in parsed_variables {
                     template_variables.push(t::Variable {
-                        name: v.name,
-                        value: v.value,
+                        name: v.name.into(),
+                        value: v.value.into(),
                         source_span: v.source_span,
                         key_span: v.key_span,
                         value_span: v.value_span,
@@ -1393,8 +1409,8 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
         }
 
         variables.push(t::Variable {
-            name: identifier.to_string(),
-            value: value.to_string(),
+            name: identifier.into(),
+            value: value.into(),
             source_span: source_span.clone(),
             key_span: key_span.clone(),
             value_span: value_span.cloned(),
@@ -1414,7 +1430,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
             self.report_error("\"-\" is not allowed in reference names", source_span);
         } else if identifier.is_empty() {
             self.report_error("Reference does not have a name", source_span);
-        } else if references.iter().any(|r| r.name == identifier) {
+        } else if references.iter().any(|r| r.name.as_ref() == identifier) {
             self.report_error(
                 &format!("Reference \"#{}\" is defined more than once", identifier),
                 source_span,
@@ -1422,8 +1438,8 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
         }
 
         references.push(t::Reference {
-            name: identifier.to_string(),
-            value: value.to_string(),
+            name: identifier.into(),
+            value: value.into(),
             source_span: source_span.clone(),
             key_span: key_span.clone(),
             value_span: value_span.cloned(),
@@ -1476,7 +1492,7 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
 
         if is_static {
             return Some(t::R3Node::Text(t::Text::new(
-                value_processed, // Use processed value or original? TypeScript uses processed.
+                value_processed.into(), // Use processed value or original? TypeScript uses processed.
                 source_span.clone(),
             )));
         }
@@ -1687,12 +1703,12 @@ impl<'a, 'b> HtmlAstToIvyAst<'a, 'b> {
         }
 
         for attr in literal_attributes {
-            if attr.name == "ngNonBindable" {
+            if attr.name.as_ref() == "ngNonBindable" {
                 self.report_error(
                     "ngNonBindable is not allowed inside of @Directive(...)",
                     &attr.source_span,
                 );
-            } else if attr.name == "ngProjectAs" {
+            } else if attr.name.as_ref() == "ngProjectAs" {
                 self.report_error(
                     "ngProjectAs is not allowed inside of @Directive(...)",
                     &attr.source_span,
@@ -1801,21 +1817,18 @@ fn visit_non_bindable_node(node: &html::Node) -> Option<t::R3Node> {
         ))),
         html::Node::Block(block) => {
             let mut nodes = vec![t::R3Node::Text(t::Text::new(
-                block.start_source_span.to_string(),
+                "".into(),
                 block.start_source_span.clone(),
             ))];
             nodes.extend(visit_all_non_bindable(&block.children));
             if let Some(ref end_span) = block.end_source_span {
-                nodes.push(t::R3Node::Text(t::Text::new(
-                    end_span.to_string(),
-                    end_span.clone(),
-                )));
+                nodes.push(t::R3Node::Text(t::Text::new("".into(), end_span.clone())));
             }
             // Return first node, rest are ignored in this simplified implementation
             nodes.into_iter().next()
         }
         html::Node::LetDeclaration(decl) => Some(t::R3Node::Text(t::Text::new(
-            format!("@let {} = {};", decl.name, decl.value),
+            format!("@let {} = {};", decl.name, decl.value).into(),
             decl.source_span.clone(),
         ))),
         html::Node::Component(component) => {
@@ -1904,11 +1917,11 @@ fn add_events(events: &[ParsedEvent], bound_events: &mut Vec<t::BoundEvent>) {
         };
 
         bound_events.push(t::BoundEvent::new(
-            e.name.clone(),
+            e.name.clone().into(),
             expr_event_type,
             (*e.handler.ast).clone(),
-            target,
-            phase,
+            target.map(|t| t.into()),
+            phase.map(|p| p.into()),
             e.source_span.clone(),
             e.handler_span.clone(),
             e.key_span.clone().unwrap_or_else(|| e.source_span.clone()),
@@ -1921,7 +1934,7 @@ fn text_contents(node: &html::Element) -> Option<String> {
         return None;
     }
     match &node.children[0] {
-        html::Node::Text(text) => Some(text.value.clone()),
+        html::Node::Text(text) => Some(text.value.to_string()),
         _ => None,
     }
 }

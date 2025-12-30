@@ -126,7 +126,7 @@ fn parse_connected_blocks(
             break;
         }
 
-        match block.name.as_str() {
+        match block.name.as_ref() {
             "placeholder" => {
                 if placeholder.is_some() {
                     errors.push(ParseError::new(

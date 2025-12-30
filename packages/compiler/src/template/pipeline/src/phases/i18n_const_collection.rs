@@ -368,7 +368,7 @@ pub fn collect_i18n_consts(job: &mut ComponentCompilationJob) {
                             }
                             vec![
                                 OutputExpression::Literal(LiteralExpr {
-                                    value: LiteralValue::String(i18n_expr.name.clone()),
+                                    value: LiteralValue::String(i18n_expr.name.to_string()),
                                     type_: None,
                                     source_span: None,
                                 }),

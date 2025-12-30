@@ -44,32 +44,33 @@ pub fn parse_host_style_properties(job: &mut dyn CompilationJob) {
 
             // Delete any `!important` suffixes from the binding name
             if binding.name.ends_with(BANG_IMPORTANT) {
-                binding.name =
-                    binding.name[..binding.name.len() - BANG_IMPORTANT.len()].to_string();
+                binding.name = binding.name[..binding.name.len() - BANG_IMPORTANT.len()]
+                    .to_string()
+                    .into();
             }
 
             if binding.name.starts_with(STYLE_DOT) {
                 binding.binding_kind = BindingKind::StyleProperty;
-                binding.name = binding.name[STYLE_DOT.len()..].to_string();
+                binding.name = binding.name[STYLE_DOT.len()..].to_string().into();
 
                 if !is_css_custom_property(&binding.name) {
-                    binding.name = hyphenate(&binding.name);
+                    binding.name = hyphenate(&binding.name).into();
                 }
 
                 let parsed = parse_property(&binding.name);
-                binding.name = parsed.property;
+                binding.name = parsed.property.into();
                 binding.unit = parsed.suffix;
             } else if binding.name.starts_with(STYLE_BANG) {
                 binding.binding_kind = BindingKind::StyleProperty;
-                binding.name = "style".to_string();
+                binding.name = "style".into();
             } else if binding.name.starts_with(CLASS_DOT) {
                 binding.binding_kind = BindingKind::ClassName;
                 let parsed = parse_property(&binding.name[CLASS_DOT.len()..]);
-                binding.name = parsed.property;
+                binding.name = parsed.property.into();
             } else if binding.name.starts_with(CLASS_BANG) {
                 binding.binding_kind = BindingKind::ClassName;
                 let parsed = parse_property(&binding.name[CLASS_BANG.len()..]);
-                binding.name = parsed.property;
+                binding.name = parsed.property.into();
             }
         }
     }

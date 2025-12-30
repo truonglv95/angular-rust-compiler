@@ -735,14 +735,14 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                         // Format: [strings[0], expr[0], strings[1], expr[1], ..., strings[n]]
                         let mut args = vec![];
                         for (idx, expr) in interpolation.expressions.iter().enumerate() {
-                            args.push(*o::literal(interpolation.strings[idx].clone()));
+                            args.push(*o::literal(interpolation.strings[idx].to_string()));
                             args.push(expr.clone());
                         }
                         // Add last string (NGTSC always includes it even if empty, except for textInterpolate(v))
                         let last_string =
                             interpolation.strings[interpolation.strings.len() - 1].clone();
                         if !last_string.is_empty() {
-                            args.push(*o::literal(last_string));
+                            args.push(*o::literal(last_string.to_string()));
                         }
                         args
                     };
@@ -847,11 +847,11 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                     });
 
                     // Build args: eventName, handlerFn
-                    let mut args = vec![*o::literal(event_name), handler_fn];
+                    let mut args = vec![*o::literal(event_name.to_string()), handler_fn];
 
                     // Add event target if present (e.g., "document:click")
                     if let Some(ref event_target) = listener_op.event_target {
-                        args.push(*o::literal(event_target.clone()));
+                        args.push(*o::literal(event_target.to_string()));
                     }
 
                     stmts.push(o::Statement::Expression(o::ExpressionStatement {
@@ -903,7 +903,7 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                     });
 
                     stmts.push(ng::two_way_listener(
-                        event_name, handler_fn, false, // default preventDefault to false
+                        event_name, handler_fn, false, // default prevent_default to false
                         None,
                     ));
                 }
@@ -978,10 +978,10 @@ pub fn emit_host_binding_function(job: &HostBindingCompilationJob) -> Option<o::
                 });
 
                 // Build args: eventName, handlerFn
-                let mut args = vec![*o::literal(event_name), handler_fn];
+                let mut args = vec![*o::literal(event_name.to_string()), handler_fn];
 
                 if let Some(ref event_target) = listener_op.event_target {
-                    args.push(*o::literal(event_target.clone()));
+                    args.push(*o::literal(event_target.to_string()));
                 }
 
                 create_stmts.push(o::Statement::Expression(o::ExpressionStatement {

@@ -33,9 +33,10 @@ impl PartialPipeLinker2 {
         };
 
         // Create a dummy source file for source spans
-        let dummy_file = ParseSourceFile::new("".to_string(), "unknown".to_string());
+        let dummy_file =
+            std::sync::Arc::new(ParseSourceFile::new("".to_string(), "unknown".to_string()));
         let _dummy_span = ParseSourceSpan::new(
-            ParseLocation::new(dummy_file.clone(), 0, 0, 0),
+            ParseLocation::new(std::sync::Arc::clone(&dummy_file), 0, 0, 0),
             ParseLocation::new(dummy_file, 0, 0, 0),
         );
 

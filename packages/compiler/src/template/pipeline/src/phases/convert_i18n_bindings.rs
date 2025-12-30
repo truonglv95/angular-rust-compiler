@@ -142,7 +142,7 @@ fn process_unit(unit: &mut crate::template::pipeline::src::compilation::ViewComp
                             i18n_attrs.handle.clone(),
                             expr.clone(),
                             None, // icu_placeholder
-                            Some(interpolation.i18n_placeholders[i].clone()),
+                            Some((&*interpolation.i18n_placeholders[i]).into()),
                             I18nParamResolutionTime::Creation,
                             I18nExpressionFor::I18nAttribute,
                             name.clone(),

@@ -19,7 +19,7 @@ pub fn deduplicate_text_bindings(job: &mut dyn CompilationJob) {
         &mut *job_ptr
     };
 
-    let mut seen: HashMap<ir::XrefId, HashSet<String>> = HashMap::new();
+    let mut seen: HashMap<ir::XrefId, HashSet<std::sync::Arc<str>>> = HashMap::new();
 
     // Process root unit
     process_unit(&mut component_job.root, job, &mut seen);
@@ -33,7 +33,7 @@ pub fn deduplicate_text_bindings(job: &mut dyn CompilationJob) {
 fn process_unit(
     unit: &mut crate::template::pipeline::src::compilation::ViewCompilationUnit,
     job: &dyn CompilationJob,
-    seen: &mut HashMap<ir::XrefId, HashSet<String>>,
+    seen: &mut HashMap<ir::XrefId, HashSet<std::sync::Arc<str>>>,
 ) {
     let mut ops_to_remove: Vec<usize> = Vec::new();
 
@@ -54,7 +54,7 @@ fn process_unit(
                             // the consts array. However, for style and class attributes it only keeps the last one.
                             // We replicate that behavior here since it has actual consequences for apps with
                             // duplicate class or style attrs.
-                            if binding_op.name == "style" || binding_op.name == "class" {
+                            if &*binding_op.name == "style" || &*binding_op.name == "class" {
                                 ops_to_remove.push(index);
                             }
                         }

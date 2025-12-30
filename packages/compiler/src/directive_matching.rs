@@ -49,6 +49,13 @@ impl CssSelector {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.element = None;
+        self.class_names.clear();
+        self.attrs.clear();
+        self.not_selectors.clear();
+    }
+
     /// Parse CSS selector string into CssSelector objects
     pub fn parse(selector: &str) -> Result<Vec<CssSelector>, String> {
         let mut results = Vec::new();

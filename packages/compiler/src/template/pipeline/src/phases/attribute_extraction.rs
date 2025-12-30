@@ -225,13 +225,13 @@ fn process_unit(
             if extractable {
                 let is_template = template_xrefs.contains(&attr_op.target);
 
-                let binding_kind = if attr_op.name == "class" {
+                let binding_kind = if attr_op.name.as_ref() == "class" {
                     if is_template {
                         BindingKind::Attribute
                     } else {
                         BindingKind::ClassName
                     }
-                } else if attr_op.name == "style" {
+                } else if attr_op.name.as_ref() == "style" {
                     BindingKind::StyleProperty
                 } else if attr_op.is_structural_template_attribute {
                     BindingKind::Template
@@ -255,7 +255,7 @@ fn process_unit(
                                         attr_op.target,
                                         BindingKind::ClassName,
                                         attr_op.namespace.clone(),
-                                        class_name.to_string(),
+                                        class_name.into(),
                                         None,
                                         attr_op.i18n_context,
                                         attr_op.i18n_message.clone(),
@@ -275,7 +275,7 @@ fn process_unit(
                                             *cond_xref,
                                             BindingKind::ClassName,
                                             attr_op.namespace.clone(),
-                                            class_name.to_string(),
+                                            class_name.into(),
                                             None,
                                             attr_op.i18n_context,
                                             attr_op.i18n_message.clone(),
@@ -316,7 +316,7 @@ fn process_unit(
                                                 attr_op.target,
                                                 BindingKind::StyleProperty,
                                                 attr_op.namespace.clone(),
-                                                style_name.to_string(),
+                                                style_name.into(),
                                                 Some(crate::output::output_ast::Expression::Literal(
                                                     crate::output::output_ast::LiteralExpr {
                                                         value: crate::output::output_ast::LiteralValue::String(style_val.to_string()),
@@ -343,7 +343,7 @@ fn process_unit(
                                                     *cond_xref,
                                                     BindingKind::StyleProperty,
                                                     attr_op.namespace.clone(),
-                                                    style_name.to_string(),
+                                                    style_name.into(),
                                                     Some(crate::output::output_ast::Expression::Literal(
                                                         crate::output::output_ast::LiteralExpr {
                                                             value: crate::output::output_ast::LiteralValue::String(style_val.to_string()),
@@ -445,7 +445,7 @@ fn process_unit(
                     control_op.target,
                     BindingKind::Property,
                     None,
-                    "field".to_string(),
+                    "field".into(),
                     None,
                     None,
                     None,

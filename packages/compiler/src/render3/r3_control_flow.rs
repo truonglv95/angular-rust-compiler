@@ -147,7 +147,7 @@ pub fn preprocess_if_block<'a>(
                     i18n: block.i18n.clone(),
                 });
             }
-        } else if block.name == "else" {
+        } else if block.name.as_ref() == "else" {
             branches.push(IfBlockBranchInput {
                 expression: None,
                 html_children: &block.children,
@@ -214,7 +214,7 @@ pub fn create_for_loop(
     let mut empty: Option<ForLoopBlockEmpty> = None;
 
     for block in connected_blocks {
-        if block.name == "empty" {
+        if block.name.as_ref() == "empty" {
             if empty.is_some() {
                 errors.push(ParseError::new(
                     block.source_span.clone(),
@@ -318,7 +318,9 @@ pub fn create_switch_block(
 
     for child in &ast.children {
         if let html::Node::Block(block) = child {
-            if (block.name != "case" || block.parameters.is_empty()) && block.name != "default" {
+            if (block.name.as_ref() != "case" || block.parameters.is_empty())
+                && block.name.as_ref() != "default"
+            {
                 unknown_blocks.push(UnknownBlock {
                     name: block.name.clone(),
                     source_span: block.source_span.clone(),
@@ -327,7 +329,7 @@ pub fn create_switch_block(
                 continue;
             }
 
-            let is_default = block.name != "case";
+            let is_default = block.name.as_ref() != "case";
             let expression = if !is_default {
                 Some(
                     *parse_block_parameter_to_binding(&block.parameters[0], binding_parser, None)
@@ -444,8 +446,8 @@ fn parse_for_loop_parameters(
 
     let mut result = ForLoopParams {
         item_name: Variable {
-            name: item_name_str.to_string(),
-            value: "$implicit".to_string(),
+            name: item_name_str.into(),
+            value: "$implicit".into(),
             source_span: variable_span.clone(),
             key_span: variable_span,
             value_span: None,
@@ -464,8 +466,8 @@ fn parse_for_loop_parameters(
                     block.start_source_span.end.clone(),
                 );
                 Variable {
-                    name: var_name.to_string(),
-                    value: var_name.to_string(),
+                    name: var_name.into(),
+                    value: var_name.into(),
                     source_span: empty_span.clone(),
                     key_span: empty_span,
                     value_span: None,
@@ -595,7 +597,7 @@ fn parse_let_parameter(
                     loop_item_name
                 ),
             ));
-        } else if context.iter().any(|v| v.name == name) {
+        } else if context.iter().any(|v| &*v.name == name) {
             errors.push(ParseError::new(
                 source_span.clone(),
                 format!("Duplicate \"let\" parameter variable \"{}\"", variable_name),
@@ -613,8 +615,8 @@ fn parse_let_parameter(
             );
 
             context.push(Variable {
-                name: name.to_string(),
-                value: variable_name.to_string(),
+                name: name.into(),
+                value: variable_name.into(),
                 source_span: var_source_span,
                 key_span,
                 value_span,
@@ -631,7 +633,7 @@ fn validate_if_connected_blocks(connected_blocks: &[html::Block]) -> Vec<ParseEr
     let mut has_else = false;
 
     for (i, block) in connected_blocks.iter().enumerate() {
-        if block.name == "else" {
+        if block.name.as_ref() == "else" {
             if has_else {
                 errors.push(ParseError::new(
                     block.start_source_span.clone(),
@@ -678,7 +680,7 @@ fn validate_switch_block(ast: &html::Block) -> Vec<ParseError> {
             html::Node::Comment(_) => continue,
             html::Node::Text(text) if text.value.trim().is_empty() => continue,
             html::Node::Block(block) => {
-                if block.name != "case" && block.name != "default" {
+                if block.name.as_ref() != "case" && block.name.as_ref() != "default" {
                     errors.push(ParseError::new(
                         block.source_span.clone(),
                         "@switch block can only contain @case and @default blocks".to_string(),
@@ -686,7 +688,7 @@ fn validate_switch_block(ast: &html::Block) -> Vec<ParseError> {
                     continue;
                 }
 
-                if block.name == "default" {
+                if block.name.as_ref() == "default" {
                     if has_default {
                         errors.push(ParseError::new(
                             block.start_source_span.clone(),
@@ -699,7 +701,7 @@ fn validate_switch_block(ast: &html::Block) -> Vec<ParseError> {
                         ));
                     }
                     has_default = true;
-                } else if block.name == "case" && block.parameters.len() != 1 {
+                } else if block.name.as_ref() == "case" && block.parameters.len() != 1 {
                     errors.push(ParseError::new(
                         block.start_source_span.clone(),
                         "@case block must have exactly one parameter".to_string(),
@@ -765,7 +767,7 @@ fn parse_conditional_block_parameters(
     // Start from 1 since we processed the first parameter already
     for param in &block.parameters[1..] {
         if let Some(alias_captures) = CONDITIONAL_ALIAS_PATTERN.captures(&param.expression) {
-            if block.name != "if" && !ELSE_IF_PATTERN.is_match(&block.name) {
+            if block.name.as_ref() != "if" && !ELSE_IF_PATTERN.is_match(&block.name) {
                 errors.push(ParseError::new(
                     param.source_span.clone(),
                     "\"as\" expression is only allowed on `@if` and `@else if` blocks".to_string(),
@@ -789,8 +791,8 @@ fn parse_conditional_block_parameters(
                         variable_start.move_by(name.len() as i32),
                     );
                     expression_alias = Some(Variable {
-                        name: name.to_string(),
-                        value: name.to_string(),
+                        name: name.into(),
+                        value: name.into(),
                         source_span: variable_span.clone(),
                         key_span: variable_span,
                         value_span: None,
@@ -843,7 +845,7 @@ fn strip_optional_parentheses(
     }
 
     if open_parens == 0 {
-        return Some(expression.clone());
+        return Some(expression.to_string());
     }
 
     for i in (0..expression.len()).rev() {

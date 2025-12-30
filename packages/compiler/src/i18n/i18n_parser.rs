@@ -134,11 +134,11 @@ impl I18nVisitor {
 
         let mut attrs: HashMap<String, String> = HashMap::new();
         for attr in &node.attrs {
-            attrs.insert(attr.name.clone(), attr.value.clone());
+            attrs.insert(attr.name.to_string(), attr.value.to_string());
         }
         for dir in &node.directives {
             for attr in &dir.attrs {
-                attrs.insert(attr.name.clone(), attr.value.clone());
+                attrs.insert(attr.name.to_string(), attr.value.to_string());
             }
         }
 
@@ -176,7 +176,7 @@ impl I18nVisitor {
         };
 
         let i18n_node = i18n::Node::TagPlaceholder(TagPlaceholder {
-            tag: node_name.clone(),
+            tag: node_name.to_string(),
             attrs,
             start_name: start_ph_name,
             close_name: close_ph_name,
@@ -226,7 +226,7 @@ impl I18nVisitor {
                                 },
                             );
                             nodes.push(i18n::Node::Placeholder(Placeholder {
-                                value: expression.clone(),
+                                value: expression.to_string(),
                                 name: ph_name,
                                 source_span: interp_token.source_span.clone(),
                             }));
@@ -267,7 +267,7 @@ impl I18nVisitor {
                                 },
                             );
                             nodes.push(i18n::Node::Placeholder(Placeholder {
-                                value: expression.clone(),
+                                value: expression.to_string(),
                                 name: ph_name,
                                 source_span: attr_interp_token.source_span.clone(),
                             }));
@@ -302,7 +302,7 @@ impl I18nVisitor {
                         Token::EncodedEntity(entity_token) => {
                             entity_token.parts.get(0).cloned().unwrap_or_default()
                         }
-                        _ => String::new(),
+                        _ => String::new().into(),
                     };
 
                     if !text_value.is_empty() || self.retain_empty_tokens {
@@ -324,31 +324,28 @@ impl I18nVisitor {
                         let span = match token {
                             Token::Text(t) => t.source_span.clone(),
                             Token::EncodedEntity(e) => e.source_span.clone(),
-                            _ => {
-                                let file = ParseSourceFile::new(String::new(), String::new());
-                                ParseSourceSpan::new(
-                                    ParseLocation::new(file.clone(), 0, 0, 0),
-                                    ParseLocation::new(file, 0, 0, 0),
-                                )
-                            }
+                            _ => ParseSourceSpan::new(
+                                ParseLocation::from_source(String::new(), String::new(), 0, 0, 0),
+                                ParseLocation::from_source(String::new(), String::new(), 0, 0, 0),
+                            ),
                         };
                         nodes.push(i18n::Node::Text(I18nText::new(
-                            text_value.clone(),
+                            text_value.to_string(),
                             span.clone(),
                         )));
                     } else if self.retain_empty_tokens {
                         let span = match token {
                             Token::Text(t) => t.source_span.clone(),
                             Token::EncodedEntity(e) => e.source_span.clone(),
-                            _ => {
-                                let file = ParseSourceFile::new(String::new(), String::new());
-                                ParseSourceSpan::new(
-                                    ParseLocation::new(file.clone(), 0, 0, 0),
-                                    ParseLocation::new(file, 0, 0, 0),
-                                )
-                            }
+                            _ => ParseSourceSpan::new(
+                                ParseLocation::from_source(String::new(), String::new(), 0, 0, 0),
+                                ParseLocation::from_source(String::new(), String::new(), 0, 0, 0),
+                            ),
                         };
-                        nodes.push(i18n::Node::Text(I18nText::new(text_value, span)));
+                        nodes.push(i18n::Node::Text(I18nText::new(
+                            text_value.to_string(),
+                            span,
+                        )));
                     }
                 }
             }
@@ -374,7 +371,7 @@ impl I18nVisitor {
             .parse_binding(expression, token.source_span.start.offset)
         {
             Ok(ast) => serialize(&ast),
-            Err(_) => expression.clone(),
+            Err(_) => expression.to_string(),
         }
     }
 }
@@ -423,11 +420,11 @@ impl html::Visitor for I18nVisitor {
         let ctx = context.downcast_mut::<I18nMessageVisitorContext>().unwrap();
         let mut attrs: HashMap<String, String> = HashMap::new();
         for attr in &component.attrs {
-            attrs.insert(attr.name.clone(), attr.value.clone());
+            attrs.insert(attr.name.to_string(), attr.value.to_string());
         }
         for dir in &component.directives {
             for attr in &dir.attrs {
-                attrs.insert(attr.name.clone(), attr.value.clone());
+                attrs.insert(attr.name.to_string(), attr.value.to_string());
             }
         }
 
@@ -469,7 +466,7 @@ impl html::Visitor for I18nVisitor {
         };
 
         let i18n_node = i18n::Node::TagPlaceholder(TagPlaceholder {
-            tag: node_name.clone(),
+            tag: node_name.to_string(),
             attrs,
             start_name: start_ph_name,
             close_name: close_ph_name,
@@ -499,7 +496,7 @@ impl html::Visitor for I18nVisitor {
             || attribute.value_tokens.as_ref().unwrap().len() == 1
         {
             i18n::Node::Text(I18nText::new(
-                attribute.value.clone(),
+                attribute.value.to_string(),
                 attribute
                     .value_span
                     .clone()
@@ -535,7 +532,10 @@ impl html::Visitor for I18nVisitor {
     ) -> Option<Box<dyn std::any::Any>> {
         let ctx = context.downcast_mut::<I18nMessageVisitorContext>().unwrap();
         let node = if text.tokens.len() == 1 {
-            i18n::Node::Text(I18nText::new(text.value.clone(), text.source_span.clone()))
+            i18n::Node::Text(I18nText::new(
+                text.value.to_string(),
+                text.source_span.clone(),
+            ))
         } else {
             let token_vec: Vec<Token> = text.tokens.iter().cloned().collect();
             self.visit_text_with_interpolation(
@@ -582,7 +582,7 @@ impl html::Visitor for I18nVisitor {
                 .filter_map(|result| result.downcast::<i18n::Node>().ok().map(|n| *n))
                 .collect();
             i18n_icu_cases.insert(
-                case.value.clone(),
+                case.value.to_string(),
                 i18n::Node::Container(Container {
                     children: case_nodes,
                     source_span: case.exp_source_span.clone(),
@@ -595,8 +595,8 @@ impl html::Visitor for I18nVisitor {
         ctx.icu_depth -= 1;
 
         let i18n_icu = Icu {
-            expression: expansion.switch_value.clone(),
-            type_: expansion.expansion_type.clone(),
+            expression: expansion.switch_value.to_string(),
+            type_: expansion.expansion_type.to_string(),
             cases: i18n_icu_cases.clone(),
             source_span: expansion.source_span.clone(),
             expression_placeholder: None,
@@ -611,7 +611,7 @@ impl html::Visitor for I18nVisitor {
             ctx.placeholder_to_content.insert(
                 exp_ph.clone(),
                 i18n::MessagePlaceholder {
-                    text: expansion.switch_value.clone(),
+                    text: expansion.switch_value.to_string(),
                     source_span: expansion.switch_value_source_span.clone(),
                 },
             );
@@ -673,7 +673,7 @@ impl html::Visitor for I18nVisitor {
         block: &html::Block,
         context: &mut dyn std::any::Any,
     ) -> Option<Box<dyn std::any::Any>> {
-        if block.name == "switch" {
+        if block.name.as_ref() == "switch" {
             let children: Vec<i18n::Node> = html::visit_all(self, &block.children, context)
                 .into_iter()
                 .filter_map(|result| result.downcast::<i18n::Node>().ok().map(|n| *n))
@@ -696,7 +696,7 @@ impl html::Visitor for I18nVisitor {
         let parameters: Vec<String> = block
             .parameters
             .iter()
-            .map(|param| param.expression.clone())
+            .map(|param| param.expression.to_string())
             .collect();
 
         let start_ph_name = ctx
@@ -730,7 +730,7 @@ impl html::Visitor for I18nVisitor {
         );
 
         let block_placeholder = BlockPlaceholder {
-            name: block.name.clone(),
+            name: block.name.to_string(),
             parameters,
             start_name: start_ph_name,
             close_name: close_ph_name,

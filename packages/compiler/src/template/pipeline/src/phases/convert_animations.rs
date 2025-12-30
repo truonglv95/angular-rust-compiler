@@ -106,7 +106,7 @@ fn get_animation_op(op: &AnimationBindingOp) -> Box<dyn ir::CreateOp + Send + Sy
         create_animation_string_op(
             op.name.clone(),
             op.target,
-            if op.name == "animate.enter" {
+            if &*op.name == "animate.enter" {
                 AnimationKind::Enter
             } else {
                 AnimationKind::Leave
@@ -138,7 +138,7 @@ fn get_animation_op(op: &AnimationBindingOp) -> Box<dyn ir::CreateOp + Send + Sy
         create_animation_op(
             op.name.clone(),
             op.target,
-            if op.name == "animate.enter" {
+            if &*op.name == "animate.enter" {
                 AnimationKind::Enter
             } else {
                 AnimationKind::Leave

@@ -2021,7 +2021,7 @@ fn find_element_by_reference(nodes: &[t::R3Node], ref_name: &str) -> Option<Elem
             t::R3Node::Element(el) => {
                 // Check if this element has a matching reference
                 for ref_node in &el.references {
-                    if ref_node.name == ref_name {
+                    if &*ref_node.name == ref_name {
                         return Some(el.clone());
                     }
                 }
@@ -2033,7 +2033,7 @@ fn find_element_by_reference(nodes: &[t::R3Node], ref_name: &str) -> Option<Elem
             t::R3Node::Template(tmpl) => {
                 // Check references on template
                 for ref_node in &tmpl.references {
-                    if ref_node.name == ref_name {
+                    if &*ref_node.name == ref_name {
                         // Template itself, not an element - return None for now
                         return None;
                     }
@@ -2046,7 +2046,7 @@ fn find_element_by_reference(nodes: &[t::R3Node], ref_name: &str) -> Option<Elem
             t::R3Node::Component(comp) => {
                 // Check references on component
                 for ref_node in &comp.references {
-                    if ref_node.name == ref_name {
+                    if &*ref_node.name == ref_name {
                         // Convert component to element representation
                         return Some(Element {
                             name: comp.component_name.clone(),
@@ -2350,7 +2350,7 @@ fn find_reference_target_in_nodes<DirectiveT: DirectiveMeta>(
 /// Represents a binding scope within a template.
 pub struct Scope {
     /// Named members of the `Scope`, such as `Reference`s or `Variable`s.
-    pub named_entities: HashMap<String, TemplateEntity>,
+    pub named_entities: HashMap<std::sync::Arc<str>, TemplateEntity>,
     /// Set of element-like nodes that belong to this scope.
     pub element_like_in_scope: HashSet<usize>,
     /// Child `Scope`s for immediately nested `ScopedNode`s.
@@ -2458,7 +2458,7 @@ impl Scope {
             TemplateEntity::Variable(v) => &v.name,
             TemplateEntity::LetDeclaration(l) => &l.name,
         };
-        if !self.named_entities.contains_key(name) {
+        if !self.named_entities.contains_key(name.as_ref()) {
             self.named_entities.insert(name.clone(), entity);
         }
     }

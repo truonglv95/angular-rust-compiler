@@ -20,7 +20,7 @@ use std::collections::HashMap;
 
 /// Scope for tracking local references in a view
 struct Scope {
-    targets: HashMap<String, TargetInfo>,
+    targets: HashMap<std::sync::Arc<str>, TargetInfo>,
 }
 
 struct TargetInfo {
@@ -108,7 +108,7 @@ fn get_scope_for_view<'a>(
                 }
 
                 for ref_item in &base.local_refs {
-                    if ref_item.target != "" {
+                    if &*ref_item.target != "" {
                         continue;
                     }
                     scope.targets.insert(
@@ -358,7 +358,7 @@ fn resolve_trigger_inner(
                 if let Some(view) = view {
                     let scope = get_scope_for_view(view, scopes);
 
-                    if let Some(target_info) = scope.targets.get(target_name_str) {
+                    if let Some(target_info) = scope.targets.get(target_name_str.as_str()) {
                         *target_xref = Some(target_info.xref);
                         *target_view = Some(view.xref());
                         *target_slot_view_steps = Some(if step == -1 { 0 } else { step as usize });

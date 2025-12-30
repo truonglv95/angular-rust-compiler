@@ -4,6 +4,7 @@
 
 use crate::parse_util::ParseSourceSpan;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// Token types for HTML/XML parsing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,7 +58,7 @@ pub enum TokenType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenBase {
     pub token_type: TokenType,
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
@@ -113,253 +114,253 @@ pub enum Token {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TagOpenStartToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TagOpenEndToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TagOpenEndVoidToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TagCloseToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IncompleteTagOpenToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterpolationToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EncodedEntityToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommentStartToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommentEndToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CdataStartToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CdataEndToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttributeNameToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttributeQuoteToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttributeValueTextToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttributeValueInterpolationToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocTypeToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpansionFormStartToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpansionCaseValueToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpansionCaseExpressionStartToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpansionCaseExpressionEndToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpansionFormEndToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EndOfFileToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockParameterToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockOpenStartToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockOpenEndToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockCloseToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IncompleteBlockOpenToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LetStartToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LetValueToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LetEndToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IncompleteLetToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawTextToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EscapableRawTextToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentOpenStartToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentOpenEndToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentOpenEndVoidToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentCloseToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IncompleteComponentOpenToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DirectiveNameToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DirectiveOpenToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DirectiveCloseToken {
-    pub parts: Vec<String>,
+    pub parts: Vec<Arc<str>>,
     pub source_span: ParseSourceSpan,
 }
 

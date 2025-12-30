@@ -301,13 +301,13 @@ The compiler now achieves full feature parity with the standard Angular compiler
 
 ## ⚡ Performance
 
-**2-5x faster** than TypeScript-based Angular compiler with lower memory usage.
+**~1.3x faster** than TypeScript-based Angular compiler in full compilation tests.
 
-| Metric          | angular-rust-plugins | Angular CLI |
-| --------------- | -------------------- | ----------- |
-| Initial compile | ~500ms               | ~2000ms     |
-| HMR update      | ~50ms                | ~200ms      |
-| Memory usage    | ~100MB               | ~500MB      |
+| Metric               | Rust Compiler (Native) | NGTSC (Node.js) |
+| -------------------- | ---------------------- | --------------- |
+| Full Compile (Demo)  | **~2.88s**             | ~3.70s          |
+| Speedup              | **~28%**               | Baseline        |
+| Memory Overhead      | **Minimal**            | High            |
 
 ## 🌍 Platform & Framework Support
 

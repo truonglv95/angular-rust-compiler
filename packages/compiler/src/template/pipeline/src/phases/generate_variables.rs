@@ -301,12 +301,12 @@ fn get_scope_for_view(
                     let local_refs = get_local_refs_from_op(op, op_ptr);
                     for (offset, local_ref) in local_refs.iter().enumerate() {
                         scope.references.push(Reference {
-                            name: local_ref.name.clone(),
+                            name: local_ref.name.to_string(),
                             target_id: op.xref(),
                             target_slot: get_slot_from_op(op, op_ptr),
                             offset,
                             variable: SemanticVariable::Identifier(IdentifierVariable::new(
-                                local_ref.name.clone(),
+                                local_ref.name.clone().to_string(),
                                 false,
                             )),
                         });
@@ -321,7 +321,7 @@ fn get_scope_for_view(
                 scope.let_declarations.push(LetDeclaration {
                     target_id: op.xref(),
                     target_slot: let_op.handle.clone(),
-                    variable: IdentifierVariable::new(let_op.declared_name.clone(), false),
+                    variable: IdentifierVariable::new(let_op.declared_name.to_string(), false),
                 });
             },
             _ => {}

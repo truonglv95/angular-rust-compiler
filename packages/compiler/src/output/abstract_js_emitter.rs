@@ -4,7 +4,8 @@
 //! JavaScript-specific emitter functionality
 
 use crate::output::abstract_emitter::{
-    escape_identifier, AbstractEmitterVisitor, EmitterVisitorContext, BINARY_OPERATORS,
+    escape_identifier, AbstractEmitterVisitor, EmitterVisitorContext, HasSourceSpan,
+    BINARY_OPERATORS,
 };
 use crate::output::output_ast as o;
 use crate::output::output_ast::ExpressionTrait;
@@ -49,6 +50,446 @@ impl AbstractJsEmitterVisitor {
     // ... (rest of impl)
 
     // ...
+    // Optimized emission methods
+    fn emit_raw_code_expr(&mut self, expr: &o::RawCodeExpr, ctx: &mut EmitterVisitorContext) {
+        ctx.print(Some(expr), &expr.code, false);
+    }
+
+    fn emit_read_var_expr(&mut self, expr: &o::ReadVarExpr, ctx: &mut EmitterVisitorContext) {
+        let name = escape_identifier(&expr.name, false, false);
+        ctx.print(Some(expr as &dyn HasSourceSpan), &name, false);
+    }
+
+    fn emit_literal_expr(&mut self, expr: &o::LiteralExpr, ctx: &mut EmitterVisitorContext) {
+        let value_str = match &expr.value {
+            o::LiteralValue::Null => "null".to_string(),
+            o::LiteralValue::String(s) => escape_identifier(s, true, true),
+            o::LiteralValue::Number(n) => n.to_string(),
+            o::LiteralValue::Bool(b) => b.to_string(),
+        };
+        ctx.print(Some(expr), &value_str, false);
+    }
+
+    fn emit_write_var_expr(&mut self, expr: &o::WriteVarExpr, ctx: &mut EmitterVisitorContext) {
+        let name = escape_identifier(&expr.name, false, false);
+        ctx.print(Some(expr), &name, false);
+        ctx.print(Some(expr), " = ", false);
+        self.emit_expression(&expr.value, ctx);
+    }
+
+    fn emit_write_prop_expr(&mut self, expr: &o::WritePropExpr, ctx: &mut EmitterVisitorContext) {
+        self.emit_expression(&expr.receiver, ctx);
+        ctx.print(Some(expr), ".", false);
+        let name = escape_identifier(&expr.name, false, false);
+        ctx.print(Some(expr), &name, false);
+        ctx.print(Some(expr), " = ", false);
+        self.emit_expression(&expr.value, ctx);
+    }
+
+    fn emit_write_key_expr(&mut self, expr: &o::WriteKeyExpr, ctx: &mut EmitterVisitorContext) {
+        self.emit_expression(&expr.receiver, ctx);
+        ctx.print(Some(expr), "[", false);
+        self.emit_expression(&expr.index, ctx);
+        ctx.print(Some(expr), "] = ", false);
+        self.emit_expression(&expr.value, ctx);
+    }
+
+    fn emit_invoke_function_expr(
+        &mut self,
+        expr: &o::InvokeFunctionExpr,
+        ctx: &mut EmitterVisitorContext,
+    ) {
+        match &*expr.fn_ {
+            o::Expression::ArrowFn(_)
+            | o::Expression::Fn(_)
+            | o::Expression::BinaryOp(_)
+            | o::Expression::Conditional(_) => {
+                ctx.print(Some(expr), "(", false);
+                self.emit_expression(&expr.fn_, ctx);
+                ctx.print(Some(expr), ")", false);
+            }
+            _ => {
+                self.emit_expression(&expr.fn_, ctx);
+            }
+        }
+        ctx.print(Some(expr), "(", false);
+        for (i, arg) in expr.args.iter().enumerate() {
+            if i > 0 {
+                ctx.print(Some(expr), ", ", false);
+            }
+            self.emit_expression(arg, ctx);
+        }
+        ctx.print(Some(expr), ")", false);
+    }
+
+    fn emit_external_expr(&mut self, expr: &o::ExternalExpr, ctx: &mut EmitterVisitorContext) {
+        let ref_expr = &expr.value;
+        if let Some(module_name) = &ref_expr.module_name {
+            if module_name == "@angular/core" {
+                ctx.print(Some(expr), "i0.", false);
+            } else if let Some(alias) = self.imports.get(module_name) {
+                ctx.print(Some(expr), alias, false);
+                ctx.print(Some(expr), ".", false);
+            } else {
+                ctx.print(Some(expr), module_name, false);
+                ctx.print(Some(expr), ".", false);
+            }
+        }
+        if let Some(name) = &ref_expr.name {
+            ctx.print(Some(expr), name, false);
+        }
+    }
+
+    fn emit_binary_operator_expr(
+        &mut self,
+        expr: &o::BinaryOperatorExpr,
+        ctx: &mut EmitterVisitorContext,
+    ) {
+        self.emit_expression(&expr.lhs, ctx);
+        if let Some(op_str) = BINARY_OPERATORS.get(&expr.operator) {
+            ctx.print(Some(expr), " ", false);
+            ctx.print(Some(expr), op_str, false);
+            ctx.print(Some(expr), " ", false);
+        }
+        self.emit_expression(&expr.rhs, ctx);
+    }
+
+    fn emit_read_prop_expr(&mut self, expr: &o::ReadPropExpr, ctx: &mut EmitterVisitorContext) {
+        self.emit_expression(&expr.receiver, ctx);
+        ctx.print(Some(expr), ".", false);
+        let name = escape_identifier(&expr.name, false, false);
+        ctx.print(Some(expr), &name, false);
+    }
+
+    fn emit_read_key_expr(&mut self, expr: &o::ReadKeyExpr, ctx: &mut EmitterVisitorContext) {
+        self.emit_expression(&expr.receiver, ctx);
+        ctx.print(Some(expr), "[", false);
+        self.emit_expression(&expr.index, ctx);
+        ctx.print(Some(expr), "]", false);
+    }
+
+    pub fn emit_expression(&mut self, expr: &o::Expression, ctx: &mut EmitterVisitorContext) {
+        match expr {
+            o::Expression::RawCode(e) => self.emit_raw_code_expr(e, ctx),
+            o::Expression::ReadVar(e) => self.emit_read_var_expr(e, ctx),
+            o::Expression::Literal(e) => self.emit_literal_expr(e, ctx),
+            o::Expression::WriteVar(e) => self.emit_write_var_expr(e, ctx),
+            o::Expression::WriteProp(e) => self.emit_write_prop_expr(e, ctx),
+            o::Expression::WriteKey(e) => self.emit_write_key_expr(e, ctx),
+            o::Expression::InvokeFn(e) => self.emit_invoke_function_expr(e, ctx),
+            o::Expression::External(e) => self.emit_external_expr(e, ctx),
+            o::Expression::BinaryOp(e) => self.emit_binary_operator_expr(e, ctx),
+            o::Expression::ReadProp(e) => self.emit_read_prop_expr(e, ctx),
+            o::Expression::ReadKey(e) => self.emit_read_key_expr(e, ctx),
+            o::Expression::Conditional(e) => self.emit_conditional_expr(e, ctx),
+            o::Expression::Unary(e) => self.emit_unary_operator_expr(e, ctx),
+            o::Expression::Parens(e) => self.emit_parenthesized_expr(e, ctx),
+            o::Expression::Fn(e) => self.emit_function_expr(e, ctx),
+            o::Expression::ArrowFn(e) => self.emit_arrow_function_expr(e, ctx),
+            o::Expression::LiteralArray(e) => self.emit_literal_array_expr(e, ctx),
+            o::Expression::LiteralMap(e) => self.emit_literal_map_expr(e, ctx),
+            o::Expression::CommaExpr(e) => self.emit_comma_expr(e, ctx),
+            o::Expression::TypeOf(e) => self.emit_typeof_expr(e, ctx),
+            o::Expression::Void(e) => self.emit_void_expr(e, ctx),
+            o::Expression::NotExpr(e) => self.emit_not_expr(e, ctx),
+            o::Expression::IfNull(e) => self.emit_if_null_expr(e, ctx),
+            o::Expression::AssertNotNull(e) => self.emit_assert_not_null_expr(e, ctx),
+            o::Expression::Cast(e) => self.emit_cast_expr(e, ctx),
+            o::Expression::DynamicImport(e) => self.emit_dynamic_import_expr(e, ctx),
+            o::Expression::TemplateLiteral(e) => self.emit_template_literal_expr(e, ctx),
+            o::Expression::RegularExpressionLiteral(e) => {
+                self.emit_regular_expression_literal(e, ctx)
+            }
+            o::Expression::WrappedNode(e) => self.emit_wrapped_node_expr(e, ctx),
+            o::Expression::TaggedTemplate(e) => self.emit_tagged_template_expr(e, ctx),
+            o::Expression::Instantiate(e) => self.emit_instantiate_expr(e, ctx),
+            o::Expression::Localized(e) => self.emit_localized_string(e, ctx),
+            _ => { /* Ignore IR nodes */ }
+        }
+    }
+
+    fn emit_conditional_expr(
+        &mut self,
+        expr: &o::ConditionalExpr,
+        ctx: &mut EmitterVisitorContext,
+    ) {
+        ctx.print(Some(expr), "(", false);
+        self.emit_expression(&expr.condition, ctx);
+        ctx.print(Some(expr), " ? ", false);
+        self.emit_expression(&expr.true_case, ctx);
+        if let Some(false_case) = &expr.false_case {
+            ctx.print(Some(expr), " : ", false);
+            self.emit_expression(false_case, ctx);
+        }
+        ctx.print(Some(expr), ")", false);
+    }
+
+    fn emit_unary_operator_expr(
+        &mut self,
+        expr: &o::UnaryOperatorExpr,
+        ctx: &mut EmitterVisitorContext,
+    ) {
+        let op_str = match expr.operator {
+            o::UnaryOperator::Minus => "-",
+            o::UnaryOperator::Plus => "+",
+        };
+        ctx.print(Some(expr), op_str, false);
+        self.emit_expression(&expr.expr, ctx);
+    }
+
+    fn emit_parenthesized_expr(
+        &mut self,
+        expr: &o::ParenthesizedExpr,
+        ctx: &mut EmitterVisitorContext,
+    ) {
+        ctx.print(Some(expr), "(", false);
+        self.emit_expression(&expr.expr, ctx);
+        ctx.print(Some(expr), ")", false);
+    }
+
+    fn emit_function_expr(&mut self, expr: &o::FunctionExpr, ctx: &mut EmitterVisitorContext) {
+        if let Some(name) = &expr.name {
+            ctx.print(Some(expr), "function ", false);
+            let func_name = escape_identifier(name, false, false);
+            ctx.print(Some(expr), &func_name, false);
+        } else {
+            ctx.print(Some(expr), "function", false);
+        }
+        ctx.print(Some(expr), "(", false);
+        for (i, param) in expr.params.iter().enumerate() {
+            if i > 0 {
+                ctx.print(Some(expr), ", ", false);
+            }
+            let param_name = escape_identifier(&param.name, false, false);
+            ctx.print(Some(expr), &param_name, false);
+        }
+        ctx.println(Some(expr), ") {");
+        ctx.inc_indent();
+        for statement in &expr.statements {
+            statement.visit_statement(self, ctx as &mut dyn std::any::Any);
+        }
+        ctx.dec_indent();
+        ctx.println(Some(expr), "}");
+    }
+
+    fn emit_arrow_function_expr(
+        &mut self,
+        expr: &o::ArrowFunctionExpr,
+        ctx: &mut EmitterVisitorContext,
+    ) {
+        ctx.print(Some(expr), "(", false);
+        for (i, param) in expr.params.iter().enumerate() {
+            if i > 0 {
+                ctx.print(Some(expr), ", ", false);
+            }
+            let param_name = escape_identifier(&param.name, false, false);
+            ctx.print(Some(expr), &param_name, false);
+        }
+        ctx.print(Some(expr), ") => ", false);
+        match &expr.body {
+            o::ArrowFunctionBody::Expression(e) => {
+                let needs_parens = matches!(e.as_ref(), o::Expression::LiteralMap(_));
+                if needs_parens {
+                    ctx.print(Some(expr), "(", false);
+                }
+                self.emit_expression(e, ctx);
+                if needs_parens {
+                    ctx.print(Some(expr), ")", false);
+                }
+            }
+            o::ArrowFunctionBody::Statements(stmts) => {
+                ctx.println(Some(expr), "{");
+                ctx.inc_indent();
+                for statement in stmts {
+                    statement.visit_statement(self, ctx as &mut dyn std::any::Any);
+                }
+                ctx.dec_indent();
+                ctx.println(Some(expr), "}");
+            }
+        }
+    }
+
+    fn emit_literal_array_expr(
+        &mut self,
+        expr: &o::LiteralArrayExpr,
+        ctx: &mut EmitterVisitorContext,
+    ) {
+        ctx.print(Some(expr), "[", false);
+        for (i, entry) in expr.entries.iter().enumerate() {
+            if i > 0 {
+                ctx.print(Some(expr), ", ", false);
+            }
+            self.emit_expression(entry, ctx);
+        }
+        ctx.print(Some(expr), "]", false);
+    }
+
+    fn emit_literal_map_expr(&mut self, expr: &o::LiteralMapExpr, ctx: &mut EmitterVisitorContext) {
+        ctx.print(Some(expr), "{", false);
+        for (i, entry) in expr.entries.iter().enumerate() {
+            if i > 0 {
+                ctx.print(Some(expr), ", ", false);
+            }
+            let key = if entry.quoted {
+                escape_identifier(&entry.key, true, true)
+            } else {
+                escape_identifier(&entry.key, false, false)
+            };
+            ctx.print(Some(expr), &key, false);
+            ctx.print(Some(expr), ": ", false);
+            self.emit_expression(&entry.value, ctx);
+        }
+        ctx.print(Some(expr), "}", false);
+    }
+
+    fn emit_comma_expr(&mut self, expr: &o::CommaExpr, ctx: &mut EmitterVisitorContext) {
+        for (i, part) in expr.parts.iter().enumerate() {
+            if i > 0 {
+                ctx.print(Some(expr), ", ", false);
+            }
+            self.emit_expression(part, ctx);
+        }
+    }
+
+    fn emit_typeof_expr(&mut self, expr: &o::TypeofExpr, ctx: &mut EmitterVisitorContext) {
+        ctx.print(Some(expr), "typeof ", false);
+        self.emit_expression(&expr.expr, ctx);
+    }
+
+    fn emit_void_expr(&mut self, expr: &o::VoidExpr, ctx: &mut EmitterVisitorContext) {
+        ctx.print(Some(expr), "void ", false);
+        self.emit_expression(&expr.expr, ctx);
+    }
+
+    fn emit_not_expr(&mut self, expr: &o::NotExpr, ctx: &mut EmitterVisitorContext) {
+        ctx.print(Some(expr), "!", false);
+        self.emit_expression(&expr.condition, ctx);
+    }
+
+    fn emit_if_null_expr(&mut self, expr: &o::IfNullExpr, ctx: &mut EmitterVisitorContext) {
+        self.emit_expression(&expr.condition, ctx);
+        ctx.print(Some(expr), " ?? ", false);
+        self.emit_expression(&expr.null_case, ctx);
+    }
+
+    fn emit_assert_not_null_expr(
+        &mut self,
+        expr: &o::AssertNotNullExpr,
+        ctx: &mut EmitterVisitorContext,
+    ) {
+        self.emit_expression(&expr.condition, ctx);
+        ctx.print(Some(expr), "!", false);
+    }
+
+    fn emit_cast_expr(&mut self, expr: &o::CastExpr, ctx: &mut EmitterVisitorContext) {
+        self.emit_expression(&expr.value, ctx);
+    }
+
+    fn emit_dynamic_import_expr(
+        &mut self,
+        expr: &o::DynamicImportExpr,
+        ctx: &mut EmitterVisitorContext,
+    ) {
+        ctx.print(Some(expr), "import(", false);
+        let url = escape_identifier(&expr.url, true, true);
+        ctx.print(Some(expr), &url, false);
+        ctx.print(Some(expr), ")", false);
+    }
+
+    fn emit_template_literal_expr(
+        &mut self,
+        expr: &o::TemplateLiteralExpr,
+        ctx: &mut EmitterVisitorContext,
+    ) {
+        ctx.print(Some(expr), "`", false);
+        for (i, element) in expr.elements.iter().enumerate() {
+            ctx.print(Some(expr), &element.text, false);
+            if i < expr.expressions.len() {
+                ctx.print(Some(expr), "${", false);
+                self.emit_expression(&expr.expressions[i], ctx);
+                ctx.print(Some(expr), "}", false);
+            }
+        }
+        ctx.print(Some(expr), "`", false);
+    }
+
+    fn emit_regular_expression_literal(
+        &mut self,
+        expr: &o::RegularExpressionLiteralExpr,
+        ctx: &mut EmitterVisitorContext,
+    ) {
+        ctx.print(Some(expr), "/", false);
+        ctx.print(Some(expr), &expr.pattern, false);
+        ctx.print(Some(expr), "/", false);
+        if !expr.flags.is_empty() {
+            ctx.print(Some(expr), &expr.flags, false);
+        }
+    }
+
+    fn emit_wrapped_node_expr(
+        &mut self,
+        expr: &o::WrappedNodeExpr,
+        ctx: &mut EmitterVisitorContext,
+    ) {
+        if let Some(s) = expr.node.downcast_ref::<String>() {
+            ctx.print(None, s, false);
+        } else {
+            // panic or ignore
+        }
+    }
+
+    fn emit_tagged_template_expr(
+        &mut self,
+        expr: &o::TaggedTemplateLiteralExpr,
+        ctx: &mut EmitterVisitorContext,
+    ) {
+        self.emit_expression(&expr.tag, ctx);
+        ctx.print(None, "`", false);
+        for (i, element) in expr.template.elements.iter().enumerate() {
+            ctx.print(None, &element.text, false);
+            if i < expr.template.expressions.len() {
+                ctx.print(None, "${", false);
+                self.emit_expression(&expr.template.expressions[i], ctx);
+                ctx.print(None, "}", false);
+            }
+        }
+        ctx.print(None, "`", false);
+    }
+
+    fn emit_instantiate_expr(
+        &mut self,
+        expr: &o::InstantiateExpr,
+        ctx: &mut EmitterVisitorContext,
+    ) {
+        ctx.print(Some(expr), "new ", false);
+        let needs_parens = matches!(
+            expr.class_expr.as_ref(),
+            o::Expression::BinaryOp(_) | o::Expression::Conditional(_)
+        );
+        if needs_parens {
+            ctx.print(Some(expr), "(", false);
+        }
+        self.emit_expression(&expr.class_expr, ctx);
+        if needs_parens {
+            ctx.print(Some(expr), ")", false);
+        }
+        ctx.print(Some(expr), "(", false);
+        for (i, arg) in expr.args.iter().enumerate() {
+            if i > 0 {
+                ctx.print(Some(expr), ", ", false);
+            }
+            self.emit_expression(arg, ctx);
+        }
+        ctx.print(Some(expr), ")", false);
+    }
+
+    fn emit_localized_string(
+        &mut self,
+        _expr: &o::LocalizedString,
+        _ctx: &mut EmitterVisitorContext,
+    ) {
+        // TODO: Implement localized string
+    }
 }
 
 impl o::ExpressionVisitor for AbstractJsEmitterVisitor {
@@ -909,27 +1350,19 @@ impl o::StatementVisitor for AbstractJsEmitterVisitor {
         stmt: &o::DeclareVarStmt,
         context: &mut dyn Any,
     ) -> Box<dyn Any> {
-        // Use 'const' for Final modifier, otherwise 'var'
-        {
-            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
-            let keyword = match stmt.modifiers {
-                o::StmtModifier::Final => "const ",
-                _ => "var ",
-            };
-            ctx.print(Some(stmt), keyword, false);
-            let name = escape_identifier(&stmt.name, false, false);
-            ctx.print(Some(stmt), &name, false);
-            if let Some(_value) = &stmt.value {
-                ctx.print(Some(stmt), " = ", false);
-            }
-        }
+        let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+        let keyword = match stmt.modifiers {
+            o::StmtModifier::Final => "const ",
+            _ => "var ",
+        };
+        ctx.print(Some(stmt), keyword, false);
+        let name = escape_identifier(&stmt.name, false, false);
+        ctx.print(Some(stmt), &name, false);
         if let Some(value) = &stmt.value {
-            value.as_ref().visit_expression(self, context);
+            ctx.print(Some(stmt), " = ", false);
+            self.emit_expression(value, ctx);
         }
-        {
-            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
-            ctx.println(Some(stmt), ";");
-        }
+        ctx.println(Some(stmt), ";");
         Box::new(())
     }
 
@@ -971,11 +1404,9 @@ impl o::StatementVisitor for AbstractJsEmitterVisitor {
         stmt: &o::ExpressionStatement,
         context: &mut dyn Any,
     ) -> Box<dyn Any> {
-        stmt.expr.visit_expression(self, context);
-        {
-            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
-            ctx.println(Some(stmt), ";");
-        }
+        let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+        self.emit_expression(&stmt.expr, ctx);
+        ctx.println(Some(stmt), ";");
         Box::new(())
     }
 
@@ -984,15 +1415,10 @@ impl o::StatementVisitor for AbstractJsEmitterVisitor {
         stmt: &o::ReturnStatement,
         context: &mut dyn Any,
     ) -> Box<dyn Any> {
-        {
-            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
-            ctx.print(Some(stmt), "return ", false);
-        }
-        stmt.value.visit_expression(self, context);
-        {
-            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
-            ctx.println(Some(stmt), ";");
-        }
+        let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+        ctx.print(Some(stmt), "return ", false);
+        self.emit_expression(&stmt.value, ctx);
+        ctx.println(Some(stmt), ";");
         Box::new(())
     }
 
@@ -1000,17 +1426,11 @@ impl o::StatementVisitor for AbstractJsEmitterVisitor {
         {
             let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
             ctx.print(Some(stmt), "if (", false);
-        }
-        stmt.condition.visit_expression(self, context);
-        {
-            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+            self.emit_expression(&stmt.condition, ctx);
             ctx.print(Some(stmt), ") {", true);
             ctx.inc_indent();
         }
-        self.visit_all_statements(&stmt.true_case, {
-            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
-            ctx
-        });
+        self.visit_all_statements(&stmt.true_case, context);
         if !stmt.false_case.is_empty() {
             {
                 let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
@@ -1018,10 +1438,7 @@ impl o::StatementVisitor for AbstractJsEmitterVisitor {
                 ctx.print(Some(stmt), "} else {", true);
                 ctx.inc_indent();
             }
-            self.visit_all_statements(&stmt.false_case, {
-                let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
-                ctx
-            });
+            self.visit_all_statements(&stmt.false_case, context);
         }
         {
             let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();

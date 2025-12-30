@@ -258,9 +258,7 @@ pub fn create_css_selector_from_node(node: &t::R3Node) -> Option<CssSelector> {
     let (element_name, attributes, inputs, outputs) = match node {
         t::R3Node::Element(el) => (el.name.clone(), &el.attributes, &el.inputs, &el.outputs),
         t::R3Node::Template(tpl) => (
-            tpl.tag_name
-                .clone()
-                .unwrap_or_else(|| "ng-template".to_string()),
+            tpl.tag_name.clone().unwrap_or_else(|| "ng-template".into()),
             &tpl.attributes,
             &tpl.inputs,
             &tpl.outputs,

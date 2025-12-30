@@ -7,6 +7,7 @@ use crate::parse_util::ParseSourceSpan;
 use crate::template::pipeline::ir::enums::OpKind;
 use crate::template::pipeline::ir::handle::XrefId;
 use std::fmt::Debug;
+// use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Base trait for semantic operations being performed within a template.

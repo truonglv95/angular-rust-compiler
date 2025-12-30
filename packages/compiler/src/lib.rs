@@ -226,7 +226,7 @@ fn node_to_json_depth(
                     "value": if a.value.len() > 50 {
                         format!("{}...", &a.value[..50.min(a.value.len())])
                     } else {
-                        a.value.clone()
+                        a.value.to_string()
                     }
                 })).collect::<Vec<_>>(),
                 "childCount": el.children.len(),
@@ -237,7 +237,7 @@ fn node_to_json_depth(
             let value = if text.value.len() > 100 {
                 format!("{}... ({} chars)", &text.value[..50], text.value.len())
             } else {
-                text.value.clone()
+                text.value.to_string()
             };
             serde_json::json!({
                 "type": "Text",
@@ -249,7 +249,7 @@ fn node_to_json_depth(
                 if v.len() > 100 {
                     format!("{}...", &v[..50])
                 } else {
-                    v.clone()
+                    v.to_string()
                 }
             } else {
                 String::new()
@@ -287,7 +287,7 @@ fn node_to_json_depth(
                 "value": if let_decl.value.len() > 100 {
                     format!("{}...", &let_decl.value[..50])
                 } else {
-                    let_decl.value.clone()
+                    let_decl.value.to_string()
                 }
             })
         }

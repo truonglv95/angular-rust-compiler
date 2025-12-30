@@ -14,6 +14,7 @@ use crate::template::pipeline::src::compilation::{
 use crate::template::pipeline::src::conversion::convert_ast;
 use crate::template::pipeline::src::ingest::uses_dollar_event;
 use crate::template_parser::binding_parser::{ParsedEvent, ParsedProperty};
+use std::sync::Arc;
 
 /// Ingest a DOM property binding for host bindings
 pub fn ingest_dom_property(
@@ -38,7 +39,11 @@ pub fn ingest_dom_property(
 
             // Create Interpolation expression
             BindingExpression::Interpolation(ir::ops::update::Interpolation {
-                strings: interp.strings.clone(),
+                strings: interp
+                    .strings
+                    .iter()
+                    .map(|s| Arc::from(s.clone()))
+                    .collect(),
                 expressions: exprs,
                 i18n_placeholders: vec![], // Host bindings don't have i18n placeholders
             })
@@ -58,7 +63,7 @@ pub fn ingest_dom_property(
     let binding_op = ir::ops::update::create_binding_op(
         job.root_mut().xref(),
         binding_kind,
-        property.name,
+        property.name.into(),
         expression,
         None, // unit - encoded in name for host bindings
         security_contexts,
@@ -84,7 +89,7 @@ pub fn ingest_host_attribute(
     let binding_op = ir::ops::update::create_binding_op(
         job.root_mut().xref(),
         ir::BindingKind::Attribute,
-        name,
+        name.into(),
         BindingExpression::Expression(value.clone()),
         None, // unit
         security_contexts,
@@ -93,10 +98,9 @@ pub fn ingest_host_attribute(
         None,  // template_kind
         None,  // i18n_message
         value.source_span().cloned().unwrap_or_else(|| {
-            let file = ParseSourceFile::new(String::new(), String::new());
             ParseSourceSpan::new(
-                ParseLocation::new(file.clone(), 0, 0, 0),
-                ParseLocation::new(file, 0, 0, 0),
+                ParseLocation::from_source(String::new(), String::new(), 0, 0, 0),
+                ParseLocation::from_source(String::new(), String::new(), 0, 0, 0),
             )
         }),
     );
@@ -126,7 +130,7 @@ pub fn ingest_host_event(job: &mut HostBindingCompilationJob, event: ParsedEvent
             job.root_mut().xref(),
             job.root_mut().xref(), // element
             SlotHandle::new(),
-            event.name,
+            event.name.into(),
             None, // tag - host listeners don't have tags
             handler_ops,
             animation_kind,
@@ -156,7 +160,7 @@ pub fn ingest_host_event(job: &mut HostBindingCompilationJob, event: ParsedEvent
             job.root_mut().xref(),
             job.root_mut().xref(), // element
             SlotHandle::new(),
-            event.name,
+            event.name.into(),
             None, // tag
             handler_ops,
             phase,  // legacy_animation_phase (only for LegacyAnimation)
