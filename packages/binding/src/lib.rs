@@ -18,7 +18,7 @@ use std::sync::Mutex;
 use xxhash_rust::xxh3::xxh3_64;
 
 // ============ Cache Configuration ============
-const CACHE_DIR_NAME: &str = ".angular/rust-cache";
+const CACHE_DIR_NAME: &str = ".angular/cache/rust-compiler";
 const COMPILER_CACHE_SUBDIR: &str = "compiler";
 const LINKER_CACHE_SUBDIR: &str = "linker";
 
