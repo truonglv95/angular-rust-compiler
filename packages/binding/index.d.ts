@@ -14,8 +14,18 @@ export interface CompileResult {
   code: string;
   diagnostics: Array<Diagnostic>;
 }
+export interface FileEntry {
+  filename: string;
+  content: string;
+}
+export interface BatchEntryResult {
+  filename: string;
+  code?: string;
+  diagnostics: Array<Diagnostic>;
+}
 export declare class Compiler {
   constructor();
   compile(filename: string, content: string): CompileResult;
   linkFile(filename: string, sourceCode: string): string;
+  compileBatch(files: Array<FileEntry>): Array<BatchEntryResult>;
 }
