@@ -7,6 +7,15 @@
 <!-- * * * * * * * to get started with your project! * * * * * * * -->
 <!-- * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * -->
 
+<section>
+  <div class="example-label">Text</div>
+  <div class="example-button-row">
+    <button matButton>Basic</button>
+    <button matButton disabled>Disabled</button>
+    <a matButton href="https://www.google.com/" target="_blank">Link</a>
+  </div>
+</section>
+
 <style>
   :host {
     --bright-blue: oklch(51.01% 0.274 263.83);
@@ -365,106 +374,7 @@
 <app-two-way-binding-test></app-two-way-binding-test>
 <app-any-test></app-any-test>
 
-<!-- Benchmark Components Section - 100 components for performance testing -->
-<section class="benchmark-section" style="display: none">
-  <app-benchmark-0></app-benchmark-0>
-  <app-benchmark-1></app-benchmark-1>
-  <app-benchmark-2></app-benchmark-2>
-  <app-benchmark-3></app-benchmark-3>
-  <app-benchmark-4></app-benchmark-4>
-  <app-benchmark-5></app-benchmark-5>
-  <app-benchmark-6></app-benchmark-6>
-  <app-benchmark-7></app-benchmark-7>
-  <app-benchmark-8></app-benchmark-8>
-  <app-benchmark-9></app-benchmark-9>
-  <app-benchmark-10></app-benchmark-10>
-  <app-benchmark-11></app-benchmark-11>
-  <app-benchmark-12></app-benchmark-12>
-  <app-benchmark-13></app-benchmark-13>
-  <app-benchmark-14></app-benchmark-14>
-  <app-benchmark-15></app-benchmark-15>
-  <app-benchmark-16></app-benchmark-16>
-  <app-benchmark-17></app-benchmark-17>
-  <app-benchmark-18></app-benchmark-18>
-  <app-benchmark-19></app-benchmark-19>
-  <app-benchmark-20></app-benchmark-20>
-  <app-benchmark-21></app-benchmark-21>
-  <app-benchmark-22></app-benchmark-22>
-  <app-benchmark-23></app-benchmark-23>
-  <app-benchmark-24></app-benchmark-24>
-  <app-benchmark-25></app-benchmark-25>
-  <app-benchmark-26></app-benchmark-26>
-  <app-benchmark-27></app-benchmark-27>
-  <app-benchmark-28></app-benchmark-28>
-  <app-benchmark-29></app-benchmark-29>
-  <app-benchmark-30></app-benchmark-30>
-  <app-benchmark-31></app-benchmark-31>
-  <app-benchmark-32></app-benchmark-32>
-  <app-benchmark-33></app-benchmark-33>
-  <app-benchmark-34></app-benchmark-34>
-  <app-benchmark-35></app-benchmark-35>
-  <app-benchmark-36></app-benchmark-36>
-  <app-benchmark-37></app-benchmark-37>
-  <app-benchmark-38></app-benchmark-38>
-  <app-benchmark-39></app-benchmark-39>
-  <app-benchmark-40></app-benchmark-40>
-  <app-benchmark-41></app-benchmark-41>
-  <app-benchmark-42></app-benchmark-42>
-  <app-benchmark-43></app-benchmark-43>
-  <app-benchmark-44></app-benchmark-44>
-  <app-benchmark-45></app-benchmark-45>
-  <app-benchmark-46></app-benchmark-46>
-  <app-benchmark-47></app-benchmark-47>
-  <app-benchmark-48></app-benchmark-48>
-  <app-benchmark-49></app-benchmark-49>
-  <app-benchmark-50></app-benchmark-50>
-  <app-benchmark-51></app-benchmark-51>
-  <app-benchmark-52></app-benchmark-52>
-  <app-benchmark-53></app-benchmark-53>
-  <app-benchmark-54></app-benchmark-54>
-  <app-benchmark-55></app-benchmark-55>
-  <app-benchmark-56></app-benchmark-56>
-  <app-benchmark-57></app-benchmark-57>
-  <app-benchmark-58></app-benchmark-58>
-  <app-benchmark-59></app-benchmark-59>
-  <app-benchmark-60></app-benchmark-60>
-  <app-benchmark-61></app-benchmark-61>
-  <app-benchmark-62></app-benchmark-62>
-  <app-benchmark-63></app-benchmark-63>
-  <app-benchmark-64></app-benchmark-64>
-  <app-benchmark-65></app-benchmark-65>
-  <app-benchmark-66></app-benchmark-66>
-  <app-benchmark-67></app-benchmark-67>
-  <app-benchmark-68></app-benchmark-68>
-  <app-benchmark-69></app-benchmark-69>
-  <app-benchmark-70></app-benchmark-70>
-  <app-benchmark-71></app-benchmark-71>
-  <app-benchmark-72></app-benchmark-72>
-  <app-benchmark-73></app-benchmark-73>
-  <app-benchmark-74></app-benchmark-74>
-  <app-benchmark-75></app-benchmark-75>
-  <app-benchmark-76></app-benchmark-76>
-  <app-benchmark-77></app-benchmark-77>
-  <app-benchmark-78></app-benchmark-78>
-  <app-benchmark-79></app-benchmark-79>
-  <app-benchmark-80></app-benchmark-80>
-  <app-benchmark-81></app-benchmark-81>
-  <app-benchmark-82></app-benchmark-82>
-  <app-benchmark-83></app-benchmark-83>
-  <app-benchmark-84></app-benchmark-84>
-  <app-benchmark-85></app-benchmark-85>
-  <app-benchmark-86></app-benchmark-86>
-  <app-benchmark-87></app-benchmark-87>
-  <app-benchmark-88></app-benchmark-88>
-  <app-benchmark-89></app-benchmark-89>
-  <app-benchmark-90></app-benchmark-90>
-  <app-benchmark-91></app-benchmark-91>
-  <app-benchmark-92></app-benchmark-92>
-  <app-benchmark-93></app-benchmark-93>
-  <app-benchmark-94></app-benchmark-94>
-  <app-benchmark-95></app-benchmark-95>
-  <app-benchmark-96></app-benchmark-96>
-  <app-benchmark-97></app-benchmark-97>
-  <app-benchmark-98></app-benchmark-98>
-  <app-benchmark-99></app-benchmark-99>
-</section>
+<div all-features [aliasInput]="'test'" [regularInput]="'test2'" [sigInputReq]="42">
+  <div #ref>Content Child</div>
+  <div #viewRef>View Child</div>
+</div>
