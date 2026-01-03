@@ -1847,8 +1847,6 @@ pub fn transform_expressions_in_op(
 
     match op.kind() {
         OpKind::Binding
-        | OpKind::StyleMap
-        | OpKind::ClassMap
         | OpKind::AnimationString
         | OpKind::AnimationBinding => {
             if let Some(op) = op

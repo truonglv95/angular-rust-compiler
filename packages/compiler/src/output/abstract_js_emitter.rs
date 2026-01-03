@@ -240,9 +240,11 @@ impl AbstractJsEmitterVisitor {
         self.emit_expression(&expr.condition, ctx);
         ctx.print(Some(expr), " ? ", false);
         self.emit_expression(&expr.true_case, ctx);
+        ctx.print(Some(expr), " : ", false);
         if let Some(false_case) = &expr.false_case {
-            ctx.print(Some(expr), " : ", false);
             self.emit_expression(false_case, ctx);
+        } else {
+            ctx.print(Some(expr), "null", false);
         }
         ctx.print(Some(expr), ")", false);
     }

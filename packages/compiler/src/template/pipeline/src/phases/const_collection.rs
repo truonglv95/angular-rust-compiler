@@ -219,11 +219,10 @@ pub fn collect_element_consts(job: &mut dyn CompilationJob) {
                 // eprintln!("DEBUG: [const_collection] Serializing host attributes: classes={}, styles={}, attrs={}", attributes.classes.len(), attributes.styles.len(), attributes.attributes.len());
                 let attr_array = serialize_attributes(attributes.clone());
                 // eprintln!("DEBUG: [const_collection] Serialized hostAttrs array has {} entries", attr_array.entries.len());
-                if !attr_array.entries.is_empty() {
-                    host_job.root.attributes = Some(Expression::LiteralArray(attr_array));
-                } else {
-                    // eprintln!("DEBUG: [const_collection] WARNING: hostAttrs array is empty, not setting host_job.root.attributes");
-                }
+                // Always set hostAttrs, even if empty, to match ngtsc behavior
+                // This is critical for InheritDefinitionFeature to merge correctly from base class
+                // In ngtsc, hostAttrs is always set: definitionMap.set('hostAttrs', hostJob.root.attributes);
+                host_job.root.attributes = Some(Expression::LiteralArray(attr_array));
             }
             if !all_element_attributes.contains_key(&root_xref) {
                 // eprintln!("DEBUG: [const_collection] WARNING: No attributes found for root_xref {:?}", root_xref);

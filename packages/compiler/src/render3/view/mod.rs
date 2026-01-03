@@ -13,6 +13,9 @@ pub mod t2_binder;
 pub mod template;
 pub mod util;
 
+#[cfg(test)]
+pub mod compiler_spec;
+
 // Re-exports
 pub use api::*;
 pub use compiler::*;

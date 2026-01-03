@@ -408,7 +408,11 @@ impl PartialComponentLinker2 {
                     let obj = val_ast.get_object()?;
                     for (k, v) in obj.to_map() {
                         let v_ast = AstValue::new(v.clone(), meta_obj.host);
-                        let v_str = v_ast.print(); // Usually a string literal or expression
+                        let v_str = if v_ast.is_string() {
+                            v_ast.get_string()?
+                        } else {
+                            v_ast.print() // For non-string expressions, use print()
+                        };
                         attributes.insert(
                             k.clone(),
                             o::Expression::Literal(o::LiteralExpr {
@@ -431,9 +435,19 @@ impl PartialComponentLinker2 {
                         properties.insert(k.clone(), v_ast.print());
                     }
                 } else if key == "classAttribute" {
-                    special_attributes.class_attr = Some(val_ast.print());
+                    let class_val = if val_ast.is_string() {
+                        val_ast.get_string()?
+                    } else {
+                        val_ast.print()
+                    };
+                    special_attributes.class_attr = Some(class_val);
                 } else if key == "styleAttribute" {
-                    special_attributes.style_attr = Some(val_ast.print());
+                    let style_val = if val_ast.is_string() {
+                        val_ast.get_string()?
+                    } else {
+                        val_ast.print()
+                    };
+                    special_attributes.style_attr = Some(style_val);
                 } else {
                     // Fallback for flat format or other keys
                     let is_str = val_ast.is_string();

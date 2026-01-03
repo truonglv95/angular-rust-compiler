@@ -18,22 +18,12 @@ use crate::template::pipeline::src::compilation::{
 /// Transforms special-case bindings with 'style' or 'class' in their names. Must run before the
 /// main binding specialization pass.
 pub fn specialize_style_bindings(job: &mut dyn CompilationJob) {
-    let component_job = unsafe {
-        let job_ptr = job as *mut dyn CompilationJob;
-        let job_ptr = job_ptr as *mut ComponentCompilationJob;
-        &mut *job_ptr
-    };
-
-    // Process root unit
-    process_unit(&mut component_job.root);
-
-    // Process all view units
-    for (_, unit) in component_job.views.iter_mut() {
+    for unit in job.units_mut() {
         process_unit(unit);
     }
 }
 
-fn process_unit(unit: &mut crate::template::pipeline::src::compilation::ViewCompilationUnit) {
+fn process_unit(unit: &mut dyn crate::template::pipeline::src::compilation::CompilationUnit) {
     // Collect BindingOps to replace
     let mut ops_to_replace: Vec<(usize, BindingOp)> = Vec::new();
 

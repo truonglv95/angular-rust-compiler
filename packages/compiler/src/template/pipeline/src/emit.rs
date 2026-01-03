@@ -200,6 +200,49 @@ pub fn emit_component(
         *o::literal(o::LiteralValue::Null)
     };
 
+    // Extract attrs from first selector (if any) - corresponds to ngtsc compiler.ts line 197-212
+    // This is optional and only included if the first selector of a component specifies attributes.
+    let attrs_expr = if let Some(selector_str) = &metadata.directive.selector {
+        if !selector_str.is_empty() {
+            if let Ok(selectors) = CssSelector::parse(selector_str) {
+                if let Some(first_selector) = selectors.first() {
+                    // getAttrs() returns: ['class', classNames.join(' '), ...attrs]
+                    let mut attrs: Vec<o::Expression> = vec![];
+                    if !first_selector.class_names.is_empty() {
+                        attrs.push(*o::literal("class".to_string()));
+                        attrs.push(*o::literal(first_selector.class_names.join(" ")));
+                    }
+                    // Add attribute pairs from selector
+                    for i in (0..first_selector.attrs.len()).step_by(2) {
+                        attrs.push(*o::literal(first_selector.attrs[i].clone()));
+                        if i + 1 < first_selector.attrs.len() {
+                            attrs.push(*o::literal(first_selector.attrs[i + 1].clone()));
+                        } else {
+                            attrs.push(*o::literal(String::new()));
+                        }
+                    }
+                    if !attrs.is_empty() {
+                        Some(o::Expression::LiteralArray(o::LiteralArrayExpr {
+                            entries: attrs,
+                            type_: None,
+                            source_span: None,
+                        }))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let mut definition_entries = vec![
         o::LiteralMapEntry {
             key: "type".into(),
@@ -211,31 +254,19 @@ pub fn emit_component(
             value: Box::new(selectors_expr),
             quoted: false,
         },
-        o::LiteralMapEntry {
-            key: "decls".into(),
-            value: Box::new(*o::literal(decls as f64)),
-            quoted: false,
-        },
-        o::LiteralMapEntry {
-            key: "vars".into(),
-            value: Box::new(*o::literal(vars as f64)),
-            quoted: false,
-        },
     ];
 
-    // viewQuery function for @ViewChild/@ViewChildren
-    if !metadata.directive.view_queries.is_empty() {
-        // eprintln!("DEBUG: [emit] Emitting viewQuery for {} queries", metadata.directive.view_queries.len());
-        let view_query_fn =
-            emit_view_query_function(&metadata.directive.view_queries, &metadata.directive.name);
+    // Add attrs if present (from selector attributes)
+    if let Some(attrs) = attrs_expr {
         definition_entries.push(o::LiteralMapEntry {
-            key: "viewQuery".into(),
-            value: Box::new(view_query_fn),
+            key: "attrs".into(),
+            value: Box::new(attrs),
             quoted: false,
         });
     }
 
-    // hostBindings, hostVars, hostAttrs
+    // hostBindings, hostVars, hostAttrs - must be before features to match ngtsc order
+    // In ngtsc, hostAttrs is set in baseDirectiveFields (line 525), before addFeatures (line 190)
     if let Some(host_job) = host_job {
         // hostBindings
         if let Some(host_fn) = emit_host_binding_function(host_job) {
@@ -256,17 +287,71 @@ pub fn emit_component(
             });
         }
 
-        // hostAttrs
-        if let Some(host_attrs) = &host_job.root.attributes {
-            // eprintln!("DEBUG: [emit] Emitting hostAttrs for component: {:?}", host_attrs);
-            definition_entries.push(o::LiteralMapEntry {
-                key: "hostAttrs".into(),
-                value: Box::new(host_attrs.clone()),
-                quoted: false,
-            });
+        // hostAttrs - always emit (even if null or empty) to match ngtsc behavior
+        // This is critical for InheritDefinitionFeature to merge correctly from base class
+        // In ngtsc, hostAttrs is always set: definitionMap.set('hostAttrs', hostJob.root.attributes);
+        // After const_collection phase, hostAttrs should always be Some (even if empty array)
+        let host_attrs_expr = if let Some(host_attrs) = &host_job.root.attributes {
+            host_attrs.clone()
         } else {
-            // eprintln!("DEBUG: [emit] WARNING: No hostAttrs found for component");
-        }
+            // Emit empty array if no attributes (matches ngtsc behavior when hostAttrs is empty)
+            // This ensures InheritDefinitionFeature can merge correctly
+            o::Expression::LiteralArray(o::LiteralArrayExpr {
+                entries: vec![],
+                type_: None,
+                source_span: None,
+            })
+        };
+        definition_entries.push(o::LiteralMapEntry {
+            key: "hostAttrs".into(),
+            value: Box::new(host_attrs_expr),
+            quoted: false,
+        });
+    }
+
+    // Add features after hostAttrs - matches ngtsc order
+    // In ngtsc, addFeatures is called after baseDirectiveFields (line 190), which includes hostAttrs
+    let mut features: Vec<o::Expression> = vec![];
+
+    // InheritDefinitionFeature - added when component uses inheritance
+    if metadata.directive.uses_inheritance {
+        features.push(*o::import_ref(R3::inherit_definition_feature()));
+    }
+
+    // Add features to definition if any
+    if !features.is_empty() {
+        definition_entries.push(o::LiteralMapEntry {
+            key: "features".into(),
+            value: Box::new(o::Expression::LiteralArray(o::LiteralArrayExpr {
+                entries: features,
+                type_: None,
+                source_span: None,
+            })),
+            quoted: false,
+        });
+    }
+
+    definition_entries.push(o::LiteralMapEntry {
+        key: "decls".into(),
+        value: Box::new(*o::literal(decls as f64)),
+        quoted: false,
+    });
+    definition_entries.push(o::LiteralMapEntry {
+        key: "vars".into(),
+        value: Box::new(*o::literal(vars as f64)),
+        quoted: false,
+    });
+
+    // viewQuery function for @ViewChild/@ViewChildren
+    if !metadata.directive.view_queries.is_empty() {
+        // eprintln!("DEBUG: [emit] Emitting viewQuery for {} queries", metadata.directive.view_queries.len());
+        let view_query_fn =
+            emit_view_query_function(&metadata.directive.view_queries, &metadata.directive.name);
+        definition_entries.push(o::LiteralMapEntry {
+            key: "viewQuery".into(),
+            value: Box::new(view_query_fn),
+            quoted: false,
+        });
     }
 
     // consts - collected element attributes from const_collection phase
@@ -498,7 +583,7 @@ pub fn emit_component(
     R3CompiledExpression::new(*expr, o::dynamic_type(), statements)
 }
 
-pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::Statement> {
+pub fn emit_ops(job: &dyn crate::template::pipeline::src::compilation::CompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::Statement> {
     let mut stmts = vec![];
 
     for op in ops {
@@ -624,10 +709,10 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
 
                     // Template function reference - get from referenced view
                     let view_xref = rep_op.base.base.xref;
-                    let view = if view_xref == job.root.xref {
-                        &job.root
+                    let view = if view_xref == job.root_xref() {
+                        job.root()
                     } else {
-                        job.views.get(&view_xref).expect("Template view not found")
+                        get_unit(job, view_xref).expect("Template view not found")
                     };
                     let fn_name = view
                         .fn_name()
@@ -698,10 +783,10 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                         .get_slot()
                         .expect("Expected a slot") as i32;
                     let view_xref = cond_op.base.base.xref;
-                    let view = if view_xref == job.root.xref {
-                        &job.root
+                    let view = if view_xref == job.root_xref() {
+                        job.root()
                     } else {
-                        job.views.get(&view_xref).expect("Template view not found")
+                        get_unit(job, view_xref).expect("Template view not found")
                     };
                     let fn_name = view
                         .fn_name()
@@ -745,10 +830,10 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                         .get_slot()
                         .expect("Expected a slot") as i32;
                     let view_xref = branch_op.base.base.xref;
-                    let view = if view_xref == job.root.xref {
-                        &job.root
+                    let view = if view_xref == job.root_xref() {
+                        job.root()
                     } else {
-                        job.views.get(&view_xref).expect("Template view not found")
+                        get_unit(job, view_xref).expect("Template view not found")
                     };
                     let fn_name = view
                         .fn_name()
@@ -838,11 +923,10 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                     }
                     // Fallback view handling (optional)
                     if let Some(fallback_view_xref) = proj_op.fallback_view {
-                        let fallback_view = if fallback_view_xref == job.root.xref {
-                            &job.root
+                        let fallback_view = if fallback_view_xref == job.root_xref() {
+                            job.root()
                         } else {
-                            job.views
-                                .get(&fallback_view_xref)
+                            get_unit(job, fallback_view_xref)
                                 .expect("Fallback view not found")
                         };
                         let fn_name = fallback_view
@@ -1097,6 +1181,180 @@ pub fn emit_ops(job: &ComponentCompilationJob, ops: Vec<&dyn ir::Op>) -> Vec<o::
                     ));
                 }
             }
+            ir::OpKind::Property => {
+                if let Some(prop_op) = op.as_any().downcast_ref::<ir::ops::update::PropertyOp>() {
+                    let expression = match &prop_op.expression {
+                        crate::template::pipeline::ir::ops::update::BindingExpression::Expression(e) => {
+                            e.clone()
+                        }
+                        crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(i) => {
+                            // Property interpolation needs to be handled
+                            // Typically interpolated properties use propertyInterpolate
+                            // But here we might receive them as PropertyOp if not specialized?
+                            // For simplicity, panic or handle as error if correct op wasn't generated
+                            // But actually property binding usually expects Expression. 
+                            // If interpolation, it should have been converted to InterpolatePropOp (if exists) or expression
+                            panic!("Unexpected interpolation in PropertyOp");
+                        }
+                    };
+                    
+                    let instruction = R3::property();
+                    let sanitizer = prop_op.sanitizer.clone();
+                    
+                    let mut args = vec![
+                        *o::literal(prop_op.name.to_string()),
+                        expression,
+                    ];
+                    
+                    if let Some(sanitizer_fn) = sanitizer {
+                        args.push(sanitizer_fn);
+                    }
+
+                    stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                        expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                            fn_: o::import_ref(instruction),
+                            args,
+                            type_: None,
+                            source_span: None,
+                            pure: false,
+                        })),
+                        source_span: None,
+                    }));
+                }
+            }
+            ir::OpKind::Attribute => {
+                if let Some(attr_op) = op.as_any().downcast_ref::<ir::ops::update::AttributeOp>() {
+                     // TODO: attributes can be interpolated (attributeInterpolate)
+                     // If expression is interpolation, use attributeInterpolate
+                     // For now assume expression
+                     
+                     let expression = match &attr_op.expression {
+                        crate::template::pipeline::ir::ops::update::BindingExpression::Expression(e) => {
+                             e.clone()
+                        }
+                        crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(_) => {
+                            panic!("Unexpected interpolation in AttributeOp");
+                        }
+                     };
+                     
+                     let instruction = R3::attribute();
+                     let sanitizer = attr_op.sanitizer.clone();
+                     
+                     let mut args = vec![
+                        *o::literal(attr_op.name.to_string()),
+                        expression,
+                     ];
+                     
+                     if let Some(sanitizer_fn) = sanitizer {
+                        args.push(sanitizer_fn);
+                     }
+                     
+                     stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                        expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                            fn_: o::import_ref(instruction),
+                            args,
+                            type_: None,
+                            source_span: None,
+                            pure: false,
+                        })),
+                        source_span: None,
+                    }));
+                }
+            }
+            ir::OpKind::ClassProp => {
+                if let Some(class_op) = op.as_any().downcast_ref::<ir::ops::update::ClassPropOp>() {
+                    let instruction = R3::class_prop();
+                    stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                        expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                            fn_: o::import_ref(instruction),
+                            args: vec![
+                                *o::literal(class_op.name.to_string()),
+                                class_op.expression.clone(),
+                            ],
+                            type_: None,
+                            source_span: None,
+                            pure: false,
+                        })),
+                        source_span: None,
+                    }));
+                }
+            }
+            ir::OpKind::StyleProp => {
+                if let Some(style_op) = op.as_any().downcast_ref::<ir::ops::update::StylePropOp>() {
+                    let expression = match &style_op.expression {
+                        crate::template::pipeline::ir::ops::update::BindingExpression::Expression(e) => e.clone(),
+                         crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(_) => {
+                            panic!("Unexpected interpolation in StylePropOp");
+                         }
+                    };
+                    
+                    let instruction = R3::style_prop();
+                    let mut args = vec![
+                        *o::literal(style_op.name.to_string()),
+                        expression,
+                    ];
+                    
+                    if let Some(unit) = &style_op.unit {
+                        args.push(*o::literal(unit.clone()));
+                    }
+                    
+                    stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                        expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                            fn_: o::import_ref(instruction),
+                            args,
+                            type_: None,
+                            source_span: None,
+                            pure: false,
+                        })),
+                        source_span: None,
+                    }));
+                }
+            }
+            ir::OpKind::ClassMap => {
+                if let Some(class_map_op) = op.as_any().downcast_ref::<ir::ops::update::ClassMapOp>() {
+                    let expression = match &class_map_op.expression {
+                         crate::template::pipeline::ir::ops::update::BindingExpression::Expression(e) => e.clone(),
+                         crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(_) => {
+                            // classMapInterpolate?
+                             panic!("Unexpected interpolation in ClassMapOp");
+                         }
+                    };
+                    
+                    let instruction = R3::class_map();
+                    stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                        expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                            fn_: o::import_ref(instruction),
+                            args: vec![expression],
+                            type_: None,
+                            source_span: None,
+                            pure: false,
+                        })),
+                        source_span: None,
+                    }));
+                }
+            }
+            ir::OpKind::StyleMap => {
+                if let Some(style_map_op) = op.as_any().downcast_ref::<ir::ops::update::StyleMapOp>() {
+                    let expression = match &style_map_op.expression {
+                         crate::template::pipeline::ir::ops::update::BindingExpression::Expression(e) => e.clone(),
+                         crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(_) => {
+                             panic!("Unexpected interpolation in StyleMapOp");
+                         }
+                    };
+                    
+                    let instruction = R3::style_map();
+                    stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                        expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                            fn_: o::import_ref(instruction),
+                            args: vec![expression],
+                            type_: None,
+                            source_span: None,
+                            pure: false,
+                        })),
+                        source_span: None,
+                    }));
+                }
+            }
             _ => {
                 // Ignore other ops for now
             }
@@ -1192,58 +1450,20 @@ pub fn emit_host_binding_function(job: &HostBindingCompilationJob) -> Option<o::
         }
     }
 
-    let mut update_stmts = vec![];
-    for op in &job.root.update {
-        if op.kind() != ir::OpKind::Statement {
-            panic!(
-                "AssertionError: expected all update ops to have been compiled, but got {:?}",
-                op.kind()
-            );
-        }
-        if let Some(stmt_op) = op
-            .as_any()
-            .downcast_ref::<StatementOp<Box<dyn ir::UpdateOp + Send + Sync>>>()
-        {
-            update_stmts.push(*stmt_op.statement.clone());
-        }
-    }
+    // Generate update statements using emit_ops
+    let update_ops: Vec<&dyn ir::Op> = job
+        .root
+        .update
+        .iter()
+        .map(|op| op.as_ref() as &dyn ir::Op)
+        .collect();
+    let update_stmts = emit_ops(job, update_ops);
 
     if create_stmts.is_empty() && update_stmts.is_empty() {
         return None;
     }
 
-    // Generate rf block conditions
-    let mut body = vec![];
-
-    if !create_stmts.is_empty() {
-        body.push(o::Statement::IfStmt(o::IfStmt {
-            condition: Box::new(o::Expression::BinaryOp(o::BinaryOperatorExpr {
-                operator: o::BinaryOperator::BitwiseAnd,
-                lhs: Box::new(*o::variable("rf")),
-                rhs: Box::new(*o::literal(1.0)),
-                type_: None,
-                source_span: None,
-            })),
-            true_case: create_stmts,
-            false_case: vec![],
-            source_span: None,
-        }));
-    }
-
-    if !update_stmts.is_empty() {
-        body.push(o::Statement::IfStmt(o::IfStmt {
-            condition: Box::new(o::Expression::BinaryOp(o::BinaryOperatorExpr {
-                operator: o::BinaryOperator::BitwiseAnd,
-                lhs: Box::new(*o::variable("rf")),
-                rhs: Box::new(*o::literal(2.0)),
-                type_: None,
-                source_span: None,
-            })),
-            true_case: update_stmts,
-            false_case: vec![],
-            source_span: None,
-        }));
-    }
+    let fn_name = format!("{}_HostBindings", job.component_name);
 
     Some(o::Expression::Fn(o::FunctionExpr {
         name: Some(fn_name),
@@ -1257,7 +1477,42 @@ pub fn emit_host_binding_function(job: &HostBindingCompilationJob) -> Option<o::
                 type_: None,
             },
         ],
-        statements: body,
+        statements: vec![
+            // if (rf & 1) { ...create... }
+            o::Statement::IfStmt(o::IfStmt {
+                condition: Box::new(o::Expression::BinaryOp(o::BinaryOperatorExpr {
+                    operator: o::BinaryOperator::BitwiseAnd,
+                    lhs: Box::new(o::Expression::ReadVar(o::ReadVarExpr {
+                        name: "rf".to_string(),
+                        type_: None,
+                        source_span: None,
+                    })),
+                    rhs: Box::new(*o::literal(1.0)),
+                    type_: None,
+                    source_span: None,
+                })),
+                true_case: create_stmts,
+                false_case: vec![],
+                source_span: None,
+            }),
+            // if (rf & 2) { ...update... }
+            o::Statement::IfStmt(o::IfStmt {
+                condition: Box::new(o::Expression::BinaryOp(o::BinaryOperatorExpr {
+                    operator: o::BinaryOperator::BitwiseAnd,
+                    lhs: Box::new(o::Expression::ReadVar(o::ReadVarExpr {
+                        name: "rf".to_string(),
+                        type_: None,
+                        source_span: None,
+                    })),
+                    rhs: Box::new(*o::literal(2.0)),
+                    type_: None,
+                    source_span: None,
+                })),
+                true_case: update_stmts,
+                false_case: vec![],
+                source_span: None,
+            }),
+        ],
         type_: None,
         source_span: None,
     }))
@@ -1508,4 +1763,11 @@ fn emit_view_query_function(
         type_: None,
         source_span: None,
     })
+}
+
+fn get_unit<'a>(
+    job: &'a dyn crate::template::pipeline::src::compilation::CompilationJob,
+    xref: crate::template::pipeline::ir::XrefId,
+) -> Option<&'a dyn crate::template::pipeline::src::compilation::CompilationUnit> {
+    job.units().find(|u| u.xref() == xref)
 }

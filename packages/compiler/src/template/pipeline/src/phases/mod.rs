@@ -87,6 +87,7 @@ pub fn run(job: &mut ComponentCompilationJob) {
     any_cast::delete_any_casts(job);
 
     // Added phases for correctness
+    style_binding_specialization::specialize_style_bindings(job); // Specialize [style] and [class] bindings
     binding_specialization::specialize_bindings(job); // Converts BindingOp -> AttributeOp, PropertyOp, etc.
     attribute_extraction::extract_attributes(job);
     local_refs::lift_local_refs(job); // Lift local refs (#templateName) to consts for templateRefExtractor
@@ -126,6 +127,7 @@ pub fn run(job: &mut ComponentCompilationJob) {
 }
 
 pub fn run_host(job: &mut crate::template::pipeline::src::compilation::HostBindingCompilationJob) {
+    style_binding_specialization::specialize_style_bindings(job);
     binding_specialization::specialize_bindings(job);
     attribute_extraction::extract_attributes(job);
     const_collection::collect_element_consts(job);
