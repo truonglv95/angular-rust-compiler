@@ -204,6 +204,10 @@ pub fn create_view_queries_function(
     let mut update_statements: Vec<Statement> = vec![];
 
     for query in view_queries {
+        eprintln!(
+            "DEBUG: query_generation view_query: prop={}, is_signal={}",
+            query.property_name, query.is_signal
+        );
         // Creation call
         let query_definition_call = create_query_create_call(
             query,

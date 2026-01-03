@@ -515,6 +515,12 @@ impl ComponentDecoratorHandler {
                 view_queries: dir
                     .view_queries
                     .iter()
+                    .inspect(|vq| {
+                        eprintln!(
+                            "DEBUG: handler view_query: prop={}, is_signal={}",
+                            vq.property_name, vq.is_signal
+                        )
+                    })
                     .map(|vq| angular_compiler::render3::view::api::R3QueryMetadata {
                         property_name: vq.property_name.clone(),
                         first: vq.first,

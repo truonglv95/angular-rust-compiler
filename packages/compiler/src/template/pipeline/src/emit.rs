@@ -1554,57 +1554,105 @@ fn emit_view_query_function(
     let mut create_stmts = vec![];
     let mut update_stmts = vec![];
 
-    // Generate create block (rf & 1): chained ɵɵviewQuery calls
+    // Generate create block (rf & 1)
     if !view_queries.is_empty() {
-        // Build chained viewQuery expression
-        // i0.ɵɵviewQuery(_c0, 5)(_c1, 5)(_c2, 5)
         let mut chain_expr: Option<o::Expression> = None;
 
         for query in view_queries {
-            let selector = match &query.predicate {
-                crate::render3::view::api::R3QueryPredicate::Selectors(selectors) => {
-                    selectors.first().cloned().unwrap_or_default()
+            if query.is_signal {
+                // Signal based queries cannot be chained with viewQuery, flush existing chain
+                if let Some(expr) = chain_expr.take() {
+                    create_stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                        expr: Box::new(expr),
+                        source_span: None,
+                    }));
                 }
-                _ => String::new(),
-            };
 
-            // Create _cN constant reference for the selector string
-            // For simplicity, we'll use the selector string directly as a literal array
-            let selector_arr = o::Expression::LiteralArray(o::LiteralArrayExpr {
-                entries: vec![*o::literal(selector.clone())],
-                type_: None,
-                source_span: None,
-            });
+                // Emit ɵɵviewQuerySignal(ctx.prop, selector, flags)
+                let selector = match &query.predicate {
+                    crate::render3::view::api::R3QueryPredicate::Selectors(selectors) => {
+                        selectors.first().cloned().unwrap_or_default()
+                    }
+                    _ => String::new(),
+                };
 
-            // Flags: 5 = DescendantsOnly (for ViewChild with descendants=false)
-            let flags = if query.first { 5.0 } else { 4.0 };
+                let selector_arr = o::Expression::LiteralArray(o::LiteralArrayExpr {
+                    entries: vec![*o::literal(selector.clone())],
+                    type_: None,
+                    source_span: None,
+                });
 
-            if chain_expr.is_none() {
-                // First call: i0.ɵɵviewQuery(selector, flags)
-                chain_expr = Some(o::Expression::InvokeFn(o::InvokeFunctionExpr {
-                    fn_: Box::new(o::Expression::External(o::ExternalExpr {
-                        value: o::ExternalReference {
-                            module_name: Some("@angular/core".to_string()),
-                            name: Some("ɵɵviewQuery".to_string()),
-                            runtime: None,
-                        },
+                // Flags: 5 = DescendantsOnly (for ViewChild with descendants=false)
+                let flags = if query.first { 5.0 } else { 4.0 };
+
+                let mut args = vec![
+                    o::Expression::ReadProp(o::ReadPropExpr {
+                        receiver: Box::new(*o::variable("ctx")),
+                        name: query.property_name.clone(),
                         type_: None,
                         source_span: None,
+                    }),
+                    selector_arr,
+                    *o::literal(flags),
+                ];
+
+                if let Some(ref read) = query.read {
+                    args.push(read.clone());
+                }
+
+                create_stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                    expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                        fn_: o::import_ref(R3::view_query_signal()),
+                        args,
+                        type_: None,
+                        source_span: None,
+                        pure: false,
                     })),
-                    args: vec![selector_arr, *o::literal(flags)],
-                    type_: None,
                     source_span: None,
-                    pure: false,
                 }));
             } else {
-                // Chain call: prev(selector, flags)
-                chain_expr = Some(o::Expression::InvokeFn(o::InvokeFunctionExpr {
-                    fn_: Box::new(chain_expr.take().unwrap()),
-                    args: vec![selector_arr, *o::literal(flags)],
+                // Non-signal based queries can be chained
+                let selector = match &query.predicate {
+                    crate::render3::view::api::R3QueryPredicate::Selectors(selectors) => {
+                        selectors.first().cloned().unwrap_or_default()
+                    }
+                    _ => String::new(),
+                };
+
+                // Create _cN constant reference for the selector string
+                let selector_arr = o::Expression::LiteralArray(o::LiteralArrayExpr {
+                    entries: vec![*o::literal(selector.clone())],
                     type_: None,
                     source_span: None,
-                    pure: false,
-                }));
+                });
+
+                // Flags: 5 = DescendantsOnly (for ViewChild with descendants=false)
+                let flags = if query.first { 5.0 } else { 4.0 };
+
+                let mut args = vec![selector_arr, *o::literal(flags)];
+                if let Some(ref read) = query.read {
+                    args.push(read.clone());
+                }
+
+                if chain_expr.is_none() {
+                    // First call: i0.ɵɵviewQuery(selector, flags)
+                    chain_expr = Some(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                        fn_: o::import_ref(R3::view_query()),
+                        args,
+                        type_: None,
+                        source_span: None,
+                        pure: false,
+                    }));
+                } else {
+                    // Chain call: prev(selector, flags)
+                    chain_expr = Some(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                        fn_: Box::new(chain_expr.take().unwrap()),
+                        args,
+                        type_: None,
+                        source_span: None,
+                        pure: false,
+                    }));
+                }
             }
         }
 
@@ -1618,112 +1666,130 @@ fn emit_view_query_function(
 
     // Generate update block (rf & 2): let _t; + queryRefresh calls
     if !view_queries.is_empty() {
-        // Add: let _t;
-        update_stmts.push(o::Statement::DeclareVar(o::DeclareVarStmt {
-            name: "_t".to_string(),
-            value: None,
-            type_: None,
-            modifiers: o::StmtModifier::None,
-            source_span: None,
-        }));
+        let has_non_signal_queries = view_queries.iter().any(|q| !q.is_signal);
 
-        for query in view_queries {
-            // i0.ɵɵqueryRefresh((_t = i0.ɵɵloadQuery())) && (ctx.propertyName = _t.first);
-
-            // loadQuery call
-            let load_query = o::Expression::InvokeFn(o::InvokeFunctionExpr {
-                fn_: Box::new(o::Expression::External(o::ExternalExpr {
-                    value: o::ExternalReference {
-                        module_name: Some("@angular/core".to_string()),
-                        name: Some("ɵɵloadQuery".to_string()),
-                        runtime: None,
-                    },
-                    type_: None,
-                    source_span: None,
-                })),
-                args: vec![],
+        // Add: let _t; only if needed
+        if has_non_signal_queries {
+            update_stmts.push(o::Statement::DeclareVar(o::DeclareVarStmt {
+                name: "_t".to_string(),
+                value: None,
                 type_: None,
-                source_span: None,
-                pure: false,
-            });
-
-            // _t = i0.ɵɵloadQuery()
-            let assign_t = o::Expression::BinaryOp(o::BinaryOperatorExpr {
-                operator: o::BinaryOperator::Assign,
-                lhs: Box::new(*o::variable("_t")),
-                rhs: Box::new(load_query),
-                type_: None,
-                source_span: None,
-            });
-
-            // Wrap in parentheses (represented as-is in output)
-            let wrapped_assign = assign_t;
-
-            // queryRefresh((_t = loadQuery()))
-            let query_refresh = o::Expression::InvokeFn(o::InvokeFunctionExpr {
-                fn_: Box::new(o::Expression::External(o::ExternalExpr {
-                    value: o::ExternalReference {
-                        module_name: Some("@angular/core".to_string()),
-                        name: Some("ɵɵqueryRefresh".to_string()),
-                        runtime: None,
-                    },
-                    type_: None,
-                    source_span: None,
-                })),
-                args: vec![wrapped_assign],
-                type_: None,
-                source_span: None,
-                pure: false,
-            });
-
-            // ctx.propertyName = _t.first (or _t for ViewChildren)
-            let result_access = if query.first {
-                // _t.first
-                o::Expression::ReadProp(o::ReadPropExpr {
-                    receiver: Box::new(*o::variable("_t")),
-                    name: "first".to_string(),
-                    type_: None,
-                    source_span: None,
-                })
-            } else {
-                // _t (entire query list)
-                *o::variable("_t")
-            };
-
-            // ctx.propertyName = ...
-            let ctx_prop_assign = o::Expression::BinaryOp(o::BinaryOperatorExpr {
-                operator: o::BinaryOperator::Assign,
-                lhs: Box::new(o::Expression::ReadProp(o::ReadPropExpr {
-                    receiver: Box::new(*o::variable("ctx")),
-                    name: query.property_name.clone(),
-                    type_: None,
-                    source_span: None,
-                })),
-                rhs: Box::new(result_access),
-                type_: None,
-                source_span: None,
-            });
-
-            // Wrap assignment in parens to ensure correct precedence: a && (b = c)
-            let wrapped_assign = o::Expression::Parens(o::ParenthesizedExpr {
-                expr: Box::new(ctx_prop_assign),
-                type_: None,
-                source_span: None,
-            });
-
-            // queryRefresh(...) && (ctx.prop = _t.first)
-            let and_expr = o::Expression::BinaryOp(o::BinaryOperatorExpr {
-                operator: o::BinaryOperator::And,
-                lhs: Box::new(query_refresh),
-                rhs: Box::new(wrapped_assign),
-                type_: None,
-                source_span: None,
-            });
-
-            update_stmts.push(o::Statement::Expression(o::ExpressionStatement {
-                expr: Box::new(and_expr),
+                modifiers: o::StmtModifier::None,
                 source_span: None,
             }));
+        }
+
+        for query in view_queries {
+            if query.is_signal {
+                // i0.ɵɵqueryAdvance();
+                update_stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                    expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                        fn_: o::import_ref(R3::query_advance()),
+                        args: vec![],
+                        type_: None,
+                        source_span: None,
+                        pure: false,
+                    })),
+                    source_span: None,
+                }));
+            } else {
+                // i0.ɵɵqueryRefresh((_t = i0.ɵɵloadQuery())) && (ctx.propertyName = _t.first);
+
+                // loadQuery call
+                let load_query = o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                    fn_: Box::new(o::Expression::External(o::ExternalExpr {
+                        value: o::ExternalReference {
+                            module_name: Some("@angular/core".to_string()),
+                            name: Some("ɵɵloadQuery".to_string()),
+                            runtime: None,
+                        },
+                        type_: None,
+                        source_span: None,
+                    })),
+                    args: vec![],
+                    type_: None,
+                    source_span: None,
+                    pure: false,
+                });
+
+                // _t = i0.ɵɵloadQuery()
+                let assign_t = o::Expression::BinaryOp(o::BinaryOperatorExpr {
+                    operator: o::BinaryOperator::Assign,
+                    lhs: Box::new(*o::variable("_t")),
+                    rhs: Box::new(load_query),
+                    type_: None,
+                    source_span: None,
+                });
+
+                // Wrap in parentheses (represented as-is in output)
+                let wrapped_assign = assign_t;
+
+                // queryRefresh((_t = loadQuery()))
+                let query_refresh = o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                    fn_: Box::new(o::Expression::External(o::ExternalExpr {
+                        value: o::ExternalReference {
+                            module_name: Some("@angular/core".to_string()),
+                            name: Some("ɵɵqueryRefresh".to_string()),
+                            runtime: None,
+                        },
+                        type_: None,
+                        source_span: None,
+                    })),
+                    args: vec![wrapped_assign],
+                    type_: None,
+                    source_span: None,
+                    pure: false,
+                });
+
+                // ctx.propertyName = _t.first (or _t for ViewChildren)
+                let result_access = if query.first {
+                    // _t.first
+                    o::Expression::ReadProp(o::ReadPropExpr {
+                        receiver: Box::new(*o::variable("_t")),
+                        name: "first".to_string(),
+                        type_: None,
+                        source_span: None,
+                    })
+                } else {
+                    // _t (entire query list)
+                    *o::variable("_t")
+                };
+
+                // ctx.propertyName = ...
+                let ctx_prop_assign = o::Expression::BinaryOp(o::BinaryOperatorExpr {
+                    operator: o::BinaryOperator::Assign,
+                    lhs: Box::new(o::Expression::ReadProp(o::ReadPropExpr {
+                        receiver: Box::new(*o::variable("ctx")),
+                        name: query.property_name.clone(),
+                        type_: None,
+                        source_span: None,
+                    })),
+                    rhs: Box::new(result_access),
+                    type_: None,
+                    source_span: None,
+                });
+
+                // Wrap assignment in parens to ensure correct precedence: a && (b = c)
+                let wrapped_assign = o::Expression::Parens(o::ParenthesizedExpr {
+                    expr: Box::new(ctx_prop_assign),
+                    type_: None,
+                    source_span: None,
+                });
+
+                // queryRefresh(...) && (ctx.prop = _t.first)
+                let and_expr = o::Expression::BinaryOp(o::BinaryOperatorExpr {
+                    operator: o::BinaryOperator::And,
+                    lhs: Box::new(query_refresh),
+                    rhs: Box::new(wrapped_assign),
+                    type_: None,
+                    source_span: None,
+                });
+
+                update_stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                    expr: Box::new(and_expr),
+                    source_span: None,
+                }));
+            }
         }
     }
 

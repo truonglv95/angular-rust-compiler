@@ -458,6 +458,11 @@ impl PartialComponentLinker2 {
                 .map(|q| {
                     let q_obj = q.get_object()?;
                     let property_name = q_obj.get_string("propertyName")?;
+                    let is_signal = q_obj.get_bool("isSignal").unwrap_or(false);
+                    // DEBUG: Log view query details
+                    if property_name.contains("iconPrefix") || property_name.contains("textPrefix") {
+                        eprintln!("[Linker] Processing ViewQuery: {}, isSignal: {}", property_name, is_signal);
+                    }
                     let first = q_obj.get_bool("first").unwrap_or(false);
                     let predicate = if q_obj.has("predicate") {
                         let p = q_obj.get_value("predicate")?;

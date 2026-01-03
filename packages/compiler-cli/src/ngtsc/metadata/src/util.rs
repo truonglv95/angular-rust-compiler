@@ -394,11 +394,28 @@ pub fn extract_directive_metadata<'a>(
                 // 5. Check for signal queries (viewChild, contentChild, etc.)
                 if let Some(value) = &prop.value {
                     if let Expression::CallExpression(call) = value {
-                        if let Expression::Identifier(ident) = &call.callee {
-                            let name = ident.name.as_str();
+                        let mut query_name = None;
+                        let mut is_required = false;
+
+                        match &call.callee {
+                            Expression::Identifier(ident) => {
+                                query_name = Some(ident.name.as_str());
+                            }
+                            Expression::StaticMemberExpression(member) => {
+                                if let Expression::Identifier(obj) = &member.object {
+                                    if member.property.name == "required" {
+                                        query_name = Some(obj.name.as_str());
+                                        is_required = true;
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+
+                        if let Some(name) = query_name {
                             let (is_query, is_view, first) = match name {
                                 "viewChild" => (true, true, true),
-                                "viewChildren" => (true, true, false),
+                                "viewChildren" => (true, true, false), // .required() for viewChildren? maybe
                                 "contentChild" => (true, false, true),
                                 "contentChildren" => (true, false, false),
                                 _ => (false, false, false),
@@ -406,30 +423,22 @@ pub fn extract_directive_metadata<'a>(
 
                             if is_query {
                                 // Extract selector (first argument, required)
-                                // viewChild('selector') or viewChild.required('selector')
-                                // Signal queries in Angular are functions, not properties with .required
-                                // Wait, viewChild.required is NOT a thing in Angular signals yet (as of v17/18??)
-                                // Actually viewChild is always optional/undefined unless a default is matching?
-                                // Angular docs: viewChild('selector') returns Signal<T | undefined>
-                                // viewChild.required() returns Signal<T> - introduced in 17.2?
-                                // Let's simplify and assume standard viewChild/contentChild for now.
-                                // Actually, checking if it is .required is tricky if it's a MemberExpression.
-                                // If it is "viewChild" identifier, it's the standard one.
-
                                 let mut selector: Option<String> = None;
-                                let mut _read: Option<String> = None;
 
                                 if let Some(arg) = call.arguments.first() {
                                     match arg.as_expression() {
                                         Some(Expression::StringLiteral(s)) => {
                                             selector = Some(s.value.to_string());
                                         }
-                                        // Handle type reference or other selectors later
+                                        // Handle options object as first arg?
+                                        // viewChild(options) is possible if options has 'read', but selector is usually mandatory/implicit.
+                                        // For now support string selector.
                                         _ => {}
                                     }
                                 }
 
                                 if let Some(sel) = selector {
+                                    eprintln!("DEBUG: Found signal query: prop={}, selector={}, is_signal=true, is_required={}", prop_name, sel, is_required);
                                     let query_meta = super::api::QueryMetadata {
                                         property_name: prop_name.to_string(),
                                         selector: sel,

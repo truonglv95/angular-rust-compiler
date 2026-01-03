@@ -458,7 +458,13 @@ impl o::ExpressionVisitor for AbstractEmitterVisitor {
         let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
         let value_str = match &expr.value {
             o::LiteralValue::Null => "null".to_string(),
-            o::LiteralValue::String(s) => escape_identifier(s, true, true),
+            o::LiteralValue::Undefined => "void 0".to_string(),
+            o::LiteralValue::String(s) => format!(
+                "\"{}\"",
+                s.replace('"', "\\\"")
+                    .replace('\n', "\\n")
+                    .replace('\r', "\\r")
+            ),
             o::LiteralValue::Number(n) => n.to_string(),
             o::LiteralValue::Bool(b) => b.to_string(),
         };

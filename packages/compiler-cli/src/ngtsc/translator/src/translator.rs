@@ -194,6 +194,9 @@ where
             o::LiteralValue::Bool(b) => {
                 crate::ngtsc::translator::src::api::ast_factory::LiteralValue::Boolean(*b)
             }
+            o::LiteralValue::Undefined => {
+                crate::ngtsc::translator::src::api::ast_factory::LiteralValue::Undefined
+            }
         };
         self.set_source_map_range_expr(self.factory.create_literal(val), ast.source_span.as_ref())
     }

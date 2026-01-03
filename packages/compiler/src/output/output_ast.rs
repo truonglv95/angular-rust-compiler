@@ -374,6 +374,7 @@ impl LiteralExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiteralValue {
     Null,
+    Undefined,
     String(String),
     Number(f64),
     Bool(bool),
