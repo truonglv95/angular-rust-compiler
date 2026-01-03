@@ -72,7 +72,13 @@ impl<'a, TExpression: AstNode + 'a> PartialLinkerSelector<'a, TExpression> {
     }
 
     pub fn supports_declaration(&self, name: &str) -> bool {
-        self.linkers.contains_key(name)
+        if self.linkers.contains_key(name) {
+            return true;
+        }
+        if let Some(suffix) = name.split('.').last() {
+            return self.linkers.contains_key(suffix);
+        }
+        false
     }
 
     pub fn get_linker(
@@ -81,9 +87,16 @@ impl<'a, TExpression: AstNode + 'a> PartialLinkerSelector<'a, TExpression> {
         _min_version: &str,
         _version: &str,
     ) -> &dyn PartialLinker<TExpression> {
-        self.linkers
-            .get(name)
-            .expect(&format!("Linker for {} not found", name))
-            .as_ref()
+        if let Some(linker) = self.linkers.get(name) {
+            return linker.as_ref();
+        }
+
+        if let Some(suffix) = name.split('.').last() {
+            if let Some(linker) = self.linkers.get(suffix) {
+                return linker.as_ref();
+            }
+        }
+
+        panic!("Linker for {} not found", name)
     }
 }

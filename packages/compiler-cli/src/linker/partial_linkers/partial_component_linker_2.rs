@@ -426,13 +426,23 @@ impl PartialComponentLinker2 {
                     let obj = val_ast.get_object()?;
                     for (k, v) in obj.to_map() {
                         let v_ast = AstValue::new(v.clone(), meta_obj.host);
-                        listeners.insert(k.clone(), v_ast.print());
+                        let v_str = if v_ast.is_string() {
+                            v_ast.get_string()?
+                        } else {
+                            v_ast.print()
+                        };
+                        listeners.insert(k.clone(), v_str);
                     }
                 } else if key == "properties" && val_ast.is_object() {
                     let obj = val_ast.get_object()?;
                     for (k, v) in obj.to_map() {
                         let v_ast = AstValue::new(v.clone(), meta_obj.host);
-                        properties.insert(k.clone(), v_ast.print());
+                        let v_str = if v_ast.is_string() {
+                            v_ast.get_string()?
+                        } else {
+                            v_ast.print()
+                        };
+                        properties.insert(k.clone(), v_str);
                     }
                 } else if key == "classAttribute" {
                     let class_val = if val_ast.is_string() {

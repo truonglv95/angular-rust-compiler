@@ -270,6 +270,10 @@ pub fn ingest_host_binding(
             binding_kind == ir::BindingKind::Attribute,
         )];
 
+        // Update property name with sanitized name
+        let mut property = property;
+        property.name = property_name;
+
         super::ingest_helpers::ingest_dom_property(
             &mut job,
             property,
