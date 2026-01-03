@@ -270,6 +270,29 @@ pub fn create_view_queries_function(
 
     let view_query_fn_name = name.map(|n| format!("{}_Query", n));
 
+    // Add `var _t;` declaration if there are non-signal queries
+    let has_non_signal_queries = view_queries.iter().any(|q| !q.is_signal);
+    let mut statements = vec![];
+    if has_non_signal_queries {
+        statements.push(Statement::DeclareVar(
+            crate::output::output_ast::DeclareVarStmt {
+                name: TEMPORARY_NAME.to_string(),
+                value: None,
+                type_: None,
+                modifiers: crate::output::output_ast::StmtModifier::None,
+                source_span: None,
+            },
+        ));
+    }
+    statements.push(render_flag_check_if_stmt(
+        RenderFlags::Create,
+        create_statements,
+    ));
+    statements.push(render_flag_check_if_stmt(
+        RenderFlags::Update,
+        update_statements,
+    ));
+
     Expression::Fn(FunctionExpr {
         params: vec![
             FnParam {
@@ -281,10 +304,7 @@ pub fn create_view_queries_function(
                 type_: None,
             },
         ],
-        statements: vec![
-            render_flag_check_if_stmt(RenderFlags::Create, create_statements),
-            render_flag_check_if_stmt(RenderFlags::Update, update_statements),
-        ],
+        statements,
         type_: None,
         source_span: None,
         name: view_query_fn_name,
@@ -367,6 +387,29 @@ pub fn create_content_queries_function(
 
     let content_queries_fn_name = name.map(|n| format!("{}_ContentQueries", n));
 
+    // Add `var _t;` declaration if there are non-signal queries
+    let has_non_signal_queries = queries.iter().any(|q| !q.is_signal);
+    let mut statements = vec![];
+    if has_non_signal_queries {
+        statements.push(Statement::DeclareVar(
+            crate::output::output_ast::DeclareVarStmt {
+                name: TEMPORARY_NAME.to_string(),
+                value: None,
+                type_: None,
+                modifiers: crate::output::output_ast::StmtModifier::None,
+                source_span: None,
+            },
+        ));
+    }
+    statements.push(render_flag_check_if_stmt(
+        RenderFlags::Create,
+        create_statements,
+    ));
+    statements.push(render_flag_check_if_stmt(
+        RenderFlags::Update,
+        update_statements,
+    ));
+
     Expression::Fn(FunctionExpr {
         params: vec![
             FnParam {
@@ -382,10 +425,7 @@ pub fn create_content_queries_function(
                 type_: None,
             },
         ],
-        statements: vec![
-            render_flag_check_if_stmt(RenderFlags::Create, create_statements),
-            render_flag_check_if_stmt(RenderFlags::Update, update_statements),
-        ],
+        statements,
         type_: None,
         source_span: None,
         name: content_queries_fn_name,

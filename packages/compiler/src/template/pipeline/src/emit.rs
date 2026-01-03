@@ -354,6 +354,22 @@ pub fn emit_component(
         });
     }
 
+    // contentQueries function for @ContentChild/@ContentChildren
+    if !metadata.directive.queries.is_empty() {
+        let mut constant_pool = crate::constant_pool::ConstantPool::new(false);
+        let content_queries_fn =
+            crate::render3::view::query_generation::create_content_queries_function(
+                &metadata.directive.queries,
+                &mut constant_pool,
+                Some(&metadata.directive.name),
+            );
+        definition_entries.push(o::LiteralMapEntry {
+            key: "contentQueries".into(),
+            value: Box::new(content_queries_fn),
+            quoted: false,
+        });
+    }
+
     // consts - collected element attributes from const_collection phase
     definition_entries.push(o::LiteralMapEntry {
         key: "consts".into(),

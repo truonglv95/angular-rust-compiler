@@ -1042,6 +1042,29 @@ fn reify_ir_expression(expr: o::Expression, flags: ir::VisitorContextFlag) -> o:
             let slot_value = slot_lit.slot.get_slot().unwrap_or(0);
             *o::literal(slot_value as f64)
         }
+        o::Expression::AssignTemporary(temp) => {
+            let name = temp
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("_t{}", temp.xref.0));
+            o::Expression::WriteVar(o::WriteVarExpr {
+                name,
+                value: Box::new(reify_ir_expression(*temp.expr.clone(), flags)),
+                type_: None,
+                source_span: temp.source_span.clone(),
+            })
+        }
+        o::Expression::ReadTemporary(temp) => {
+            let name = temp
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("_t{}", temp.xref.0));
+            o::Expression::ReadVar(o::ReadVarExpr {
+                name,
+                type_: None,
+                source_span: temp.source_span.clone(),
+            })
+        }
         _ => expr,
     }
 }

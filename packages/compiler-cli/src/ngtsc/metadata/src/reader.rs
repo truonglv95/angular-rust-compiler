@@ -37,7 +37,10 @@ impl ModuleMetadataReader {
         // 1. Check if it's a scoped package with secondary entry point
         // e.g. @angular/material/checkbox
         if module_name.starts_with("@") {
-            // // eprintln!("DEBUG: [fesm_reader] Resolving scoped module: {}", module_name);
+            eprintln!(
+                "DEBUG: [fesm_reader] Resolving scoped module: {}",
+                module_name
+            );
             let parts: Vec<&str> = module_name.split('/').collect();
             if parts.len() >= 3 {
                 // @scope/pkg/entry -> @scope/pkg
@@ -54,7 +57,10 @@ impl ModuleMetadataReader {
                     .join(format!("{}.mjs", entry));
 
                 if fesm_path.exists() {
-                    // // eprintln!("DEBUG: [fesm_reader] Found FESM2022: {}", fesm_path.display());
+                    eprintln!(
+                        "DEBUG: [fesm_reader] Found FESM2022: {}",
+                        fesm_path.display()
+                    );
                     return Some(fesm_path);
                 }
 
@@ -67,7 +73,10 @@ impl ModuleMetadataReader {
                     .join(format!("{}.mjs", entry));
 
                 if fesm_2020_path.exists() {
-                    // eprintln!("DEBUG: [fesm_reader] Found FESM2020: {}", fesm_2020_path.display());
+                    eprintln!(
+                        "DEBUG: [fesm_reader] Found FESM2020: {}",
+                        fesm_2020_path.display()
+                    );
                     return Some(fesm_2020_path);
                 }
             } else if parts.len() == 2 {
@@ -84,7 +93,11 @@ impl ModuleMetadataReader {
                     .join(format!("{}.mjs", pkg));
 
                 if fesm_path.exists() {
-                    // eprintln!("DEBUG: [fesm_reader] Found FESM2022 for {}: {}", module_name, fesm_path.display());
+                    eprintln!(
+                        "DEBUG: [fesm_reader] Found FESM2022 for {}: {}",
+                        module_name,
+                        fesm_path.display()
+                    );
                     return Some(fesm_path);
                 }
 
@@ -97,7 +110,11 @@ impl ModuleMetadataReader {
                     .join(format!("{}.mjs", pkg));
 
                 if fesm_2020_path.exists() {
-                    // eprintln!("DEBUG: [fesm_reader] Found FESM2020 for {}: {}", module_name, fesm_2020_path.display());
+                    eprintln!(
+                        "DEBUG: [fesm_reader] Found FESM2020 for {}: {}",
+                        module_name,
+                        fesm_2020_path.display()
+                    );
                     return Some(fesm_2020_path);
                 }
             }
@@ -116,14 +133,17 @@ impl ModuleMetadataReader {
         let entry_path = if let Some(p) = self.resolve_module(module_name) {
             p
         } else {
-            // eprintln!("DEBUG: [fesm_reader] Failed to resolve module path: {}", module_name);
+            eprintln!(
+                "DEBUG: [fesm_reader] Failed to resolve module path: {}",
+                module_name
+            );
             return None;
         };
-        if entry_path.extension().map_or(false, |ext| ext == "ts") {
-            return self.extract_ts_metadata(&entry_path);
-        }
-
-        // eprintln!("DEBUG: [fesm_reader] Reading metadata from: {}", entry_path.display());
+        // ...
+        eprintln!(
+            "DEBUG: [fesm_reader] Reading metadata from: {}",
+            entry_path.display()
+        );
 
         let mut queue = vec![entry_path.clone()];
         let mut visited = std::collections::HashSet::new();
@@ -145,6 +165,11 @@ impl ModuleMetadataReader {
             let ret = Parser::new(&allocator, &content, source_type).parse();
 
             if !ret.errors.is_empty() {
+                eprintln!(
+                    "DEBUG: [fesm_reader] Parser errors for {}: {:?}",
+                    path.display(),
+                    ret.errors
+                );
                 continue;
             }
             let program = ret.program;

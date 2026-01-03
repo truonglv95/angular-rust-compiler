@@ -507,6 +507,7 @@ pub struct HostBindingCompilationJob {
     pub compatibility: ir::CompatibilityMode,
     pub mode: TemplateCompilationMode,
     pub root: HostBindingCompilationUnit,
+    pub next_xref_id: ir::XrefId,
 }
 
 impl HostBindingCompilationJob {
@@ -523,6 +524,7 @@ impl HostBindingCompilationJob {
             compatibility,
             mode,
             root,
+            next_xref_id: ir::XrefId::new(0),
         }
     }
 }
@@ -577,8 +579,9 @@ impl CompilationJob for HostBindingCompilationJob {
     }
 
     fn allocate_xref_id(&mut self) -> ir::XrefId {
-        // Host bindings don't need XrefIds in the same way
-        ir::XrefId::new(0)
+        let id = self.next_xref_id;
+        self.next_xref_id = ir::XrefId::new(self.next_xref_id.0 + 1);
+        id
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

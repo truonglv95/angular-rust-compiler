@@ -16,7 +16,7 @@ use crate::template::pipeline::ir::expression::{
 };
 use crate::template::pipeline::ir::expression::{AssignTemporaryExpr, ReadTemporaryExpr};
 use crate::template::pipeline::src::compilation::{
-    CompilationJob, CompilationJobKind, CompilationUnit, ComponentCompilationJob,
+    CompilationJob, CompilationJobKind, ComponentCompilationJob, HostBindingCompilationJob,
 };
 
 struct SafeTransformContext {
@@ -27,40 +27,58 @@ struct SafeTransformContext {
 /// compared to JavaScript. In particular, they default to `null` instead of `undefined`. This phase
 /// finds all unresolved safe read expressions, and converts them into the appropriate output AST
 /// reads, guarded by null checks.
-pub fn expand_safe_reads(job: &mut dyn CompilationJob) {
+/// Safe read expressions such as `a?.b` have different semantics in Angular templates as
+/// compared to JavaScript. In particular, they default to `null` instead of `undefined`. This phase
+/// finds all unresolved safe read expressions, and converts them into the appropriate output AST
+/// reads, guarded by null checks.
+pub fn phase(job: &mut dyn CompilationJob) {
     let job_kind = job.kind();
 
-    if matches!(
-        job_kind,
-        CompilationJobKind::Tmpl | CompilationJobKind::Both
-    ) {
-        let component_job = unsafe {
-            let job_ptr = job as *mut dyn CompilationJob;
-            let job_ptr = job_ptr as *mut ComponentCompilationJob;
-            &mut *job_ptr
-        };
+    match job_kind {
+        CompilationJobKind::Tmpl | CompilationJobKind::Both => {
+            let component_job = unsafe {
+                let job_ptr = job as *mut dyn CompilationJob;
+                let job_ptr = job_ptr as *mut ComponentCompilationJob;
+                &mut *job_ptr
+            };
 
-        let job_ptr = component_job as *mut ComponentCompilationJob;
+            let job_ptr = component_job as *mut ComponentCompilationJob as *mut dyn CompilationJob;
 
-        // Process root unit
-        {
-            let root = &mut component_job.root;
-            process_unit(root, job_ptr);
+            // Process root unit
+            {
+                let root = &mut component_job.root;
+                process_unit(root, job_ptr);
+            }
+
+            // Process all view units
+            let view_keys: Vec<_> = component_job.views.keys().cloned().collect();
+            for key in view_keys {
+                if let Some(unit) = component_job.views.get_mut(&key) {
+                    process_unit(unit, job_ptr);
+                }
+            }
         }
+        CompilationJobKind::Host => {
+            let host_job = unsafe {
+                let job_ptr = job as *mut dyn CompilationJob;
+                let job_ptr = job_ptr as *mut HostBindingCompilationJob;
+                &mut *job_ptr
+            };
 
-        // Process all view units
-        let view_keys: Vec<_> = component_job.views.keys().cloned().collect();
-        for key in view_keys {
-            if let Some(unit) = component_job.views.get_mut(&key) {
-                process_unit(unit, job_ptr);
+            let job_ptr = host_job as *mut HostBindingCompilationJob as *mut dyn CompilationJob;
+
+            // Process root unit
+            {
+                let root = &mut host_job.root;
+                process_unit(root, job_ptr);
             }
         }
     }
 }
 
 fn process_unit(
-    unit: &mut crate::template::pipeline::src::compilation::ViewCompilationUnit,
-    job_ptr: *mut ComponentCompilationJob,
+    unit: &mut dyn crate::template::pipeline::src::compilation::CompilationUnit,
+    job_ptr: *mut dyn CompilationJob,
 ) {
     let ctx = SafeTransformContext {
         job_ptr: job_ptr as *mut dyn CompilationJob,

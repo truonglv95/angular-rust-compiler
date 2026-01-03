@@ -270,8 +270,6 @@ impl<T: Clone> SelectorMatcher<T> {
             callback_data,
             id: self.counter,
         };
-        // DEBUG: Trace directive registration
-        // eprintln!("DEBUG: Registering directive with Selector: {}, Raw: {:?}", css_selector, css_selector);
         self.counter += 1;
 
         // Index by element

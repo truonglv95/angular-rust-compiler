@@ -83,6 +83,9 @@ pub fn run(job: &mut ComponentCompilationJob) {
     resolve_names::phase(job);
     resolve_contexts::phase(job);
 
+    // Expand safe reads (?. and ?[]) to conditionals
+    expand_safe_reads::phase(job);
+
     // Remove $any() calls - they have no runtime effects
     any_cast::delete_any_casts(job);
 
@@ -120,6 +123,7 @@ pub fn run(job: &mut ComponentCompilationJob) {
     naming::name_functions_and_variables(job);
     generate_advance::phase(job);
     conditionals::generate_conditional_expressions(job); // Collapse conditional expressions to single ternary
+    temporary_variables::generate_temporary_variables(job); // Name and declare temporary variables (must run after conditionals and expand_safe_reads)
     diagnostics::phase(job);
     transform_two_way_binding_set::transform_two_way_binding_set(job);
     reify::reify(job);
@@ -133,6 +137,10 @@ pub fn run_host(job: &mut crate::template::pipeline::src::compilation::HostBindi
     const_collection::collect_element_consts(job);
     resolve_names::phase(job);
     resolve_contexts::phase(job);
+
+    // Expand safe reads (?. and ?[]) to conditionals
+    expand_safe_reads::phase(job);
+    temporary_variables::generate_temporary_variables(job);
 
     // Remove $any() calls - they have no runtime effects
     any_cast::delete_any_casts(job);

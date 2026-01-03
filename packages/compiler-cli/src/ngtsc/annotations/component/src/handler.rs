@@ -279,6 +279,7 @@ impl ComponentDecoratorHandler {
                     // External module - try dynamic loading first
                     if let Some(dynamic_deps) = metadata_reader.read_metadata(path) {
                         let mut matched_specific_symbol = false;
+                        let mut matched_symbol_is_module = false;
 
                         for meta in &dynamic_deps {
                             // Check if this metadata corresponds to the imported symbol
@@ -328,6 +329,7 @@ impl ComponentDecoratorHandler {
                                         }
                                         R3TemplateDependencyMetadata::NgModule(m) => {
                                             m.type_ = local_type;
+                                            matched_symbol_is_module = true;
                                         }
                                     }
                                     declarations_map.insert(key, meta_clone);
@@ -338,7 +340,7 @@ impl ComponentDecoratorHandler {
                         // If we didn't match a specific directive/pipe, assume it's an NgModule (like CommonModule)
                         // In this case, we add the module itself AND all its exports (which are in dynamic_deps)
                         // This allows the template to see all exported directives/pipes
-                        if !matched_specific_symbol {
+                        if !matched_specific_symbol || matched_symbol_is_module {
                             // 1. Add the module itself
                             let module_meta = R3TemplateDependencyMetadata::NgModule(
                                 angular_compiler::render3::view::api::R3NgModuleDependencyMetadata {

@@ -31,7 +31,7 @@ impl PartialComponentLinker2 {
         target_name: Option<&str>,
     ) -> Result<R3ComponentMetadata, String> {
         // DEBUG: Trace function entry
-        // eprintln!("[Linker2] to_r3_component_metadata called, target_name: {:?}", target_name);
+        // eprintln!("[Linker2] to_r3_component_metadata called, target_name: {:?}, source: {}", target_name, source_url);
 
         // DEBUG: Print all metadata keys
         // let keys: Vec<String> = meta_obj.to_map().keys().cloned().collect();
@@ -373,8 +373,9 @@ impl PartialComponentLinker2 {
 
         // Queries
         let queries = if meta_obj.has("queries") {
-            meta_obj
-                .get_array("queries")?
+            let queries_arr = meta_obj.get_array("queries")?;
+            // eprintln!("[Linker] Found {} queries", queries_arr.len());
+            queries_arr
                 .iter()
                 .map(|q| {
                     let q_obj = q.get_object()?;
@@ -388,17 +389,43 @@ impl PartialComponentLinker2 {
                             ])
                         } else if p.is_array() {
                             let arr = p.get_array()?;
-                            let selectors = arr
-                                .iter()
-                                .map(|s| s.get_string())
-                                .collect::<Result<_, _>>()?;
-                            angular_compiler::render3::view::api::R3QueryPredicate::Selectors(
-                                selectors,
-                            )
+                            // Check if array contains strings (selectors) or other types
+                            let first_is_string = arr.first().map(|f| f.is_string()).unwrap_or(true);
+                            if first_is_string {
+                                let selectors = arr
+                                    .iter()
+                                    .map(|s| s.get_string())
+                                    .collect::<Result<_, _>>()?;
+                                angular_compiler::render3::view::api::R3QueryPredicate::Selectors(
+                                    selectors,
+                                )
+                            } else {
+                                // Array of expressions - use first element
+                                let expr_str = meta_obj.host.print_node(&p.node);
+                                let expr = o::Expression::RawCode(o::RawCodeExpr {
+                                    code: expr_str,
+                                    source_span: None,
+                                });
+                                angular_compiler::render3::view::api::R3QueryPredicate::Expression(
+                                    angular_compiler::render3::util::MaybeForwardRefExpression {
+                                        expression: expr,
+                                        forward_ref: angular_compiler::render3::util::ForwardRefHandling::None,
+                                    },
+                                )
+                            }
                         } else {
-                            angular_compiler::render3::view::api::R3QueryPredicate::Selectors(vec![
-                                "".to_string(),
-                            ])
+                            // It's an expression (class reference like MatFormFieldControl)
+                            let expr_str = meta_obj.host.print_node(&p.node);
+                            let expr = o::Expression::RawCode(o::RawCodeExpr {
+                                code: expr_str,
+                                source_span: None,
+                            });
+                            angular_compiler::render3::view::api::R3QueryPredicate::Expression(
+                                angular_compiler::render3::util::MaybeForwardRefExpression {
+                                    expression: expr,
+                                    forward_ref: angular_compiler::render3::util::ForwardRefHandling::None,
+                                },
+                            )
                         }
                     } else {
                         angular_compiler::render3::view::api::R3QueryPredicate::Selectors(vec![])
@@ -425,7 +452,7 @@ impl PartialComponentLinker2 {
         // ViewQueries - extract from 'viewQueries' property (for @ViewChild/@ViewChildren)
         let view_queries = if meta_obj.has("viewQueries") {
             let view_queries_arr = meta_obj.get_array("viewQueries")?;
-            eprintln!("[Linker] Found {} viewQueries", view_queries_arr.len());
+            // eprintln!("[Linker] Found {} viewQueries", view_queries_arr.len());
             view_queries_arr
                 .iter()
                 .map(|q| {
@@ -440,17 +467,43 @@ impl PartialComponentLinker2 {
                             ])
                         } else if p.is_array() {
                             let arr = p.get_array()?;
-                            let selectors = arr
-                                .iter()
-                                .map(|s| s.get_string())
-                                .collect::<Result<_, _>>()?;
-                            angular_compiler::render3::view::api::R3QueryPredicate::Selectors(
-                                selectors,
-                            )
+                            // Check if array contains strings (selectors) or other types
+                            let first_is_string = arr.first().map(|f| f.is_string()).unwrap_or(true);
+                            if first_is_string {
+                                let selectors = arr
+                                    .iter()
+                                    .map(|s| s.get_string())
+                                    .collect::<Result<_, _>>()?;
+                                angular_compiler::render3::view::api::R3QueryPredicate::Selectors(
+                                    selectors,
+                                )
+                            } else {
+                                // Array of expressions - use first element
+                                let expr_str = meta_obj.host.print_node(&p.node);
+                                let expr = o::Expression::RawCode(o::RawCodeExpr {
+                                    code: expr_str,
+                                    source_span: None,
+                                });
+                                angular_compiler::render3::view::api::R3QueryPredicate::Expression(
+                                    angular_compiler::render3::util::MaybeForwardRefExpression {
+                                        expression: expr,
+                                        forward_ref: angular_compiler::render3::util::ForwardRefHandling::None,
+                                    },
+                                )
+                            }
                         } else {
-                            angular_compiler::render3::view::api::R3QueryPredicate::Selectors(vec![
-                                "".to_string(),
-                            ])
+                            // It's an expression (class reference)
+                            let expr_str = meta_obj.host.print_node(&p.node);
+                            let expr = o::Expression::RawCode(o::RawCodeExpr {
+                                code: expr_str,
+                                source_span: None,
+                            });
+                            angular_compiler::render3::view::api::R3QueryPredicate::Expression(
+                                angular_compiler::render3::util::MaybeForwardRefExpression {
+                                    expression: expr,
+                                    forward_ref: angular_compiler::render3::util::ForwardRefHandling::None,
+                                },
+                            )
                         }
                     } else {
                         angular_compiler::render3::view::api::R3QueryPredicate::Selectors(vec![])
@@ -917,7 +970,29 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialComponentLinker
 
                 let res =
                     compile_component_from_metadata(&meta, constant_pool, &mut binding_parser);
-                res.expression
+
+                if res.statements.is_empty() {
+                    res.expression
+                } else {
+                    let mut stmts = res.statements;
+                    stmts.push(o::Statement::Return(o::ReturnStatement {
+                        value: Box::new(res.expression),
+                        source_span: None,
+                    }));
+
+                    o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                        fn_: Box::new(o::Expression::ArrowFn(o::ArrowFunctionExpr {
+                            params: vec![],
+                            body: o::ArrowFunctionBody::Statements(stmts),
+                            type_: None,
+                            source_span: None,
+                        })),
+                        args: vec![],
+                        type_: None,
+                        source_span: None,
+                        pure: false,
+                    })
+                }
             }
             Err(e) => {
                 // Return error expression or panic?

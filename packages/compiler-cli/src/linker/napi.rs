@@ -720,8 +720,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                     let linker = self.selector.get_linker(n, "0.0.0", "0.0.0");
                                     let mut constant_pool = ConstantPool::new(false);
 
-                                    // Link!
-                                    // Link!
+                                    // Link partial declaration
                                     let result_expr = linker.link_partial_declaration(
                                         &mut constant_pool,
                                         &obj,
