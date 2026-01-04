@@ -1,4 +1,3 @@
 . "$HOME/.cargo/env"
 
-npm run format
-npm run format:rust
+npx lint-staged
