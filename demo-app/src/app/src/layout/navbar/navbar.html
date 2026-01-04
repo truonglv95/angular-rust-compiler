@@ -1,0 +1,43 @@
+<nav aria-label="Top Toolbar" class="docs-navbar-header">
+  <a mat-button class="docs-button" routerLink="/">
+    <span class="docs-button-label">
+      <svg
+        x="0px"
+        y="0px"
+        width="30px"
+        height="30px"
+        viewBox="0 0 960 960"
+        style="vertical-align: middle; margin-right: 8px"
+      >
+        <polygon points="562.6,109.8 804.1,629.5 829.2,233.1" fill="#ffa726"></polygon>
+        <polygon
+          points="624.9,655.9 334.3,655.9 297.2,745.8 479.6,849.8 662,745.8"
+          fill="#fb8c00"
+        ></polygon>
+        <polygon points="384.1,539.3 575.2,539.3 479.6,307" fill="#ffe0b2"></polygon>
+        <polygon points="396.6,109.8 130,233.1 155.1,629.5" fill="#f57c00"></polygon>
+      </svg>
+      <span class="logo-text">Material</span>
+    </span>
+  </a>
+
+  <a mat-button routerLink="/categories" routerLinkActive="active-link" class="docs-button"
+    >Components</a
+  >
+  <a mat-button routerLink="/cdk" routerLinkActive="active-link" class="docs-button">CDK</a>
+  <a mat-button routerLink="/guides" routerLinkActive="active-link" class="docs-button">Guides</a>
+
+  <div class="docs-flex-spacer"></div>
+
+  <button mat-button aria-label="Select a version">
+    21.0.5 <mat-icon>arrow_drop_down</mat-icon>
+  </button>
+
+  <button mat-icon-button aria-label="Select a theme">
+    <mat-icon>format_color_fill</mat-icon>
+  </button>
+
+  <a mat-button href="https://github.com/angular/components" target="_blank" class="docs-button">
+    GitHub
+  </a>
+</nav>

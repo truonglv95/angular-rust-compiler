@@ -1,0 +1,66 @@
+<mat-sidenav-container class="docs-component-viewer-sidenav-container">
+  <mat-sidenav mode="side" opened class="docs-component-viewer-sidenav">
+    <div class="docs-component-viewer-nav-content">
+      <mat-nav-list>
+        <h3 matSubheader>Components</h3>
+
+        <a mat-list-item routerLink="/categories" routerLinkActive="selected-item">Categories</a>
+        <a mat-list-item routerLink="/autocomplete" routerLinkActive="selected-item"
+          >Autocomplete</a
+        >
+        <a mat-list-item routerLink="/button" routerLinkActive="selected-item">Button</a>
+        <a mat-list-item routerLink="/input" routerLinkActive="selected-item">Input</a>
+
+        <mat-divider></mat-divider>
+        <h3 matSubheader>More (Disabled)</h3>
+        <a mat-list-item disabled>Badge</a>
+        <a mat-list-item disabled>Bottom Sheet</a>
+        <a mat-list-item disabled>Button Toggle</a>
+        <a mat-list-item disabled>Card</a>
+        <a mat-list-item disabled>Checkbox</a>
+        <a mat-list-item disabled>Chips</a>
+        <a mat-list-item disabled>Datepicker</a>
+        <a mat-list-item disabled>Dialog</a>
+        <a mat-list-item disabled>Divider</a>
+        <a mat-list-item disabled>Expansion Panel</a>
+        <a mat-list-item disabled>Form Field</a>
+        <a mat-list-item disabled>Grid List</a>
+        <a mat-list-item disabled>Icon</a>
+        <a mat-list-item disabled>List</a>
+        <a mat-list-item disabled>Menu</a>
+        <a mat-list-item disabled>Paginator</a>
+        <a mat-list-item disabled>Progress Bar</a>
+        <a mat-list-item disabled>Progress Spinner</a>
+        <a mat-list-item disabled>Radio Button</a>
+        <a mat-list-item disabled>Ripples</a>
+        <a mat-list-item disabled>Select</a>
+        <a mat-list-item disabled>Sidenav</a>
+        <a mat-list-item disabled>Slide Toggle</a>
+        <a mat-list-item disabled>Slider</a>
+        <a mat-list-item disabled>Snackbar</a>
+        <a mat-list-item disabled>Sort Header</a>
+        <a mat-list-item disabled>Stepper</a>
+        <a mat-list-item disabled>Table</a>
+        <a mat-list-item disabled>Tabs</a>
+        <a mat-list-item disabled>Timepicker</a>
+        <a mat-list-item disabled>Toolbar</a>
+        <a mat-list-item disabled>Tooltip</a>
+        <a mat-list-item disabled>Tree</a>
+      </mat-nav-list>
+    </div>
+  </mat-sidenav>
+
+  <mat-sidenav-content>
+    <div class="docs-component-sidenav-content">
+      <main class="docs-component-sidenav-body-content">
+        <router-outlet></router-outlet>
+      </main>
+      <footer class="docs-footer">
+        <div class="docs-footer-copyright">
+          <span>Powered by Google LLC ©2010-2026.</span>
+          <a href="#" target="_blank">Code licensed under an MIT-style License.</a>
+        </div>
+      </footer>
+    </div>
+  </mat-sidenav-content>
+</mat-sidenav-container>

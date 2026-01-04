@@ -1,0 +1,23 @@
+<div class="categories-container">
+  <h1>Component Categories</h1>
+  <div class="categories-grid">
+    <mat-card *ngFor="let category of categories" class="category-card">
+      <mat-card-header>
+        <mat-card-title>{{ category.name }}</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <p class="category-summary">{{ category.summary }}</p>
+        <mat-nav-list dense>
+          <ng-container *ngFor="let item of category.items">
+            <a mat-list-item *ngIf="item.link" [routerLink]="item.link">
+              {{ item.name }}
+            </a>
+            <a mat-list-item *ngIf="!item.link" disabled>
+              {{ item.name }}
+            </a>
+          </ng-container>
+        </mat-nav-list>
+      </mat-card-content>
+    </mat-card>
+  </div>
+</div>

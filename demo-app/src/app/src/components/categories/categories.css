@@ -1,0 +1,30 @@
+.categories-container {
+  padding: 24px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+h1 {
+  margin-bottom: 24px;
+  font-family: Roboto, 'Helvetica Neue', sans-serif;
+  color: #333;
+}
+
+.categories-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
+}
+
+.category-card {
+  height: 100%;
+}
+
+.category-summary {
+  margin-bottom: 16px;
+  color: #666;
+}
+
+mat-card-header {
+  margin-bottom: 8px;
+}
