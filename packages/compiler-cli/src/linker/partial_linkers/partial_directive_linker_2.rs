@@ -243,6 +243,9 @@ impl PartialDirectiveLinker2 {
                         } else {
                             binding_ast.print()
                         };
+                        // if meta_obj.type_.print().contains("MatInput") {
+                        //    eprintln!("DEBUG: [linker] Found host property for MatInput: {} = {}", prop_name, binding_str);
+                        // }
                         properties.insert(prop_name.clone(), binding_str);
                     }
                 }

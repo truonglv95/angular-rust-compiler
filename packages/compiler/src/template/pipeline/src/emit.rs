@@ -313,6 +313,23 @@ pub fn emit_component(
     // In ngtsc, addFeatures is called after baseDirectiveFields (line 190), which includes hostAttrs
     let mut features: Vec<o::Expression> = vec![];
 
+    // ProvidersFeature - critical for DI tokens like MAT_FORM_FIELD
+    // Must be added BEFORE InheritDefinitionFeature to match ngtsc order
+    if let Some(ref providers) = metadata.directive.providers {
+        // Emit ɵɵProvidersFeature(providers) or ɵɵProvidersFeature(providers, viewProviders)
+        let mut args = vec![providers.clone()];
+        if let Some(ref view_providers) = metadata.view_providers {
+            args.push(view_providers.clone());
+        }
+        features.push(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+            fn_: o::import_ref(R3::providers_feature()),
+            args,
+            type_: None,
+            source_span: None,
+            pure: false,
+        }));
+    }
+
     // InheritDefinitionFeature - added when component uses inheritance
     if metadata.directive.uses_inheritance {
         features.push(*o::import_ref(R3::inherit_definition_feature()));

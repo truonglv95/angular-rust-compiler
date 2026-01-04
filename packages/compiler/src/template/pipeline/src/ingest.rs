@@ -254,6 +254,12 @@ pub fn ingest_host_binding(
         if property_name.starts_with("attr.") {
             property_name = property_name[5..].to_string();
             binding_kind = ir::BindingKind::Attribute;
+        } else if property_name.starts_with("class.") {
+            property_name = property_name[6..].to_string();
+            binding_kind = ir::BindingKind::ClassName;
+        } else if property_name.starts_with("style.") {
+            property_name = property_name[6..].to_string();
+            binding_kind = ir::BindingKind::StyleProperty;
         }
 
         // Handle animation bindings
@@ -402,18 +408,10 @@ fn maybe_record_directive_usage(
     let mut has_directives = false;
     let mut matched_indices = Vec::new();
     matcher.match_selector(selector, |_, &dep_index| {
-        // eprintln!("DEBUG: [ingest] Matched dependency at index {} for element {}", dep_index, tag_name);
         matched_indices.push(dep_index);
         used_dependencies.insert(dep_index);
         has_directives = true;
     });
-
-    // Clone used_dependencies to avoid borrow checker issues
-    let used_deps_clone: Vec<usize> = used_dependencies.iter().copied().collect();
-
-    // DEBUG: Trace matching for ALL elements
-    // eprintln!("DEBUG: [ingest] Component: {}, Match Element: {}, Attrs: {:?}, Directives Found: {}, Matched Indices: {:?}, Used Dependencies: {:?}",
-    //     component_name, tag_name, selector.attrs, has_directives, matched_indices, used_deps_clone);
 
     has_directives
 }
@@ -424,7 +422,6 @@ fn ingest_element(
     element: t::Element,
     job: &mut ComponentCompilationJob,
 ) {
-    // eprintln!("DEBUG: [ingest] Ingesting element: {} in component: {}", element.name, job.component_name());
     // Check i18n metadata
     if let Some(ref i18n_meta) = element.i18n {
         match i18n_meta {

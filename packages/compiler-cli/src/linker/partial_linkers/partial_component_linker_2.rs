@@ -747,6 +747,23 @@ impl PartialComponentLinker2 {
         // Parse usesInheritance
         let uses_inheritance = meta_obj.get_bool("usesInheritance").unwrap_or(false);
 
+        // Extract providers - this is critical for DI tokens like MAT_FORM_FIELD
+        let providers = if meta_obj.has("providers") {
+            if let Ok(providers_val) = meta_obj.get_value("providers") {
+                // Preserve the providers array as a RawCode expression
+                // This keeps token references like MAT_FORM_FIELD intact
+                let providers_str = meta_obj.host.print_node(&providers_val.node);
+                Some(o::Expression::RawCode(o::RawCodeExpr {
+                    code: providers_str,
+                    source_span: None,
+                }))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // Extract simple class name from type_name_str (e.g. "i0.MyComponent" -> "MyComponent")
         let simple_name = type_name_str
             .split('.')
@@ -770,7 +787,7 @@ impl PartialComponentLinker2 {
             outputs,
             uses_inheritance,
             export_as,
-            providers: None,
+            providers,
             is_standalone: meta_obj.get_bool("isStandalone").unwrap_or(false),
             is_signal: meta_obj.get_bool("isSignal").unwrap_or(false),
             host_directives: None,
