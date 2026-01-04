@@ -251,6 +251,7 @@ pub fn ingest_host_binding(
         let mut property_name = property.name.clone();
 
         // Handle attr.* prefix
+        let mut unit = None;
         if property_name.starts_with("attr.") {
             property_name = property_name[5..].to_string();
             binding_kind = ir::BindingKind::Attribute;
@@ -260,6 +261,11 @@ pub fn ingest_host_binding(
         } else if property_name.starts_with("style.") {
             property_name = property_name[6..].to_string();
             binding_kind = ir::BindingKind::StyleProperty;
+            // Check for unit suffix in style bindings (e.g. style.width.px)
+            if let Some(idx) = property_name.rfind('.') {
+                unit = Some(property_name[idx + 1..].to_string());
+                property_name = property_name[..idx].to_string();
+            }
         }
 
         // Handle animation bindings
@@ -284,6 +290,7 @@ pub fn ingest_host_binding(
             &mut job,
             property,
             binding_kind,
+            unit,
             security_contexts,
         );
     }

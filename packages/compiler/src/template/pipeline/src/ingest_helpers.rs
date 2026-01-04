@@ -21,6 +21,7 @@ pub fn ingest_dom_property(
     job: &mut HostBindingCompilationJob,
     property: ParsedProperty,
     binding_kind: ir::BindingKind,
+    unit: Option<String>,
     security_contexts: Vec<SecurityContext>,
 ) {
     use crate::expression_parser::ast::AST as ExprAST;
@@ -66,7 +67,7 @@ pub fn ingest_dom_property(
         binding_kind,
         property.name.into(),
         expression,
-        None, // unit - encoded in name for host bindings
+        unit, // unit
         security_contexts,
         false, // is_text_attr
         false, // is_structural_template_attribute
