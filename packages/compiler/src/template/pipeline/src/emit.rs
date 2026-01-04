@@ -361,7 +361,7 @@ pub fn emit_component(
 
     // viewQuery function for @ViewChild/@ViewChildren
     if !metadata.directive.view_queries.is_empty() {
-        // eprintln!("DEBUG: [emit] Emitting viewQuery for {} queries", metadata.directive.view_queries.len());
+        // eprintln!("DEBUG: [emit] Emitting viewQuery for {} queries: {}", metadata.directive.name, metadata.directive.view_queries.len());
         let view_query_fn =
             emit_view_query_function(&metadata.directive.view_queries, &metadata.directive.name);
         definition_entries.push(o::LiteralMapEntry {
@@ -707,6 +707,90 @@ pub fn emit_ops(
                     stmts.push(o::Statement::Expression(o::ExpressionStatement {
                         expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
                             fn_: o::import_ref(R3::element()),
+                            args,
+                            type_: None,
+                            source_span: None,
+                            pure: false,
+                        })),
+                        source_span: None,
+                    }));
+                }
+            }
+
+            // Handle template (ng-template) declaration
+            ir::OpKind::Template => {
+                if let Some(template_op) = op.as_any().downcast_ref::<ir::ops::create::TemplateOp>()
+                {
+                    eprintln!(
+                        "DEBUG: Emitting ɵɵtemplate for xref {:?}, kind {:?}",
+                        template_op.base.base.xref, template_op.template_kind
+                    );
+                    let slot = template_op.base.base.handle.get_slot().unwrap() as i32;
+                    let view_xref = template_op.base.base.xref;
+
+                    // Get the template function reference
+                    let view = if view_xref == job.root_xref() {
+                        job.root()
+                    } else {
+                        get_unit(job, view_xref).expect("Template view not found")
+                    };
+                    let fn_name = view
+                        .fn_name()
+                        .expect("Template function name not assigned")
+                        .to_string();
+
+                    let decls = template_op.decls.unwrap_or(0) as i32;
+                    let vars = template_op.vars.unwrap_or(0) as i32;
+
+                    // Build args: slot, templateFn, decls, vars, [tag], [attrsIndex], [localRefsIndex]
+                    let mut args: Vec<o::Expression> = vec![
+                        *o::literal(slot as f64),
+                        o::Expression::ReadVar(o::ReadVarExpr {
+                            name: fn_name,
+                            type_: None,
+                            source_span: None,
+                        }),
+                        *o::literal(decls as f64),
+                        *o::literal(vars as f64),
+                    ];
+
+                    // Add tag if present (for structural directives like *ngIf)
+                    if let Some(ref tag) = template_op.base.tag {
+                        args.push(*o::literal(tag.clone()));
+                    } else {
+                        // For ng-template without tag, use null (represented as absent argument)
+                        // But we need placeholder if we have attrsIndex or localRefsIndex
+                        if template_op.base.base.attributes.is_some()
+                            || template_op.base.base.local_refs_index.is_some()
+                        {
+                            args.push(*o::literal(o::LiteralValue::Null));
+                        }
+                    }
+
+                    // Add attrsIndex if present
+                    if let Some(const_idx) = template_op.base.base.attributes {
+                        args.push(*o::literal(const_idx.as_usize() as f64));
+                    } else if template_op.base.base.local_refs_index.is_some() {
+                        // Need placeholder for localRefsIndex
+                        args.push(*o::literal(o::LiteralValue::Null));
+                    }
+
+                    // Add localRefsIndex if present
+                    if let Some(local_refs_idx) = template_op.base.base.local_refs_index {
+                        args.push(*o::literal(local_refs_idx.as_usize() as f64));
+                    }
+
+                    // Choose instruction based on template kind
+                    let instruction = match template_op.template_kind {
+                        ir::enums::TemplateKind::NgTemplate => R3::template_create(),
+                        ir::enums::TemplateKind::Structural | ir::enums::TemplateKind::Block => {
+                            R3::template_create()
+                        }
+                    };
+
+                    stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                        expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                            fn_: o::import_ref(instruction),
                             args,
                             type_: None,
                             source_span: None,
@@ -1638,24 +1722,23 @@ fn emit_view_query_function(
                 }));
             } else {
                 // Non-signal based queries can be chained
-                let selector = match &query.predicate {
+                let predicate_expr = match &query.predicate {
                     crate::render3::view::api::R3QueryPredicate::Selectors(selectors) => {
-                        selectors.first().cloned().unwrap_or_default()
+                        o::Expression::LiteralArray(o::LiteralArrayExpr {
+                            entries: selectors.iter().map(|s| *o::literal(s.clone())).collect(),
+                            type_: None,
+                            source_span: None,
+                        })
                     }
-                    _ => String::new(),
+                    crate::render3::view::api::R3QueryPredicate::Expression(expr) => {
+                        crate::render3::util::convert_from_maybe_forward_ref_expression(expr)
+                    }
                 };
-
-                // Create _cN constant reference for the selector string
-                let selector_arr = o::Expression::LiteralArray(o::LiteralArrayExpr {
-                    entries: vec![*o::literal(selector.clone())],
-                    type_: None,
-                    source_span: None,
-                });
 
                 // Flags: 5 = DescendantsOnly (for ViewChild with descendants=false)
                 let flags = if query.first { 5.0 } else { 4.0 };
 
-                let mut args = vec![selector_arr, *o::literal(flags)];
+                let mut args = vec![predicate_expr, *o::literal(flags)];
                 if let Some(ref read) = query.read {
                     args.push(read.clone());
                 }

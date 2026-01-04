@@ -131,7 +131,7 @@ fn reify_create_operations(
 
                     let decls = template_op.decls.unwrap_or(0);
                     let vars = template_op.vars.unwrap_or(0);
-                    let tag = template_op.base.tag.clone();
+                    let tag = template_op.base.tag.clone().filter(|t| t != "ng-template");
                     let const_index = template_op
                         .base
                         .base
