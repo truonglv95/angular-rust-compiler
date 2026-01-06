@@ -4,6 +4,7 @@ import { AutocompleteTestComponent } from './src/components/materials/autocomple
 import { InputTestComponent } from './src/components/materials/input/input';
 import { BottomSheetTestComponent } from './src/components/materials/bottom-sheet/bottom-sheet';
 import { ButtonToggleOverviewExample } from './src/components/materials/button-toggle/button-toggle';
+import { BadgeOverviewExample } from './src/components/materials/badge/badge';
 import { CategoriesComponent } from './src/components/categories/categories';
 
 export const routes: Routes = [
@@ -30,6 +31,10 @@ export const routes: Routes = [
   {
     path: 'button-toggle',
     component: ButtonToggleOverviewExample,
+  },
+  {
+    path: 'badge',
+    component: BadgeOverviewExample,
   },
   {
     path: '**',
