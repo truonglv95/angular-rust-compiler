@@ -20,6 +20,8 @@ use angular_compiler::render3::view::api::{
     DeclarationListEmitMode, R3ComponentDeferMetadata, R3ComponentMetadata, R3ComponentTemplate,
     R3DirectiveMetadata, R3HostMetadata, R3LifecycleMetadata, R3TemplateDependencyMetadata,
 };
+use indexmap::IndexMap;
+use std::path::PathBuf;
 // use angular_compiler::render3::view::template::{parse_template, ParseTemplateOptions};
 // use std::collections::HashMap;
 use angular_compiler::template::pipeline::src::compilation::TemplateCompilationMode;
@@ -169,21 +171,32 @@ impl ComponentDecoratorHandler {
                 vec![],
             );
 
-        // Find project root by traversing up to find node_modules
-        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        // Find project root by traversing up from source file to find node_modules
+        let source_file_path = dir
+            .source_file
+            .as_deref()
+            .unwrap_or(std::path::Path::new("."));
+        let source_dir = PathBuf::from(source_file_path)
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .to_path_buf();
         let project_root = {
-            let mut search_dir = cwd.clone();
+            let mut search_dir = source_dir;
             loop {
                 if search_dir.join("node_modules").exists() {
                     break search_dir;
                 }
                 if !search_dir.pop() {
                     // Fallback to cwd if no node_modules found
-                    break cwd;
+                    break std::env::current_dir()
+                        .unwrap_or_else(|_| std::path::PathBuf::from("."));
                 }
             }
         };
-        // eprintln!("DEBUG: [handler] Project root for ModuleMetadataReader: {}", project_root.display());
+        eprintln!(
+            "DEBUG: [handler] Project root for ModuleMetadataReader: {}",
+            project_root.display()
+        );
         let metadata_reader = ModuleMetadataReader::new(&project_root);
 
         let (nodes, ng_content_selectors, preserve_whitespaces, styles) = if let Some(ast) =
@@ -231,19 +244,48 @@ impl ComponentDecoratorHandler {
         // TODO: Handle parsing errors?
         // if let Some(errors) = parsed_template.errors { ... }
 
+        // Build imports map from source file to resolve module paths
+        let local_imports_map: std::collections::HashMap<String, String> = dir.source_file
+            .as_ref()
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .map(|content| {
+                let allocator = oxc_allocator::Allocator::default();
+                let source_type = oxc_span::SourceType::ts().with_module(true);
+                let ret = oxc_parser::Parser::new(&allocator, &content, source_type).parse();
+                let mut map = std::collections::HashMap::new();
+                for stmt in &ret.program.body {
+                    if let Some(oxc_ast::ast::ModuleDeclaration::ImportDeclaration(import_decl)) = stmt.as_module_declaration() {
+                        let source = import_decl.source.value.as_str();
+                        if let Some(specifiers) = &import_decl.specifiers {
+                            for spec in specifiers {
+                                let local_name = match spec {
+                                    oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(s) => s.local.name.as_str(),
+                                    oxc_ast::ast::ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => s.local.name.as_str(),
+                                    oxc_ast::ast::ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => s.local.name.as_str(),
+                                };
+                                map.insert(local_name.to_string(), source.to_string());
+                            }
+                        }
+                    }
+                }
+                map
+            })
+            .unwrap_or_default();
+
         // Detect dependencies (directives, pipes, modules) from imports
         let mut declarations_map = indexmap::IndexMap::new();
 
         if let Some(imports) = &dir.imports {
-            // eprintln!("DEBUG: [handler] Processing imports for component: {}, total imports: {}", dir.t2.name, imports.len());
+            // eprintln!(\"DEBUG: [handler] Processing imports for component: {}, total imports: {}\", dir.t2.name, imports.len());
             for import_ref in imports {
                 let import_name = import_ref.debug_name().to_string();
-                let import_name = import_ref.debug_name().to_string();
+                // First try best_guess_owning_module, fallback to local_imports_map
                 let module_path = import_ref
                     .best_guess_owning_module
                     .as_ref()
-                    .map(|m| m.specifier.clone());
-                // eprintln!("DEBUG: [handler] Processing import: {} (module: {:?})", import_name, module_path);
+                    .map(|m| m.specifier.clone())
+                    .or_else(|| local_imports_map.get(&import_name).cloned());
+                // eprintln!(\"DEBUG: [handler] Processing import: {} (module: {:?})\", import_name, module_path);
 
                 let source_span = dir.source_file.as_ref().and_then(|path| {
                     import_ref.span.map(|span| {
@@ -554,14 +596,14 @@ impl ComponentDecoratorHandler {
                             },
                         )
                     })
-                    .collect(),
+                    .collect::<IndexMap<_, _>>(),
                 outputs: dir
                     .t2
                     .outputs
                     .iter()
                     .map(|(k, v)| (k.clone(), v.binding_property_name.clone()))
-                    .collect(),
-                lifecycle: R3LifecycleMetadata::default(),
+                    .collect::<IndexMap<_, _>>(),
+                lifecycle: dir.lifecycle.clone(),
                 providers: None,
                 uses_inheritance: false,
                 export_as: dir.t2.export_as.clone(),

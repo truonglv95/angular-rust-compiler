@@ -33,14 +33,19 @@ impl ModuleMetadataReader {
     }
 
     pub fn resolve_module(&self, module_name: &str) -> Option<PathBuf> {
+        let path = PathBuf::from(module_name);
+        if path.is_absolute() && path.exists() {
+            return Some(path);
+        }
+
         // Heuristic for Angular Material and similar packages
         // 1. Check if it's a scoped package with secondary entry point
         // e.g. @angular/material/checkbox
         if module_name.starts_with("@") {
-            eprintln!(
-                "DEBUG: [fesm_reader] Resolving scoped module: {}",
-                module_name
-            );
+            // eprintln!(
+            //     "DEBUG: [fesm_reader] Resolving scoped module: {}",
+            //     module_name
+            // );
             let parts: Vec<&str> = module_name.split('/').collect();
             if parts.len() >= 3 {
                 // @scope/pkg/entry -> @scope/pkg
@@ -55,7 +60,6 @@ impl ModuleMetadataReader {
                     .join(pkg)
                     .join("fesm2022")
                     .join(format!("{}.mjs", entry));
-
                 if fesm_path.exists() {
                     eprintln!(
                         "DEBUG: [fesm_reader] Found FESM2022: {}",
@@ -71,6 +75,12 @@ impl ModuleMetadataReader {
                     .join(pkg)
                     .join("fesm2020")
                     .join(format!("{}.mjs", entry));
+
+                eprintln!(
+                    "DEBUG: [fesm_reader] Checking path for {}: {}",
+                    module_name,
+                    fesm_2020_path.display()
+                );
 
                 if fesm_2020_path.exists() {
                     eprintln!(
@@ -93,11 +103,11 @@ impl ModuleMetadataReader {
                     .join(format!("{}.mjs", pkg));
 
                 if fesm_path.exists() {
-                    eprintln!(
-                        "DEBUG: [fesm_reader] Found FESM2022 for {}: {}",
-                        module_name,
-                        fesm_path.display()
-                    );
+                    // eprintln!(
+                    //     "DEBUG: [fesm_reader] Found FESM2022 for {}: {}",
+                    //     module_name,
+                    //     fesm_path.display()
+                    // );
                     return Some(fesm_path);
                 }
 
@@ -110,11 +120,11 @@ impl ModuleMetadataReader {
                     .join(format!("{}.mjs", pkg));
 
                 if fesm_2020_path.exists() {
-                    eprintln!(
-                        "DEBUG: [fesm_reader] Found FESM2020 for {}: {}",
-                        module_name,
-                        fesm_2020_path.display()
-                    );
+                    // eprintln!(
+                    //     "DEBUG: [fesm_reader] Found FESM2020 for {}: {}",
+                    //     module_name,
+                    //     fesm_2020_path.display()
+                    // );
                     return Some(fesm_2020_path);
                 }
             }
@@ -130,20 +140,32 @@ impl ModuleMetadataReader {
     }
 
     pub fn read_metadata(&self, module_name: &str) -> Option<Vec<R3TemplateDependencyMetadata>> {
+        eprintln!(
+            "DEBUG: [fesm_reader] read_metadata called for: {}",
+            module_name
+        );
+        // Try global cache from linker first
+        if let Some(cached) = self.read_from_cache(module_name) {
+            if !cached.is_empty() {
+                // eprintln!("DEBUG: [fesm_reader] Found metadata in global cache for: {}", module_name);
+                return Some(cached);
+            }
+        }
+
         let entry_path = if let Some(p) = self.resolve_module(module_name) {
             p
         } else {
-            eprintln!(
-                "DEBUG: [fesm_reader] Failed to resolve module path: {}",
-                module_name
-            );
+            // eprintln!(
+            //     "DEBUG: [fesm_reader] Failed to resolve module path: {}",
+            //     module_name
+            // );
             return None;
         };
         // ...
-        eprintln!(
-            "DEBUG: [fesm_reader] Reading metadata from: {}",
-            entry_path.display()
-        );
+        // eprintln!(
+        //     "DEBUG: [fesm_reader] Reading metadata from: {}",
+        //     entry_path.display()
+        // );
 
         let mut queue = vec![entry_path.clone()];
         let mut visited = std::collections::HashSet::new();
@@ -165,11 +187,11 @@ impl ModuleMetadataReader {
             let ret = Parser::new(&allocator, &content, source_type).parse();
 
             if !ret.errors.is_empty() {
-                eprintln!(
-                    "DEBUG: [fesm_reader] Parser errors for {}: {:?}",
-                    path.display(),
-                    ret.errors
-                );
+                // eprintln!(
+                //     "DEBUG: [fesm_reader] Parser errors for {}: {:?}",
+                //     path.display(),
+                //     ret.errors
+                // );
                 continue;
             }
             let program = ret.program;
@@ -187,10 +209,6 @@ impl ModuleMetadataReader {
                     let import_path = source.value.as_str();
                     if import_path.starts_with(".") {
                         let resolved_path = current_dir.join(import_path);
-                        // Handle extension if missing? FESM usually has explicit .mjs or we should assume?
-                        // The grep output showed: from './_ripple-module-chunk.mjs'; so it has extension.
-                        // But commonly TS/JS imports might omit it.
-                        // Let's try direct resolve first.
                         let p = if resolved_path.exists() {
                             resolved_path
                         } else if resolved_path.with_extension("mjs").exists() {
@@ -198,12 +216,34 @@ impl ModuleMetadataReader {
                         } else if resolved_path.with_extension("js").exists() {
                             resolved_path.with_extension("js")
                         } else {
-                            // // eprintln!("DEBUG: [fesm_reader] Could not exist re-export path: {}", resolved_path.display());
                             resolved_path
                         };
 
                         if p.exists() && !visited.contains(&p) {
-                            // // eprintln!("DEBUG: [fesm_reader] Following re-export: {}", p.display());
+                            visited.insert(p.clone());
+                            queue.push(p);
+                        }
+                    }
+                }
+
+                // 1b. Also handle ImportDeclarations with local relative paths (e.g., chunk files)
+                if let Some(oxc_ast::ast::ModuleDeclaration::ImportDeclaration(import_decl)) =
+                    stmt.as_module_declaration()
+                {
+                    let import_path = import_decl.source.value.as_str();
+                    if import_path.starts_with(".") {
+                        let resolved_path = current_dir.join(import_path);
+                        let p = if resolved_path.exists() {
+                            resolved_path
+                        } else if resolved_path.with_extension("mjs").exists() {
+                            resolved_path.with_extension("mjs")
+                        } else if resolved_path.with_extension("js").exists() {
+                            resolved_path.with_extension("js")
+                        } else {
+                            resolved_path
+                        };
+
+                        if p.exists() && !visited.contains(&p) {
                             visited.insert(p.clone());
                             queue.push(p);
                         }
@@ -287,7 +327,7 @@ impl ModuleMetadataReader {
                                                                                     == "ɵcmp",
                                                                             )
                                                                         {
-                                                                            all_definitions.insert(class_name.to_string(), (meta.0, meta.1, meta.2, meta.3, R3TemplateDependencyKind::Directive));
+                                                                            all_definitions.insert(class_name.to_string(), (meta.0, meta.1, meta.2, meta.3, meta.4, R3TemplateDependencyKind::Directive));
                                                                         }
                                                                     }
                                                                 }
@@ -307,7 +347,7 @@ impl ModuleMetadataReader {
                                                                     if let Some(name) =
                                                                         self.parse_pipe_meta(expr)
                                                                     {
-                                                                        all_definitions.insert(class_name.to_string(), (name, vec![], vec![], false, R3TemplateDependencyKind::Pipe));
+                                                                        all_definitions.insert(class_name.to_string(), (name, vec![], vec![], None, false, R3TemplateDependencyKind::Pipe));
                                                                     }
                                                                 }
                                                             }
@@ -335,7 +375,7 @@ impl ModuleMetadataReader {
         };
 
         for export_name in classes_to_export {
-            if let Some((selector_or_name, inputs, outputs, is_component, kind)) =
+            if let Some((selector_or_name, inputs, outputs, export_as, is_component, kind)) =
                 all_definitions.get(&export_name)
             {
                 let expression = Expression::External(ExternalExpr {
@@ -350,12 +390,21 @@ impl ModuleMetadataReader {
 
                 let meta = match kind {
                     R3TemplateDependencyKind::Directive => {
+                        // eprintln!("DEBUG: [metadata] Resolving directive export: {}", selector_or_name);
                         R3TemplateDependencyMetadata::Directive(R3DirectiveDependencyMetadata {
                             selector: selector_or_name.clone(),
                             type_: expression,
                             inputs: inputs.clone(),
                             outputs: outputs.clone(),
-                            export_as: vec![].into(),
+                            export_as: export_as
+                                .as_ref()
+                                .map(|s| {
+                                    s.split(',')
+                                        .map(|p| p.trim().to_string())
+                                        .collect::<Vec<String>>()
+                                })
+                                .unwrap_or_default()
+                                .into(),
                             kind: R3TemplateDependencyKind::Directive,
                             is_component: *is_component,
                             source_span: None,
@@ -373,6 +422,8 @@ impl ModuleMetadataReader {
                 };
 
                 results.push(meta);
+            } else {
+                // eprintln!("DEBUG: [metadata] Export listed but definition not found: {}", export_name);
             }
         }
 
@@ -405,12 +456,13 @@ impl ModuleMetadataReader {
         &self,
         expr: &OxcExpression,
         is_cmp: bool,
-    ) -> Option<(String, Vec<String>, Vec<String>, bool)> {
-        // Returns (selector, inputs, outputs, is_component)
+    ) -> Option<(String, Vec<String>, Vec<String>, Option<String>, bool)> {
+        // Returns (selector, inputs, outputs, export_as, is_component)
         if let OxcExpression::ObjectExpression(obj) = expr {
             let mut selector = String::new();
             let mut inputs = Vec::new();
             let mut outputs = Vec::new();
+            let mut export_as = None;
 
             for prop in &obj.properties {
                 if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) = prop {
@@ -436,6 +488,23 @@ impl ModuleMetadataReader {
                                                 }
                                             }
                                         }
+                                    }
+                                }
+                            }
+                            "exportAs" | "export_as" => {
+                                if let OxcExpression::StringLiteral(s) = &p.value {
+                                    export_as = Some(s.value.to_string());
+                                } else if let OxcExpression::ArrayExpression(arr) = &p.value {
+                                    let mut names = Vec::new();
+                                    for elem in &arr.elements {
+                                        if let Some(expr) = elem.as_expression() {
+                                            if let OxcExpression::StringLiteral(s) = expr {
+                                                names.push(s.value.to_string());
+                                            }
+                                        }
+                                    }
+                                    if !names.is_empty() {
+                                        export_as = Some(names.join(","));
                                     }
                                 }
                             }
@@ -492,7 +561,7 @@ impl ModuleMetadataReader {
                     }
                 }
             }
-            return Some((selector, inputs, outputs, is_cmp));
+            return Some((selector, inputs, outputs, export_as, is_cmp));
         }
         None
     }
@@ -677,5 +746,134 @@ impl ModuleMetadataReader {
         }
 
         Some(results)
+    }
+
+    fn read_from_cache(&self, module_name: &str) -> Option<Vec<R3TemplateDependencyMetadata>> {
+        use crate::linker::metadata_extractor::get_metadata_cache;
+
+        eprintln!(
+            "DEBUG: [cache_lookup] Attempting lookup for: {}",
+            module_name
+        );
+
+        // Resolve the entry file path to normalize it for cache lookup
+        let entry_path = if let Some(p) = self.resolve_module(module_name) {
+            p
+        } else {
+            eprintln!("DEBUG: [cache_lookup] Resolve failed for: {}", module_name);
+            return None;
+        };
+        let entry_path_str = entry_path.to_string_lossy().to_string();
+        eprintln!(
+            "DEBUG: [cache_lookup] Normalized entry path: {}",
+            entry_path_str
+        );
+
+        // The linker cache uses the full absolute path as the key prefix.
+        let cache_key_prefix = entry_path_str.clone();
+
+        eprintln!(
+            "DEBUG: [cache_lookup] Cache key prefix: {}",
+            cache_key_prefix
+        );
+
+        let cache = get_metadata_cache().read().ok()?;
+
+        // Debug: Print cache size
+        eprintln!(
+            "DEBUG: [cache_lookup] Total modules in cache: {}, directives: {}",
+            cache.modules.len(),
+            cache.directives.len()
+        );
+
+        // 1. Find the NgModule in this file
+        let mut results = Vec::new();
+        let mut modules_found = Vec::new();
+
+        for (key, module) in &cache.modules {
+            // Only log for material modules to reduce noise
+            if key.contains("@angular/material") {
+                eprintln!("DEBUG: [cache_lookup] Module key in cache: {}", key);
+            }
+            if key.starts_with(&cache_key_prefix) {
+                eprintln!(
+                    "DEBUG: [cache_lookup] Found NgModule: {} in {}",
+                    key, cache_key_prefix
+                );
+                modules_found.push(module.clone());
+            }
+        }
+
+        if modules_found.is_empty() {
+            eprintln!(
+                "DEBUG: [cache_lookup] No NgModules found for prefix: {}",
+                cache_key_prefix
+            );
+            return None;
+        }
+
+        // 2. Collect all exports from found NgModules
+        for module in modules_found {
+            eprintln!(
+                "DEBUG: [cache_lookup] Processing module with {} exports",
+                module.exports.len()
+            );
+            for export in &module.exports {
+                // Look up the directive in the cache
+                let lookup_path = export.source_path.as_deref().unwrap_or(&cache_key_prefix);
+                let lookup_name = export
+                    .original_name
+                    .as_deref()
+                    .unwrap_or(&export.exported_name);
+                let directive_key = format!("{}:{}", lookup_path, lookup_name);
+
+                eprintln!(
+                    "DEBUG: [cache_lookup] Looking up directive: {}",
+                    directive_key
+                );
+
+                if let Some(directive) = cache.directives.get(&directive_key) {
+                    eprintln!("DEBUG: [cache_lookup] FOUND directive: {}", directive.name);
+                    // Convert ExtractedDirective to R3TemplateDependencyMetadata
+                    let expression = Expression::External(ExternalExpr {
+                        value: ExternalReference {
+                            module_name: Some(module_name.to_string()),
+                            name: Some(directive.name.clone()),
+                            runtime: None,
+                        },
+                        type_: None,
+                        source_span: None,
+                    });
+
+                    results.push(R3TemplateDependencyMetadata::Directive(
+                        R3DirectiveDependencyMetadata {
+                            selector: directive.selector.clone(),
+                            type_: expression,
+                            inputs: directive.inputs.clone(),
+                            outputs: directive.outputs.clone(),
+                            export_as: directive
+                                .export_as
+                                .as_ref()
+                                .map(|s| {
+                                    s.split(',')
+                                        .map(|p| p.trim().to_string())
+                                        .collect::<Vec<String>>()
+                                })
+                                .unwrap_or_default()
+                                .into(),
+                            kind: R3TemplateDependencyKind::Directive,
+                            is_component: directive.is_component,
+                            source_span: None,
+                        },
+                    ));
+                }
+            }
+        }
+
+        if results.is_empty() {
+            None
+        } else {
+            Some(results)
+        }
     }
 }

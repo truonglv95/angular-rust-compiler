@@ -34,13 +34,17 @@ pub fn parallel_compile(
     let mut program = NgtscProgram::new(root_names, options, &capturing_fs);
 
     // Initial analysis
-    eprintln!("Analyzing structure...");
+    eprintln!("Analyzing structure... Files: {}", files.len());
+    if !files.is_empty() {
+        eprintln!("First file: {:?}", files[0]);
+    }
     program
         .load_ng_structure(project_path)
         .map_err(|e| anyhow::anyhow!(e))?;
 
     // Emit (compilation)
     eprintln!("Emitting code...");
+
     let diagnostics = program.emit().map_err(|e| anyhow::anyhow!(e))?;
 
     if !diagnostics.is_empty() {
