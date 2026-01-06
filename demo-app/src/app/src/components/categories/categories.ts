@@ -72,7 +72,7 @@ export class CategoriesComponent {
       name: 'Popups & Modals',
       summary: 'Dialogs, snackbars, tooltips and bottom sheets.',
       items: [
-        { name: 'BottomSheet' },
+        { name: 'BottomSheet', link: '/bottom-sheet' },
         { name: 'Dialog' },
         { name: 'SnackBar' },
         { name: 'Tooltip' },
