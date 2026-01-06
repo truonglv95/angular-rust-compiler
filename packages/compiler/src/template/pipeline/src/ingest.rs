@@ -420,6 +420,21 @@ fn maybe_record_directive_usage(
         has_directives = true;
     });
 
+    if tag_name == "ng-template" {
+        eprintln!(
+            "[INGEST] matched {} directives for <ng-template>: {:?}",
+            matched_indices.len(),
+            matched_indices
+        );
+        for &idx in &matched_indices {
+            if let Some(R3TemplateDependencyMetadata::Directive(dir)) =
+                job.available_dependencies.get(idx)
+            {
+                eprintln!("[INGEST]   - matched: {}", dir.selector);
+            }
+        }
+    }
+
     has_directives
 }
 
@@ -525,6 +540,13 @@ fn ingest_template(
     tmpl: t::Template,
     job: &mut ComponentCompilationJob,
 ) {
+    // DEBUG: Print tag_name
+    if let Some(tag_name) = &tmpl.tag_name {
+        eprintln!("DEBUG: ingest_template tag_name: {}", tag_name);
+    } else {
+        eprintln!("DEBUG: ingest_template tag_name: None");
+    }
+
     // Check i18n metadata
     if let Some(ref i18n_meta) = tmpl.i18n {
         match i18n_meta {
@@ -565,8 +587,17 @@ fn ingest_template(
     } else {
         ir::TemplateKind::Structural
     };
+    // Record directive usage for templates (structural directives)
+    let has_directives = maybe_record_directive_usage(
+        job,
+        tag_name_without_namespace.as_deref().unwrap_or_default(),
+        &tmpl.attributes,
+        &tmpl.inputs,
+        &tmpl.outputs,
+        &tmpl.template_attrs,
+    );
 
-    let template_op_struct = ir::ops::create::TemplateOp::new(
+    let mut template_op_struct = ir::ops::create::TemplateOp::new(
         child_view_xref,
         template_kind,
         tag_name_without_namespace.clone(),
@@ -576,6 +607,14 @@ fn ingest_template(
         tmpl.start_source_span.clone(),
         tmpl.source_span.clone(),
     );
+    template_op_struct.base.has_directives = has_directives;
+    if template_kind == ir::TemplateKind::NgTemplate && has_directives {
+        eprintln!(
+            "[INGEST_TMPL] Created NgTemplate OP with has_directives=true for xref {:?}",
+            child_view_xref
+        );
+    }
+
     // Get handle from struct before boxing based on trait
     let handle = template_op_struct.base.base.handle.clone();
 
@@ -583,16 +622,6 @@ fn ingest_template(
     // We need to match the return type of create_template_op which is Box<dyn CreateOp>
     // but here we are pushing to view.create which accepts Box<dyn CreateOp>
     view.create.push(Box::new(template_op_struct));
-
-    // Record directive usage for templates (structural directives)
-    maybe_record_directive_usage(
-        job,
-        tag_name_without_namespace.as_deref().unwrap_or_default(),
-        &tmpl.attributes,
-        &tmpl.inputs,
-        &tmpl.outputs,
-        &tmpl.template_attrs,
-    );
 
     // Ingest template bindings, events, and references
     ingest_template_bindings(view, child_view_xref, &tmpl, template_kind, job);
@@ -707,13 +736,25 @@ fn ingest_content(
         _ => None,
     };
 
-    let op = ir::ops::create::create_projection_op(
+    // Get the source order for this projection (tracks template source order)
+    let source_order = job.next_projection_order;
+    job.next_projection_order += 1;
+
+    let mut op = ir::ops::create::create_projection_op(
         id,
         content.selector.to_string(),
         i18n_placeholder,
         fallback_view,
         content.source_span.clone(),
     );
+
+    // Set the source order on the projection op
+    if let Some(proj_op) = op
+        .as_any_mut()
+        .downcast_mut::<ir::ops::create::ProjectionOp>()
+    {
+        proj_op.source_order = source_order;
+    }
 
     view.create.push(op);
 
@@ -2094,10 +2135,29 @@ fn ingest_let_declaration(
     view.update.push(store_let_op);
 }
 
-/// Check if a template is a plain template (not a structural directive)
+/// Check if a template is a plain ng-template (as opposed to a structural directive template).
+///
+/// This is checked based on the tagName. Only plain ng-templates will have tagName 'ng-template'.
+///
+/// Examples:
+/// | Angular HTML                       | Template tagName   | isPlainTemplate |
+/// | ---------------------------------- | ------------------ | --------------- |
+/// | `<ng-template>`                    | 'ng-template'      | true            |
+/// | `<ng-template [ngTemplateOutlet]>` | 'ng-template'      | true            |
+/// | `<div *ngIf="true">`               | 'div'              | false           |
+/// | `<svg><ng-template>`               | 'svg:ng-template'  | true            |
 fn is_plain_template(tmpl: &t::Template) -> bool {
-    // A plain template has no structural directive attributes
-    tmpl.template_attrs.is_empty() && tmpl.inputs.is_empty() && tmpl.outputs.is_empty()
+    if let Some(ref tag_name) = tmpl.tag_name {
+        // Split namespace and check if tag name is 'ng-template'
+        let is_ng_template = match crate::ml_parser::tags::split_ns_name(tag_name, false) {
+            Ok((_, name)) => name == NG_TEMPLATE_TAG_NAME,
+            Err(_) => tag_name.as_ref() == NG_TEMPLATE_TAG_NAME,
+        };
+        is_ng_template
+    } else {
+        // Templates without tagName (e.g., from control flow blocks) are not plain templates
+        false
+    }
 }
 
 /// Process all of the bindings (inputs/attributes) on an element

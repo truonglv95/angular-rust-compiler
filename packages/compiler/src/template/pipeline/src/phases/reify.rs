@@ -131,7 +131,6 @@ fn reify_create_operations(
 
                     let decls = template_op.decls.unwrap_or(0);
                     let vars = template_op.vars.unwrap_or(0);
-                    let tag = template_op.base.tag.clone().filter(|t| t != "ng-template");
                     let const_index = template_op
                         .base
                         .base
@@ -143,16 +142,47 @@ fn reify_create_operations(
                         .local_refs_index
                         .map(|idx| idx.as_usize() as i32);
 
-                    let stmt = ng::template(
-                        slot,
-                        *o::variable(fn_name),
-                        decls,
-                        vars,
-                        tag,
-                        const_index,
-                        local_ref_index,
-                        template_op.base.base.start_source_span.clone(),
-                    );
+                    let stmt = if template_op.template_kind == ir::TemplateKind::NgTemplate {
+                        let tag = "ng-template".to_string();
+                        // Use ng::template (ɵɵtemplate) when the ng-template has matched directives
+                        // (e.g., [ngTemplateOutlet]) OR has local refs (which need templateRefExtractor).
+                        // This ensures proper TemplateRef creation and directive matching.
+                        if template_op.base.has_directives || local_ref_index.is_some() {
+                            ng::template(
+                                slot,
+                                *o::variable(fn_name),
+                                decls,
+                                vars,
+                                Some(tag),
+                                const_index,
+                                local_ref_index,
+                                template_op.base.base.start_source_span.clone(),
+                            )
+                        } else {
+                            ng::dom_template(
+                                slot,
+                                *o::variable(fn_name),
+                                decls,
+                                vars,
+                                tag,
+                                const_index,
+                                local_ref_index,
+                                template_op.base.base.start_source_span.clone(),
+                            )
+                        }
+                    } else {
+                        let tag = template_op.base.tag.clone().filter(|t| t != "ng-template");
+                        ng::template(
+                            slot,
+                            *o::variable(fn_name),
+                            decls,
+                            vars,
+                            tag,
+                            const_index,
+                            local_ref_index,
+                            template_op.base.base.start_source_span.clone(),
+                        )
+                    };
                     Some(Box::new(ir::ops::shared::create_statement_op::<
                         Box<dyn CreateOp + Send + Sync>,
                     >(Box::new(stmt))))

@@ -30,36 +30,87 @@ pub fn generate_projection_defs(job: &mut dyn CompilationJob) {
 
     // Collect all selectors from this component, and its nested views. Also, assign each projection a
     // unique ascending projection slot index.
+    // IMPORTANT: Process all views in xref order to preserve the template source order.
+    // This ensures that ng-content elements inside ng-template get indices matching
+    // their position in the source template, not the order views are processed.
     let mut selectors = Vec::new();
     let mut projection_slot_index = 0;
 
-    // Process root view
-    for op in component_job.root.create.iter_mut() {
-        if op.kind() == ir::OpKind::Projection {
-            unsafe {
-                let op_ptr = op.as_mut() as *mut dyn ir::CreateOp;
-                let projection_ptr = op_ptr as *mut ProjectionOp;
-                let projection = &mut *projection_ptr;
+    // Collect all projection ops from all views (root + embedded)
+    struct ProjectionInfo {
+        view_is_root: bool,
+        view_xref: ir::XrefId,
+        op_index: usize,
+        selector: String,
+        source_order: usize,
+    }
+    let mut all_projections: Vec<ProjectionInfo> = Vec::new();
 
-                selectors.push(projection.selector.clone());
-                projection.projection_slot_index = projection_slot_index;
-                projection_slot_index += 1;
+    // Collect from root view
+    for (idx, op) in component_job.root.create.iter().enumerate() {
+        if op.kind() == ir::OpKind::Projection {
+            if let Some(proj) = op.as_any().downcast_ref::<ProjectionOp>() {
+                all_projections.push(ProjectionInfo {
+                    view_is_root: true,
+                    view_xref: component_job.root.xref,
+                    op_index: idx,
+                    selector: proj.selector.clone(),
+                    source_order: proj.source_order,
+                });
             }
         }
     }
 
-    // Process embedded views
-    for view in component_job.views.values_mut() {
-        for op in view.create.iter_mut() {
+    // Collect from embedded views
+    for (view_xref, view) in component_job.views.iter() {
+        for (idx, op) in view.create.iter().enumerate() {
             if op.kind() == ir::OpKind::Projection {
-                unsafe {
-                    let op_ptr = op.as_mut() as *mut dyn ir::CreateOp;
-                    let projection_ptr = op_ptr as *mut ProjectionOp;
-                    let projection = &mut *projection_ptr;
+                if let Some(proj) = op.as_any().downcast_ref::<ProjectionOp>() {
+                    all_projections.push(ProjectionInfo {
+                        view_is_root: false,
+                        view_xref: *view_xref,
+                        op_index: idx,
+                        selector: proj.selector.clone(),
+                        source_order: proj.source_order,
+                    });
+                }
+            }
+        }
+    }
 
-                    selectors.push(projection.selector.clone());
-                    projection.projection_slot_index = projection_slot_index;
-                    projection_slot_index += 1;
+    // Sort by source_order to preserve template source order
+    // source_order is assigned during template ingestion in the order ng-content elements appear
+    all_projections.sort_by_key(|p| p.source_order);
+
+    // Assign projection slot indices in sorted order
+    for proj_info in &all_projections {
+        selectors.push(proj_info.selector.clone());
+    }
+
+    // Now apply the indices to the actual ops
+    for (slot_index, proj_info) in all_projections.iter().enumerate() {
+        if proj_info.view_is_root {
+            if let Some(op) = component_job.root.create.iter_mut().nth(proj_info.op_index) {
+                if op.kind() == ir::OpKind::Projection {
+                    unsafe {
+                        let op_ptr = op.as_mut() as *mut dyn ir::CreateOp;
+                        let projection_ptr = op_ptr as *mut ProjectionOp;
+                        let projection = &mut *projection_ptr;
+                        projection.projection_slot_index = slot_index;
+                    }
+                }
+            }
+        } else {
+            if let Some(view) = component_job.views.get_mut(&proj_info.view_xref) {
+                if let Some(op) = view.create.iter_mut().nth(proj_info.op_index) {
+                    if op.kind() == ir::OpKind::Projection {
+                        unsafe {
+                            let op_ptr = op.as_mut() as *mut dyn ir::CreateOp;
+                            let projection_ptr = op_ptr as *mut ProjectionOp;
+                            let projection = &mut *projection_ptr;
+                            projection.projection_slot_index = slot_index;
+                        }
+                    }
                 }
             }
         }

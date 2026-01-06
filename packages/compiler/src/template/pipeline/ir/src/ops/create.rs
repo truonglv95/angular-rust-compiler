@@ -1217,8 +1217,11 @@ pub struct ProjectionOp {
     pub xref: XrefId,
     /// Slot handle
     pub handle: SlotHandle,
-    /// Projection slot index
+    /// Projection slot index (set by generate_projection_def phase)
     pub projection_slot_index: usize,
+    /// Source order - the order in which this ng-content was encountered during template ingestion.
+    /// This captures the true template source order, used for correct projection slot assignment.
+    pub source_order: usize,
     /// Attributes (null initially)
     pub attributes: Option<Box<OutputExpression>>,
     /// Local references
@@ -1247,6 +1250,7 @@ impl ProjectionOp {
             xref,
             handle: SlotHandle::default(),
             projection_slot_index: 0,
+            source_order: 0,
             attributes: None,
             local_refs: Vec::new(),
             selector,

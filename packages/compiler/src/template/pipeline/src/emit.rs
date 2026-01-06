@@ -453,10 +453,10 @@ pub fn emit_component(
     });
 
     if let Some(content_selectors) = &job.content_selectors {
-        eprintln!(
-            "DEBUG: Emitting ngContentSelectors for {}",
-            metadata.directive.name
-        );
+        // eprintln!(
+        //     "DEBUG: Emitting ngContentSelectors for {}",
+        //     metadata.directive.name
+        // );
         definition_entries.push(o::LiteralMapEntry {
             key: "ngContentSelectors".into(),
             value: Box::new(content_selectors.clone()),
@@ -559,7 +559,13 @@ pub fn emit_component(
 
             if is_used || is_module {
                 let expr = match decl {
-                    R3TemplateDependencyMetadata::Directive(dir) => dir.type_.clone(),
+                    R3TemplateDependencyMetadata::Directive(dir) => {
+                        eprintln!(
+                            "[EMIT] Adding used directive {} to dependencies: {}",
+                            i, dir.selector
+                        );
+                        dir.type_.clone()
+                    }
                     R3TemplateDependencyMetadata::Pipe(pipe) => pipe.type_.clone(),
                     R3TemplateDependencyMetadata::NgModule(module) => module.type_.clone(),
                 };
@@ -633,6 +639,11 @@ pub fn emit_ops(
                     // Handle tag which might be Option<String>
                     let mut tag = element_op.base.tag.clone().unwrap_or("div".to_string());
 
+                    if tag == "mat-label" {
+                        eprintln!("[EMIT] mat-label index={}", index);
+                    }
+                    // eprintln!("[EMIT_ALL] tag={} index={}", tag, index);
+
                     // Strip namespace prefix if present (e.g., ":svg:svg" -> "svg")
                     // When namespace op is present, tag name should not have prefix
                     if tag.starts_with(':') {
@@ -653,6 +664,10 @@ pub fn emit_ops(
 
                     // FORCE domElementStart
                     let instruction = R3::dom_element_start();
+                    eprintln!(
+                        "[EMIT_DEBUG] tag={} instruction={:?}",
+                        tag, instruction.name
+                    );
 
                     stmts.push(o::Statement::Expression(o::ExpressionStatement {
                         expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
@@ -670,7 +685,7 @@ pub fn emit_ops(
             ir::OpKind::ElementEnd => {
                 stmts.push(o::Statement::Expression(o::ExpressionStatement {
                     expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
-                        fn_: o::import_ref(R3::element_end()),
+                        fn_: o::import_ref(R3::dom_element_end()),
                         args: vec![],
                         type_: None,
                         source_span: None,
@@ -706,7 +721,7 @@ pub fn emit_ops(
 
                     stmts.push(o::Statement::Expression(o::ExpressionStatement {
                         expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
-                            fn_: o::import_ref(R3::element()),
+                            fn_: o::import_ref(R3::dom_element()),
                             args,
                             type_: None,
                             source_span: None,
@@ -721,10 +736,6 @@ pub fn emit_ops(
             ir::OpKind::Template => {
                 if let Some(template_op) = op.as_any().downcast_ref::<ir::ops::create::TemplateOp>()
                 {
-                    eprintln!(
-                        "DEBUG: Emitting ɵɵtemplate for xref {:?}, kind {:?}",
-                        template_op.base.base.xref, template_op.template_kind
-                    );
                     let slot = template_op.base.base.handle.get_slot().unwrap() as i32;
                     let view_xref = template_op.base.base.xref;
 
@@ -746,7 +757,7 @@ pub fn emit_ops(
                     let mut args: Vec<o::Expression> = vec![
                         *o::literal(slot as f64),
                         o::Expression::ReadVar(o::ReadVarExpr {
-                            name: fn_name,
+                            name: fn_name.clone(),
                             type_: None,
                             source_span: None,
                         }),
@@ -754,36 +765,60 @@ pub fn emit_ops(
                         *o::literal(vars as f64),
                     ];
 
-                    // Add tag if present (for structural directives like *ngIf)
-                    if let Some(ref tag) = template_op.base.tag {
-                        args.push(*o::literal(tag.clone()));
-                    } else {
-                        // For ng-template without tag, use null (represented as absent argument)
-                        // But we need placeholder if we have attrsIndex or localRefsIndex
-                        if template_op.base.base.attributes.is_some()
-                            || template_op.base.base.local_refs_index.is_some()
-                        {
-                            args.push(*o::literal(o::LiteralValue::Null));
-                        }
-                    }
-
-                    // Add attrsIndex if present
-                    if let Some(const_idx) = template_op.base.base.attributes {
-                        args.push(*o::literal(const_idx.as_usize() as f64));
-                    } else if template_op.base.base.local_refs_index.is_some() {
-                        // Need placeholder for localRefsIndex
-                        args.push(*o::literal(o::LiteralValue::Null));
-                    }
-
-                    // Add localRefsIndex if present
-                    if let Some(local_refs_idx) = template_op.base.base.local_refs_index {
-                        args.push(*o::literal(local_refs_idx.as_usize() as f64));
-                    }
-
-                    // Choose instruction based on template kind
                     let instruction = match template_op.template_kind {
-                        ir::enums::TemplateKind::NgTemplate => R3::template_create(),
+                        ir::enums::TemplateKind::NgTemplate => {
+                            // For ng-template with directives (e.g., [ngTemplateOutlet]),
+                            // use ɵɵtemplate which triggers directive matching via declareDirectiveHostTemplate.
+                            // For ng-template without directives, use ɵɵdomTemplate which calls
+                            // declareNoDirectiveHostTemplate (faster, no directive matching).
+                            args.push(*o::literal("ng-template".to_string()));
+
+                            // Add attrsIndex if present
+                            if let Some(const_idx) = template_op.base.base.attributes {
+                                args.push(*o::literal(const_idx.as_usize() as f64));
+                            } else if template_op.base.base.local_refs_index.is_some() {
+                                args.push(*o::literal(o::LiteralValue::Null));
+                            }
+
+                            // Add localRefsIndex if present
+                            if let Some(local_refs_idx) = template_op.base.base.local_refs_index {
+                                args.push(*o::literal(local_refs_idx.as_usize() as f64));
+                            }
+
+                            // Use ɵɵtemplate when directives are present, ɵɵdomTemplate otherwise
+                            if template_op.base.has_directives {
+                                R3::template_create() // ɵɵtemplate - triggers directive matching
+                            } else {
+                                R3::dom_template() // ɵɵdomTemplate - no directive matching
+                            }
+                        }
                         ir::enums::TemplateKind::Structural | ir::enums::TemplateKind::Block => {
+                            // Add tag if present (for structural directives like *ngIf)
+                            if let Some(ref tag) = template_op.base.tag {
+                                args.push(*o::literal(tag.clone()));
+                            } else {
+                                // For structural templates without tag, use null (represented as absent argument)
+                                // But we need placeholder if we have attrsIndex or localRefsIndex
+                                if template_op.base.base.attributes.is_some()
+                                    || template_op.base.base.local_refs_index.is_some()
+                                {
+                                    args.push(*o::literal(o::LiteralValue::Null));
+                                }
+                            }
+
+                            // Add attrsIndex if present
+                            if let Some(const_idx) = template_op.base.base.attributes {
+                                args.push(*o::literal(const_idx.as_usize() as f64));
+                            } else if template_op.base.base.local_refs_index.is_some() {
+                                // Need placeholder for localRefsIndex
+                                args.push(*o::literal(o::LiteralValue::Null));
+                            }
+
+                            // Add localRefsIndex if present
+                            if let Some(local_refs_idx) = template_op.base.base.local_refs_index {
+                                args.push(*o::literal(local_refs_idx.as_usize() as f64));
+                            }
+
                             R3::template_create()
                         }
                     };
@@ -1026,13 +1061,12 @@ pub fn emit_ops(
             }
             ir::OpKind::Projection => {
                 if let Some(proj_op) = op.as_any().downcast_ref::<ir::ops::create::ProjectionOp>() {
-                    let mut args = vec![*o::literal(
-                        proj_op
-                            .handle
-                            .get_slot()
-                            .expect("Projection slot must be allocated")
-                            as f64,
-                    )];
+                    let slot = proj_op
+                        .handle
+                        .get_slot()
+                        .expect("Projection slot must be allocated");
+
+                    let mut args = vec![*o::literal(slot as f64)];
                     if proj_op.projection_slot_index > 0 {
                         args.push(*o::literal(proj_op.projection_slot_index as f64));
                     }
@@ -1317,7 +1351,7 @@ pub fn emit_ops(
                         }
                     };
 
-                    let instruction = R3::property();
+                    let instruction = R3::dom_property();
                     let sanitizer = prop_op.sanitizer.clone();
 
                     let mut args = vec![*o::literal(prop_op.name.to_string()), expression];
@@ -1735,8 +1769,17 @@ fn emit_view_query_function(
                     }
                 };
 
-                // Flags: 5 = DescendantsOnly (for ViewChild with descendants=false)
-                let flags = if query.first { 5.0 } else { 4.0 };
+                // Flags: 1 = Descendants, 2 = Static, 4 = EmitDistinctChangesOnly
+                let mut flags = 0.0;
+                if query.descendants {
+                    flags += 1.0;
+                }
+                if query.static_ {
+                    flags += 2.0;
+                }
+                if query.emit_distinct_changes_only {
+                    flags += 4.0;
+                }
 
                 let mut args = vec![predicate_expr, *o::literal(flags)];
                 if let Some(ref read) = query.read {

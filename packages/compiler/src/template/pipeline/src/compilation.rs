@@ -110,6 +110,8 @@ pub struct ComponentCompilationJob {
 
     pub next_xref_id: ir::XrefId,
     pub temp_selector: CssSelector,
+    /// Counter for projection source order during template ingestion
+    pub next_projection_order: usize,
 }
 
 impl ComponentCompilationJob {
@@ -165,20 +167,31 @@ impl ComponentCompilationJob {
             diagnostics: Vec::new(),
             next_xref_id: ir::XrefId::new(1),
             temp_selector: CssSelector::new(),
+            next_projection_order: 0,
         }
     }
 
     fn create_selector_matcher(deps: &Vec<R3TemplateDependencyMetadata>) -> SelectorMatcher<usize> {
+        eprintln!(
+            "[MATCHER] create_selector_matcher called with {} dependencies",
+            deps.len()
+        );
         let mut matcher = SelectorMatcher::new();
         for (i, dep) in deps.iter().enumerate() {
             if let R3TemplateDependencyMetadata::Directive(dir) = dep {
                 match CssSelector::parse(&dir.selector) {
                     Ok(selectors) => {
                         for selector in selectors {
+                            eprintln!(
+                                "[MATCHER] Registering directive: {} with selector: {}",
+                                i, dir.selector
+                            );
                             matcher.add_selectable(selector, i);
                         }
                     }
-                    Err(_) => {}
+                    Err(_) => {
+                        eprintln!("[MATCHER] Error parsing selector: {}", dir.selector);
+                    }
                 }
             }
         }

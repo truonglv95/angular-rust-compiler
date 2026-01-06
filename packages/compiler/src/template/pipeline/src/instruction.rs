@@ -155,6 +155,20 @@ pub fn property<S: AsRef<str>>(
     call(Identifiers::property(), args, Some(source_span))
 }
 
+pub fn dom_property<S: AsRef<str>>(
+    name: S,
+    expression: o::Expression,
+    sanitizer: Option<o::Expression>,
+    source_span: ParseSourceSpan,
+) -> o::Statement {
+    let mut args = vec![*o::literal(name.as_ref())];
+    args.push(expression);
+    if let Some(san) = sanitizer {
+        args.push(san);
+    }
+    call(Identifiers::dom_property(), args, Some(source_span))
+}
+
 pub fn attribute<S: AsRef<str>>(
     name: S,
     expression: o::Expression,
@@ -294,6 +308,39 @@ pub fn template(
     }
 
     call(Identifiers::template_create(), args, Some(source_span))
+}
+
+pub fn dom_template(
+    slot: i32,
+    template_fn: o::Expression,
+    decls: usize,
+    vars: usize,
+    tag: String,
+    const_index: Option<i32>,
+    local_ref_index: Option<i32>,
+    source_span: ParseSourceSpan,
+) -> o::Statement {
+    let mut args = vec![
+        *o::literal(slot as f64),
+        template_fn,
+        *o::literal(decls as f64),
+        *o::literal(vars as f64),
+        *o::literal(tag),
+    ];
+
+    // Const index argument
+    if let Some(c) = const_index {
+        args.push(*o::literal(c as f64));
+    } else if local_ref_index.is_some() {
+        args.push(*o::literal(o::LiteralValue::Null));
+    }
+
+    // Local ref index
+    if let Some(lri) = local_ref_index {
+        args.push(*o::literal(lri as f64));
+    }
+
+    call(Identifiers::dom_template(), args, Some(source_span))
 }
 
 pub fn conditional(
