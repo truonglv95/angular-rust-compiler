@@ -140,12 +140,18 @@ impl DecoratorHandler<DirectiveHandlerData, DirectiveHandlerData, DirectiveSymbo
         _resolution: Option<&()>,
         constant_pool: &mut crate::ngtsc::transform::src::api::ConstantPool,
     ) -> Vec<CompileResult> {
-        self.compile_ivy(analysis)
+        self.compile_ivy(analysis, None)
     }
 }
+use crate::ngtsc::translator::src::import_manager::import_manager::EmitterImportManager;
 
 impl DirectiveDecoratorHandler {
-    pub fn compile_ivy(&self, analysis: &DirectiveMetadata) -> Vec<CompileResult> {
+    pub fn compile_ivy(
+        &self,
+        analysis: &DirectiveMetadata,
+        external_import_manager: Option<&mut EmitterImportManager>,
+    ) -> Vec<CompileResult> {
+        // ... (existing code)
         // Extract DirectiveMeta from DecoratorMetadata enum
         let dir = match analysis {
             DecoratorMetadata::Directive(d) => d,
@@ -187,6 +193,9 @@ impl DirectiveDecoratorHandler {
                 )
             })
             .collect();
+
+        // ... (rest of mapping code, largely same, skipping to the modification point)
+        // I should use chunks.
 
         let outputs = dir
             .t2

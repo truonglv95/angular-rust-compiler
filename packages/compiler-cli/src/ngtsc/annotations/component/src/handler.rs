@@ -124,12 +124,16 @@ impl DecoratorHandler<DirectiveMetadata<'static>, DirectiveMetadata<'static>, ()
         _resolution: Option<&()>,
         _constant_pool: &mut ConstantPool,
     ) -> Vec<CompileResult> {
-        self.compile_ivy(analysis)
+        self.compile_ivy(analysis, None)
     }
 }
 
 impl ComponentDecoratorHandler {
-    pub fn compile_ivy(&self, analysis: &DirectiveMetadata<'static>) -> Vec<CompileResult> {
+    pub fn compile_ivy(
+        &self,
+        analysis: &DirectiveMetadata<'static>,
+        external_import_manager: Option<&mut crate::ngtsc::translator::src::import_manager::import_manager::EmitterImportManager>,
+    ) -> Vec<CompileResult> {
         // Extract DirectiveMeta from DecoratorMetadata enum (must be a component)
         let dir = match analysis {
             DecoratorMetadata::Directive(d) if d.t2.is_component => d,
@@ -170,6 +174,12 @@ impl ComponentDecoratorHandler {
                 &schema_registry,
                 vec![],
             );
+
+        // Find project root by traversing up from source file to find node_modules
+        // ... (this part is unchanged, but included for context in large replacement if needed, but I will use smaller chunks)
+        // Actually, let's just replace the signature and the creation of import_manager.
+
+        // I will use a smaller chunk replacement.
 
         // Find project root by traversing up from source file to find node_modules
         let source_file_path = dir
@@ -651,7 +661,8 @@ impl ComponentDecoratorHandler {
         );
 
         // Detect required imports based on metadata
-        let mut import_manager = crate::ngtsc::translator::src::import_manager::import_manager::EmitterImportManager::new();
+        let mut local_manager = crate::ngtsc::translator::src::import_manager::import_manager::EmitterImportManager::new();
+        let import_manager = external_import_manager.unwrap_or(&mut local_manager);
 
         // Ensure @angular/core is mapped
         let _ = import_manager.get_or_generate_alias("@angular/core");
@@ -748,7 +759,7 @@ mod tests {
 
         let handler = ComponentDecoratorHandler::new();
 
-        let results = handler.compile_ivy(&metadata);
+        let results = handler.compile_ivy(&metadata, None);
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert_eq!(result.name, "ɵcmp");

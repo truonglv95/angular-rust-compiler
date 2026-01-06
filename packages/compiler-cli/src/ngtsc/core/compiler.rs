@@ -5,6 +5,7 @@ use crate::ngtsc::file_system::{AbsoluteFsPath, FileSystem};
 use crate::ngtsc::metadata::{
     DecoratorMetadata, DirectiveMetadata, MetadataReader, OxcMetadataReader,
 };
+use crate::ngtsc::translator::src::import_manager::import_manager::EmitterImportManager;
 use angular_compiler::ml_parser::tags::TagDefinition;
 use angular_compiler::ml_parser::{
     html_tags::get_html_tag_definition, parser::Parser as HtmlParser,
@@ -290,13 +291,18 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                             let mut failed_properties: Vec<super::ast_transformer::FailedProperty> = Vec::new();
                             let mut last_def_name = "ɵcmp".to_string(); // Default, will be updated for each directive
 
+                            // Create a shared ImportManager for this file to coordinate aliases (i0, i1, etc.)
+                            let mut import_manager = EmitterImportManager::new();
+                            // Ensure @angular/core is always i0
+                            let _ = import_manager.get_or_generate_alias("@angular/core");
+
                             for directive in directives {
                                 let (compiled_results, directive_name) = match directive {
                                     DecoratorMetadata::Directive(dir) => {
                                         let results = if dir.t2.is_component {
-                                            component_handler.compile_ivy(&directive)
+                                            component_handler.compile_ivy(&directive, Some(&mut import_manager))
                                         } else {
-                                            directive_handler.compile_ivy(&directive)
+                                            directive_handler.compile_ivy(&directive, Some(&mut import_manager))
                                         };
                                         (results, dir.t2.name.clone())
                                     }
@@ -594,9 +600,9 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
         let (compiled_results, directive_name, source_file) = match directive {
             DecoratorMetadata::Directive(dir) => {
                 let results = if dir.t2.is_component {
-                    component_handler.compile_ivy(directive)
+                    component_handler.compile_ivy(directive, None)
                 } else {
-                    directive_handler.compile_ivy(directive)
+                    directive_handler.compile_ivy(directive, None)
                 };
                 (results, dir.t2.name.clone(), dir.source_file.clone())
             }
