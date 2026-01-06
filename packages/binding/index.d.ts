@@ -23,9 +23,18 @@ export interface BatchEntryResult {
   code?: string;
   diagnostics: Array<Diagnostic>;
 }
+export interface NapiBundleResult {
+  bundleJs: string;
+  stylesCss?: string;
+  scriptsJs?: string;
+  indexHtml?: string;
+  files: Record<string, string>;
+}
 export declare class Compiler {
   constructor();
   compile(filename: string, content: string): CompileResult;
   linkFile(filename: string, sourceCode: string): string;
   compileBatch(files: Array<FileEntry>): Array<BatchEntryResult>;
+  getDependencies(entryFile: string): Array<string>;
+  bundle(projectPath: string): NapiBundleResult;
 }
