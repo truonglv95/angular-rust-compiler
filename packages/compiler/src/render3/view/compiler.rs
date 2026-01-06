@@ -83,6 +83,10 @@ pub fn compile_component_from_metadata(
     constant_pool: &mut ConstantPool,
     binding_parser: &mut BindingParser,
 ) -> R3CompiledExpression {
+    eprintln!(
+        "[COMPILER_DEBUG] compile_component_from_metadata: {}",
+        meta.directive.name
+    );
     // eprintln!("DEBUG: compile_component_from_metadata called for {}, inputs len: {}", meta.directive.name, meta.directive.inputs.len());
     // 1. Ingest
     let mut job = crate::template::pipeline::src::ingest::ingest_component(
@@ -252,7 +256,7 @@ fn base_directive_fields(
     }
 
     // inputs
-    let inputs_map: IndexMap<String, InputBindingValue> = meta
+    let mut inputs_vec: Vec<(String, InputBindingValue)> = meta
         .inputs
         .iter()
         .map(|(k, v)| {
@@ -267,17 +271,26 @@ fn base_directive_fields(
             )
         })
         .collect();
+    // Sort by key to ensure deterministic order
+    inputs_vec.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let inputs_map: IndexMap<String, InputBindingValue> = inputs_vec.into_iter().collect();
 
     if let Some(inputs_expr) = conditionally_create_directive_binding_literal(&inputs_map, true) {
         definition_map.set("inputs", Some(Expression::LiteralMap(inputs_expr)));
     }
 
     // outputs
-    let outputs_map: IndexMap<String, InputBindingValue> = meta
+    let mut outputs_vec: Vec<(String, InputBindingValue)> = meta
         .outputs
         .iter()
         .map(|(k, v)| (k.clone(), InputBindingValue::Simple(v.clone())))
         .collect();
+    // Sort by key
+    outputs_vec.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let outputs_map: IndexMap<String, InputBindingValue> = outputs_vec.into_iter().collect();
+
     if let Some(outputs_expr) = conditionally_create_directive_binding_literal(&outputs_map, false)
     {
         definition_map.set("outputs", Some(Expression::LiteralMap(outputs_expr)));

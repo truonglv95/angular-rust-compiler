@@ -582,6 +582,32 @@ mod tests {
             "button[mat-button] should match <button mat-button>"
         );
     }
+
+    #[test]
+    fn test_matcher_ng_template_outlet() {
+        // Test matching [ngTemplateOutlet] directive with <ng-template [ngTemplateOutlet]="...">
+        let mut matcher = SelectorMatcher::new();
+
+        // Register directive with selector [ngTemplateOutlet]
+        let directive_selector = CssSelector::parse("[ngTemplateOutlet]").unwrap();
+        matcher.add_selectable(directive_selector[0].clone(), "NgTemplateOutlet");
+
+        // Create element selector for <ng-template [ngTemplateOutlet]="...">
+        let mut element_selector = CssSelector::new();
+        element_selector.set_element("ng-template");
+        element_selector.add_attribute("ngTemplateOutlet", ""); // Property binding maps to attribute during matching
+
+        let mut matched = false;
+        matcher.match_selector(&element_selector, |_sel, data| {
+            matched = true;
+            assert_eq!(*data, "NgTemplateOutlet");
+        });
+
+        assert!(
+            matched,
+            "[ngTemplateOutlet] should match <ng-template [ngTemplateOutlet]>"
+        );
+    }
 }
 
 /// Matcher for directives that don't have CSS selectors (selectorless directives).

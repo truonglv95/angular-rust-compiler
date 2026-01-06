@@ -127,13 +127,13 @@ pub struct QueryTypeFns {
     pub non_signal: ExternalReference,
 }
 
-/// Create a query creation call expression.
-pub fn create_query_create_call(
+/// Get query create parameters.
+pub fn create_query_create_params(
     query: &R3QueryMetadata,
     constant_pool: &mut ConstantPool,
-    query_type_fns: &QueryTypeFns,
+    _query_type_fns: &QueryTypeFns,
     prepend_params: Option<Vec<Expression>>,
-) -> Expression {
+) -> Vec<Expression> {
     let mut parameters: Vec<Expression> = vec![];
 
     if let Some(prepend) = prepend_params {
@@ -157,13 +157,7 @@ pub fn create_query_create_call(
         parameters.push(read.clone());
     }
 
-    let query_create_fn = if query.is_signal {
-        &query_type_fns.signal_based
-    } else {
-        &query_type_fns.non_signal
-    };
-
-    invoke_fn(external_expr(query_create_fn.clone()), parameters)
+    parameters
 }
 
 /// Create a render flag check if statement.
@@ -202,10 +196,11 @@ pub fn create_view_queries_function(
 ) -> Expression {
     let mut create_statements: Vec<Statement> = vec![];
     let mut update_statements: Vec<Statement> = vec![];
+    let mut view_query_call: Option<Expression> = None;
 
     for query in view_queries {
         // Creation call
-        let query_definition_call = create_query_create_call(
+        let params = create_query_create_params(
             query,
             constant_pool,
             &QueryTypeFns {
@@ -214,7 +209,22 @@ pub fn create_view_queries_function(
             },
             None,
         );
-        create_statements.push(expr_stmt(query_definition_call));
+
+        if query.is_signal {
+            // Signal queries are generated as separate statements:
+            // r3.viewQuerySignal(ctx.prop, somePredicate, true);
+            let query_create_fn = R3::view_query_signal();
+            let call = invoke_fn(external_expr(query_create_fn), params);
+            create_statements.push(expr_stmt(call));
+        } else {
+            // Non-signal queries are chained:
+            // r3.viewQuery(somePredicate, true)(someOtherPredicate, true)
+            if view_query_call.is_none() {
+                view_query_call = Some(invoke_fn(external_expr(R3::view_query()), params));
+            } else {
+                view_query_call = Some(invoke_fn(view_query_call.unwrap(), params));
+            }
+        }
 
         // Signal queries update lazily
         if query.is_signal {
@@ -266,6 +276,10 @@ pub fn create_view_queries_function(
         });
 
         update_statements.push(expr_stmt(and_expr));
+    }
+
+    if let Some(call) = view_query_call {
+        create_statements.push(expr_stmt(call));
     }
 
     let view_query_fn_name = name.map(|n| format!("{}_Query", n));
@@ -319,10 +333,12 @@ pub fn create_content_queries_function(
 ) -> Expression {
     let mut create_statements: Vec<Statement> = vec![];
     let mut update_statements: Vec<Statement> = vec![];
+    let mut content_query_call: Option<Expression> = None;
 
     for query in queries {
+        // Generate query function with the query flags
         // Creation call with dirIndex prepended
-        let query_definition_call = create_query_create_call(
+        let params = create_query_create_params(
             query,
             constant_pool,
             &QueryTypeFns {
@@ -331,7 +347,20 @@ pub fn create_content_queries_function(
             },
             Some(vec![read_var("dirIndex")]),
         );
-        create_statements.push(expr_stmt(query_definition_call));
+
+        if query.is_signal {
+            let query_create_fn = R3::content_query_signal();
+            let call = invoke_fn(external_expr(query_create_fn), params);
+            create_statements.push(expr_stmt(call));
+        } else {
+            // Non-signal queries are chained:
+            // r3.contentQuery(dirProp, somePredicate, true)(dirProp, someOtherPredicate, true)
+            if content_query_call.is_none() {
+                content_query_call = Some(invoke_fn(external_expr(R3::content_query()), params));
+            } else {
+                content_query_call = Some(invoke_fn(content_query_call.unwrap(), params));
+            }
+        }
 
         // Signal queries update lazily
         if query.is_signal {
@@ -383,6 +412,10 @@ pub fn create_content_queries_function(
         });
 
         update_statements.push(expr_stmt(and_expr));
+    }
+
+    if let Some(call) = content_query_call {
+        create_statements.push(expr_stmt(call));
     }
 
     let content_queries_fn_name = name.map(|n| format!("{}_ContentQueries", n));
