@@ -31,6 +31,11 @@ use angular_compiler::template::pipeline::src::phases;
 use std::any::Any;
 // use std::time::Instant;
 // use angular_compiler::constant_pool::ConstantPool as CompilerConstantPool; // Distinct from ngtsc ConstantPool if needed
+use angular_compiler::output::output_ast::{ExternalExpr, ExternalReference};
+use angular_compiler::render3::r3_factory::{
+    compile_factory_function, DepsOrInvalid, FactoryTarget, R3ConstructorFactoryMetadata,
+    R3DependencyMetadata, R3FactoryMetadata,
+};
 
 pub struct ComponentDecoratorHandler;
 
@@ -522,7 +527,7 @@ impl ComponentDecoratorHandler {
         let mut r3_metadata = R3ComponentMetadata {
             directive: R3DirectiveMetadata {
                 name: dir.t2.name.clone(),
-                type_: type_ref,
+                type_: type_ref.clone(),
                 type_argument_count: 0,
                 type_source_span: angular_compiler::parse_util::ParseSourceSpan::new(
                     angular_compiler::parse_util::ParseLocation::new(
@@ -660,6 +665,72 @@ impl ComponentDecoratorHandler {
             &mut binding_parser,
         );
 
+        // 4b. Generate Factory (ɵfac)
+        // Map constructor params to R3DependencyMetadata
+        let mut deps = Vec::new();
+        for param in &dir.constructor_params {
+            let type_name = param.type_name.clone().unwrap_or("Object".to_string());
+            let mut token_expr = if let Some(attr) = &param.attribute {
+                Expression::Literal(angular_compiler::output::output_ast::LiteralExpr {
+                    value: angular_compiler::output::output_ast::LiteralValue::String(attr.clone()),
+                    type_: None,
+                    source_span: None,
+                })
+            } else {
+                // Resolve module for type
+                let module_path = param.from_module.clone().or_else(|| {
+                    dir.file_imports
+                        .as_ref()
+                        .and_then(|m| m.get(&type_name).cloned())
+                });
+
+                if let Some(mod_path) = module_path {
+                    Expression::External(ExternalExpr {
+                        value: ExternalReference {
+                            module_name: Some(mod_path),
+                            name: Some(type_name.clone()),
+                            runtime: None,
+                        },
+                        type_: None,
+                        source_span: None,
+                    })
+                } else {
+                    Expression::ReadVar(angular_compiler::output::output_ast::ReadVarExpr {
+                        name: type_name.clone(),
+                        type_: None,
+                        source_span: None,
+                    })
+                }
+            };
+
+            deps.push(R3DependencyMetadata {
+                token: Some(token_expr),
+                attribute_name_type: param.attribute.as_ref().map(|a| {
+                    Expression::Literal(angular_compiler::output::output_ast::LiteralExpr {
+                        value: angular_compiler::output::output_ast::LiteralValue::String(
+                            a.clone(),
+                        ),
+                        type_: None,
+                        source_span: None,
+                    })
+                }),
+                host: param.host,
+                optional: param.optional,
+                self_: param.self_,
+                skip_self: param.skip_self,
+            });
+        }
+
+        let factory_metadata = R3FactoryMetadata::Constructor(R3ConstructorFactoryMetadata {
+            name: dir.t2.name.clone(),
+            type_: type_ref.clone(),
+            type_argument_count: 0,
+            deps: Some(DepsOrInvalid::Valid(deps)),
+            target: FactoryTarget::Component,
+        });
+
+        let factory_compiled = compile_factory_function(&factory_metadata);
+
         // Detect required imports based on metadata
         let mut local_manager = crate::ngtsc::translator::src::import_manager::import_manager::EmitterImportManager::new();
         let import_manager = external_import_manager.unwrap_or(&mut local_manager);
@@ -693,6 +764,15 @@ impl ComponentDecoratorHandler {
         let mut ctx = EmitterVisitorContext::create_root();
         let context: &mut dyn Any = &mut ctx;
 
+        // Visit factory expression (ɵfac)
+        factory_compiled
+            .expression
+            .visit_expression(&mut emitter, context);
+        let factory_initializer = ctx.to_source();
+
+        // Reset context for component definition
+        ctx = EmitterVisitorContext::create_root();
+        let context: &mut dyn Any = &mut ctx;
         compiled.expression.visit_expression(&mut emitter, context);
 
         let initializer = ctx.to_source();
@@ -710,15 +790,26 @@ impl ComponentDecoratorHandler {
         // For now, returning empty diagnostics as the centralized compiler doesn't return them directly in the struct yet
         let ts_diagnostics: Vec<ts::Diagnostic> = vec![];
 
-        vec![CompileResult {
-            name: "ɵcmp".to_string(),
-            initializer: Some(initializer),
-            statements: emitted_statements,
-            type_desc: "ComponentDef".to_string(),
-            deferrable_imports: None,
-            diagnostics: ts_diagnostics,
-            additional_imports,
-        }]
+        vec![
+            CompileResult {
+                name: "ɵfac".to_string(),
+                initializer: Some(factory_initializer),
+                statements: vec![],
+                type_desc: "Factory".to_string(),
+                deferrable_imports: None,
+                diagnostics: vec![],
+                additional_imports: vec![], // Imports handled by Emitter turned into import_manager
+            },
+            CompileResult {
+                name: "ɵcmp".to_string(),
+                initializer: Some(initializer),
+                statements: emitted_statements,
+                type_desc: "ComponentDef".to_string(),
+                deferrable_imports: None,
+                diagnostics: ts_diagnostics,
+                additional_imports,
+            },
+        ]
     }
 }
 

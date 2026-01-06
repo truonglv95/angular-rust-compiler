@@ -218,6 +218,8 @@ pub struct DirectiveMeta<'a> {
     pub view_queries: Vec<QueryMetadata>,
     /// Lifecycle hooks detected on the class.
     pub lifecycle: angular_compiler::render3::view::api::R3LifecycleMetadata,
+    /// File-level imports mapping (local name -> module path).
+    pub file_imports: Option<HashMap<String, String>>,
 }
 
 /// Constructor parameter metadata.
@@ -327,6 +329,7 @@ impl<'a> Default for DirectiveMeta<'a> {
             constructor_params: Vec::new(),
             view_queries: Vec::new(),
             lifecycle: angular_compiler::render3::view::api::R3LifecycleMetadata::default(),
+            file_imports: None,
         }
     }
 }
@@ -363,6 +366,7 @@ impl<'a> Clone for DirectiveMeta<'a> {
             constructor_params: self.constructor_params.clone(),
             view_queries: self.view_queries.clone(),
             lifecycle: self.lifecycle.clone(),
+            file_imports: self.file_imports.clone(),
         }
     }
 }

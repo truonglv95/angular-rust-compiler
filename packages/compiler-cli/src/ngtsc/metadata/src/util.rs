@@ -50,6 +50,7 @@ pub fn extract_directive_metadata<'a>(
         type_check: DirectiveTypeCheckMeta::default(),
         // Store the OXC decorator reference directly
         decorator: Some(decorator.node),
+        file_imports: Some(imports_map.clone()),
         ..Default::default()
     };
 

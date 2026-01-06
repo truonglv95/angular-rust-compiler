@@ -333,67 +333,72 @@ impl DirectiveDecoratorHandler {
                 // In a full implementation, we'd check dir.uses_inheritance
                 Some(DepsOrInvalid::Valid(vec![]))
             } else {
-                let dep_list: Vec<R3DependencyMetadata> =
-                    dir.constructor_params
-                        .iter()
-                        .map(|p| {
-                            let token_expr = p.type_name.as_ref().map(|type_name| match type_name
-                                .as_str()
-                            {
+                let dep_list: Vec<R3DependencyMetadata> = dir
+                    .constructor_params
+                    .iter()
+                    .map(|p| {
+                        let type_name = p.type_name.clone().unwrap_or("Object".to_string());
+                        let module_path = p
+                            .from_module
+                            .clone()
+                            .or_else(|| {
+                                dir.file_imports
+                                    .as_ref()
+                                    .and_then(|m| m.get(&type_name).cloned())
+                            })
+                            .or_else(|| match type_name.as_str() {
                                 "ElementRef" | "ChangeDetectorRef" | "Renderer2"
                                 | "ViewContainerRef" | "TemplateRef" | "Injector" => {
-                                    Expression::External(ExternalExpr {
-                                        value: ExternalReference {
-                                            module_name: Some("@angular/core".to_string()),
-                                            name: Some(type_name.clone()),
-                                            runtime: None,
-                                        },
-                                        type_: None,
-                                        source_span: None,
-                                    })
+                                    Some("@angular/core".to_string())
                                 }
                                 "NgControl" | "NgForm" | "ControlContainer" => {
-                                    Expression::External(ExternalExpr {
-                                        value: ExternalReference {
-                                            module_name: Some("@angular/forms".to_string()),
-                                            name: Some(type_name.clone()),
-                                            runtime: None,
-                                        },
-                                        type_: None,
-                                        source_span: None,
-                                    })
+                                    Some("@angular/forms".to_string())
                                 }
-                                _ => Expression::ReadVar(ReadVarExpr {
-                                    name: type_name.clone(),
-                                    type_: None,
-                                    source_span: None,
-                                }),
+                                _ => None,
                             });
 
-                            let attribute_expr = p.attribute.as_ref().map(|attr| {
-                                Expression::Literal(LiteralExpr {
-                                    value: LiteralValue::String(attr.clone()),
-                                    type_: None,
-                                    source_span: None,
-                                })
-                            });
+                        let token_expr = if let Some(mod_path) = module_path {
+                            Some(Expression::External(ExternalExpr {
+                                value: ExternalReference {
+                                    module_name: Some(mod_path),
+                                    name: Some(type_name.clone()),
+                                    runtime: None,
+                                },
+                                type_: None,
+                                source_span: None,
+                            }))
+                        } else {
+                            Some(Expression::ReadVar(ReadVarExpr {
+                                name: type_name.clone(),
+                                type_: None,
+                                source_span: None,
+                            }))
+                        };
 
-                            let token = if let Some(attr_expr) = &attribute_expr {
-                                Some(attr_expr.clone())
-                            } else {
-                                token_expr
-                            };
+                        let attribute_expr = p.attribute.as_ref().map(|attr| {
+                            Expression::Literal(LiteralExpr {
+                                value: LiteralValue::String(attr.clone()),
+                                type_: None,
+                                source_span: None,
+                            })
+                        });
 
-                            R3DependencyMetadata {
-                                token,
-                                attribute_name_type: attribute_expr,
-                                host: p.host,
-                                optional: p.optional,
-                                self_: p.self_,
-                                skip_self: p.skip_self,
-                            }
-                        })
-                        .collect();
+                        let token = if let Some(attr_expr) = &attribute_expr {
+                            Some(attr_expr.clone())
+                        } else {
+                            token_expr
+                        };
+
+                        R3DependencyMetadata {
+                            token,
+                            attribute_name_type: attribute_expr,
+                            host: p.host,
+                            optional: p.optional,
+                            self_: p.self_,
+                            skip_self: p.skip_self,
+                        }
+                    })
+                    .collect();
                 Some(DepsOrInvalid::Valid(dep_list))
             };
 
