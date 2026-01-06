@@ -1,5 +1,6 @@
 use crate::linker::ast::AstNode;
 use crate::linker::ast_value::{AstObject, AstValue};
+use crate::linker::metadata_extractor;
 use crate::linker::partial_linker::PartialLinker;
 use angular_compiler::constant_pool::ConstantPool;
 use angular_compiler::core::{ChangeDetectionStrategy, ViewEncapsulation};
@@ -29,6 +30,7 @@ impl PartialComponentLinker2 {
         meta_obj: &AstObject<TExpression>,
         source_url: &str,
         target_name: Option<&str>,
+        imports: Option<&std::collections::HashMap<String, String>>,
     ) -> Result<R3ComponentMetadata, String> {
         // DEBUG: Trace function entry
         // eprintln!("[Linker2] to_r3_component_metadata called, target_name: {:?}, source: {}", target_name, source_url);
@@ -203,7 +205,11 @@ impl PartialComponentLinker2 {
         let mut inputs = IndexMap::new();
         if meta_obj.has("inputs") {
             let inputs_obj = meta_obj.get_object("inputs")?;
-            for (key, val) in inputs_obj.to_map() {
+            let inputs_map = inputs_obj.to_map();
+            let mut keys: Vec<String> = inputs_map.keys().cloned().collect();
+            keys.sort();
+            for key in keys {
+                let val = inputs_map.get(&key).unwrap();
                 let val_ast = AstValue::new(val.clone(), meta_obj.host);
                 if val_ast.is_string() {
                     let binding_name = val_ast.get_string()?;
@@ -362,7 +368,11 @@ impl PartialComponentLinker2 {
         let mut outputs = IndexMap::new();
         if meta_obj.has("outputs") {
             let outputs_obj = meta_obj.get_object("outputs")?;
-            for (key, val) in outputs_obj.to_map() {
+            let outputs_map = outputs_obj.to_map();
+            let mut keys: Vec<String> = outputs_map.keys().cloned().collect();
+            keys.sort();
+            for key in keys {
+                let val = outputs_map.get(&key).unwrap();
                 let val_ast = AstValue::new(val.clone(), meta_obj.host);
                 if val_ast.is_string() {
                     let binding_name = val_ast.get_string()?;
@@ -380,6 +390,7 @@ impl PartialComponentLinker2 {
                 .map(|q| {
                     let q_obj = q.get_object()?;
                     let property_name = q_obj.get_string("propertyName")?;
+                    let is_signal = q_obj.get_bool("isSignal").unwrap_or(false);
                     let first = q_obj.get_bool("first").unwrap_or(false);
                     let predicate = if q_obj.has("predicate") {
                         let p = q_obj.get_value("predicate")?;
@@ -460,9 +471,7 @@ impl PartialComponentLinker2 {
                     let property_name = q_obj.get_string("propertyName")?;
                     let is_signal = q_obj.get_bool("isSignal").unwrap_or(false);
                     // DEBUG: Log view query details
-                    if property_name.contains("iconPrefix") || property_name.contains("textPrefix") {
-                        eprintln!("[Linker] Processing ViewQuery: {}, isSignal: {}", property_name, is_signal);
-                    }
+
                     let first = q_obj.get_bool("first").unwrap_or(false);
                     let predicate = if q_obj.has("predicate") {
                         let p = q_obj.get_value("predicate")?;
@@ -535,10 +544,10 @@ impl PartialComponentLinker2 {
         // Host
         let has_host = meta_obj.has("host");
         if has_host {
-            eprintln!(
-                "[Linker] Found 'host' key in metadata! Keys: {:?}",
-                meta_obj.to_map().keys().cloned().collect::<Vec<_>>()
-            );
+            // eprintln!(
+            //     "[Linker] Found 'host' key in metadata! Keys: {:?}",
+            //     meta_obj.to_map().keys().cloned().collect::<Vec<_>>()
+            // );
         }
         let host = if has_host {
             let host_obj = meta_obj.get_object("host")?;
@@ -660,8 +669,86 @@ impl PartialComponentLinker2 {
                         let kind = match kind_str.as_str() {
                             "directive" | "component" => R3TemplateDependencyKind::Directive,
                             "pipe" => R3TemplateDependencyKind::Pipe,
+                            "ngmodule" => R3TemplateDependencyKind::NgModule,
                             _ => R3TemplateDependencyKind::Directive,
                         };
+
+                        if kind == R3TemplateDependencyKind::NgModule {
+                            if let Ok(type_node) = dep_obj.get_value("type") {
+                                let type_str = meta_obj.host.print_node(&type_node.node);
+                                // Expected format: "alias.ModuleName" (e.g. "i1.MatFormFieldModule")
+                                if let Some((alias, module_class)) = type_str.split_once('.') {
+                                    if let Some(imports_map) = imports {
+                                        if let Some(module_path) = imports_map.get(alias) {
+                                            // Resolve exports
+                                            if let Some(exported_directives) =
+                                                metadata_extractor::get_module_exports(
+                                                    module_path,
+                                                    module_class,
+                                                )
+                                            {
+                                                for dir in exported_directives {
+                                                    // Construct type reference: alias.DirectiveName
+                                                    let dir_type_expr =
+                                                        o::Expression::ReadProp(o::ReadPropExpr {
+                                                            receiver: Box::new(
+                                                                o::Expression::ReadVar(
+                                                                    o::ReadVarExpr {
+                                                                        name: alias.to_string(),
+                                                                        type_: None,
+                                                                        source_span: None,
+                                                                    },
+                                                                ),
+                                                            ),
+                                                            name: dir.name.clone(),
+                                                            type_: None,
+                                                            source_span: None,
+                                                        });
+
+                                                    if dir.is_component {
+                                                        // Treat component as directive for dependency purposes
+                                                        declarations.push(
+                                                            R3TemplateDependencyMetadata::Directive(
+                                                                R3DirectiveDependencyMetadata {
+                                                                    kind: R3TemplateDependencyKind::Directive,
+                                                                    type_: dir_type_expr,
+                                                                    selector: dir.selector,
+                                                                    inputs: dir.inputs,
+                                                                    outputs: dir.outputs,
+                                                                    export_as: None, // TODO: Extract exportAs from metadata if available
+                                                                    is_component: true,
+                                                                    source_span: None,
+                                                                },
+                                                            ),
+                                                        );
+                                                    } else {
+                                                        // Check if it's a pipe (metadata extractor doesn't distinguish nicely yet,
+                                                        // but usually directives are directives.
+                                                        // TODO: Update metadata extractor to distinguish pipes?
+                                                        // For now assume directive.
+                                                        declarations.push(
+                                                            R3TemplateDependencyMetadata::Directive(
+                                                                R3DirectiveDependencyMetadata {
+                                                                    kind: R3TemplateDependencyKind::Directive,
+                                                                    type_: dir_type_expr,
+                                                                    selector: dir.selector,
+                                                                    inputs: dir.inputs,
+                                                                    outputs: dir.outputs,
+                                                                    export_as: None,
+                                                                    is_component: false,
+                                                                    source_span: None,
+                                                                },
+                                                            ),
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            continue;
+                        }
 
                         let type_node = dep_obj.get_value("type")?;
                         let type_expr = o::Expression::ReadVar(o::ReadVarExpr {
@@ -902,11 +989,12 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialComponentLinker
         meta_obj: &AstObject<TExpression>,
         source_url: &str,
         _version: &str,
-        target_name: Option<&str>,
+        _target_name: Option<&str>,
+        imports: Option<&std::collections::HashMap<String, String>>,
     ) -> o::Expression {
         // TODO: Use source_url to resolve template if needed
         // println!("[LINKER] link_partial_declaration called, source_url: {}", source_url);
-        match self.to_r3_component_metadata(meta_obj, source_url, target_name) {
+        match self.to_r3_component_metadata(meta_obj, source_url, _target_name, imports) {
             Ok(meta) => {
                 let _parser = angular_compiler::expression_parser::parser::Parser::new();
                 struct DummySchemaRegistry;

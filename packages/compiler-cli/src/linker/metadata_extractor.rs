@@ -1,34 +1,46 @@
 //! NgModule Metadata Extraction
 //!
 //! This module extracts metadata from linked JavaScript to enable dynamic
-//! NgModule resolution. When an NgModule is linked, we parse the output to
-//! extract:
-//! - NgModule exports (list of directive/pipe names)
-//! - Directive selectors, inputs, outputs, hostAttrs
-//! - Pipe names
-//!
-//! This metadata is used during template compilation to match directives
-//! from imported NgModules without hard-coding specific modules.
+//! NgModule resolution. It handles:
+//! - Parsing `ɵmod`, `ɵcmp`, `ɵdir` definitions.
+//! - Resolving re-exported directives via imports.
+//! - Supporting both `defineComponent` (Ivy) and `ngDeclareComponent` (Partial) formats.
 
 use std::collections::HashMap;
+use std::path::{Component, Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
+
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{
+    AssignmentTarget, Declaration, Expression, ObjectPropertyKind, PropertyKey, Statement,
+};
+use oxc_parser::Parser;
+use oxc_span::SourceType;
 
 /// Extracted metadata for a directive or component
 #[derive(Debug, Clone)]
 pub struct ExtractedDirective {
     pub name: String,
     pub selector: String,
+    pub export_as: Option<String>,
     pub inputs: Vec<String>,
     pub outputs: Vec<String>,
     pub host_attrs: Vec<String>,
     pub is_component: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct ExportReference {
+    pub exported_name: String,
+    pub source_path: Option<String>, // None if defined in current module
+    pub original_name: Option<String>, // If re-exported with alias or from another module
+}
+
 /// Extracted metadata for an NgModule
 #[derive(Debug, Clone)]
 pub struct ExtractedNgModule {
     pub name: String,
-    pub exports: Vec<String>,
+    pub exports: Vec<ExportReference>,
 }
 
 /// Global metadata cache, keyed by module path
@@ -54,143 +66,157 @@ pub fn get_metadata_cache() -> &'static RwLock<MetadataCache> {
     METADATA_CACHE.get_or_init(|| RwLock::new(MetadataCache::new()))
 }
 
+fn normalize_path(path: &Path) -> String {
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                components.pop();
+            }
+            c => components.push(c),
+        }
+    }
+    components
+        .iter()
+        .collect::<PathBuf>()
+        .to_string_lossy()
+        .to_string()
+}
+
 /// Extract NgModule and directive metadata from linked JavaScript code.
-/// This parses the linked output to find ɵmod and ɵcmp/ɵdir definitions.
-///
-/// # Arguments
-/// * `module_path` - The module path (e.g., "@angular/material/button")
-/// * `linked_code` - The linked JavaScript code
-///
-/// # Returns
-/// A tuple of (Vec<ExtractedNgModule>, Vec<ExtractedDirective>)
 pub fn extract_metadata_from_linked(
     module_path: &str,
     linked_code: &str,
 ) -> (Vec<ExtractedNgModule>, Vec<ExtractedDirective>) {
+    // Normalize module_path by stripping query strings (e.g., ?v=1acbc39a from Vite)
+    let normalized_module_path = module_path.split('?').next().unwrap_or(module_path);
+
+    let allocator = Allocator::default();
+    let source_type = SourceType::default().with_module(true);
+    let ret = Parser::new(&allocator, linked_code, source_type).parse();
+
     let mut modules = Vec::new();
     let mut directives = Vec::new();
 
-    // Parse patterns for NgModule exports
-    // Pattern: SomeName.ɵmod = ɵɵdefineNgModule({...exports: [Directive1, Directive2]...})
-    let ng_module_pattern =
-        regex::Regex::new(r"(\w+)\.ɵmod\s*=\s*[^(]+\(\{[^}]*exports:\s*\[([^\]]*)\]").ok();
+    // Map content: LocalName -> (SourcePath, OriginalName)
+    let mut imports: HashMap<String, (String, String)> = HashMap::new();
 
-    // Pattern: SomeName.ɵcmp = ɵɵdefineComponent({...selectors: [[...]]...})
-    // or: SomeName.ɵdir = ɵɵdefineDirective({...selectors: [[...]]...})
-    // Now we only handle array format: [["button", "mat-button", ""], ["a", "mat-button", ""]]
-    // The old string format is no longer used after fixing emit.rs and handler.rs
+    // First pass: Collect imports
+    for stmt in &ret.program.body {
+        if let Statement::ImportDeclaration(decl) = stmt {
+            let source_str = decl.source.value.as_str();
 
-    // Pattern for hostAttrs: hostAttrs: [1, "mdc-button"]
-    let host_attrs_pattern = regex::Regex::new(r#"hostAttrs:\s*\[([^\]]*)\]"#).ok();
-
-    // Parse NgModules
-    if let Some(re) = ng_module_pattern {
-        for caps in re.captures_iter(linked_code) {
-            if let (Some(name), Some(exports_str)) = (caps.get(1), caps.get(2)) {
-                let name = name.as_str().to_string();
-                let exports: Vec<String> = exports_str
-                    .as_str()
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect();
-
-                if !exports.is_empty() {
-                    modules.push(ExtractedNgModule { name, exports });
+            // Resolve absolute path if relative
+            let resolved_path = if source_str.starts_with('.') {
+                if let Some(parent) = Path::new(module_path).parent() {
+                    let p = parent.join(source_str);
+                    normalize_path(&p)
+                } else {
+                    source_str.to_string()
                 }
-            }
-        }
-    }
+            } else {
+                source_str.to_string()
+            };
 
-    // Parse Directives/Components
-    // Use a more robust approach: find directive definitions and manually extract selectors
-    let directive_name_pattern = regex::Regex::new(r#"(\w+)\.(ɵcmp|ɵdir)\s*="#).ok();
-
-    if let Some(name_re) = directive_name_pattern {
-        for caps in name_re.captures_iter(linked_code) {
-            if let (Some(name_match), Some(kind_match)) = (caps.get(1), caps.get(2)) {
-                let name = name_match.as_str().to_string();
-                let is_component = kind_match.as_str() == "ɵcmp";
-
-                // Find the selectors: [[...]] pattern for this directive
-                // Search from the directive definition
-                let directive_start = name_match.start();
-                let search_start = directive_start;
-                let search_end = std::cmp::min(search_start + 5000, linked_code.len());
-                let search_range = &linked_code[search_start..search_end];
-
-                // Look for selectors: [[ pattern
-                // Format: selectors: [["button", "mat-button", ""], ["a", "mat-button", ""]]
-                if let Some(selectors_pos) = search_range.find("selectors:") {
-                    let after_selectors = &search_range[selectors_pos..];
-
-                    // Find the opening [
-                    if let Some(open_pos) = after_selectors.find('[') {
-                        let after_open = &after_selectors[open_pos + 1..];
-
-                        // Find the closing ] for the entire selectors array
-                        // We need to match all nested arrays: [[...], [...], ...]
-                        let mut bracket_count = 1; // Start at 1 because we found the opening [
-                        let mut found_closing = false;
-                        let mut end_pos = 0;
-
-                        for (i, ch) in after_open.char_indices() {
-                            match ch {
-                                '[' => bracket_count += 1,
-                                ']' => {
-                                    bracket_count -= 1;
-                                    if bracket_count == 0 {
-                                        end_pos = i;
-                                        found_closing = true;
-                                        break;
-                                    }
-                                }
-                                _ => {}
-                            }
+            if let Some(specifiers) = &decl.specifiers {
+                for spec in specifiers {
+                    match spec {
+                        oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(s) => {
+                            let imported_name = s.imported.name().as_str().to_string();
+                            let local_name = s.local.name.as_str().to_string();
+                            imports.insert(local_name, (resolved_path.clone(), imported_name));
                         }
-
-                        if found_closing {
-                            let selectors_array_str = &after_open[..end_pos];
-                            // Parse the entire selectors array: [["button", "mat-button", ""], ["a", "mat-button", ""]]
-                            let selector = parse_selectors_array(selectors_array_str);
-
-                            // eprintln!("DEBUG: [metadata_extractor] Extracted selector for {}: '{}' (from raw: '{}')", name, selector, selectors_array_str);
-
-                            // Extract hostAttrs for this directive
-                            let host_attrs = extract_host_attrs_for_class(
-                                &name,
-                                linked_code,
-                                &host_attrs_pattern,
-                            );
-
-                            if !selector.is_empty() {
-                                directives.push(ExtractedDirective {
-                                    name,
-                                    selector,
-                                    inputs: vec![],
-                                    outputs: vec![],
-                                    host_attrs,
-                                    is_component,
-                                });
-                            }
+                        oxc_ast::ast::ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => {
+                            let local_name = s.local.name.as_str().to_string();
+                            imports
+                                .insert(local_name, (resolved_path.clone(), "default".to_string()));
                         }
+                        _ => {}
                     }
                 }
             }
         }
     }
 
+    // Second pass: Process definitions
+    for stmt in &ret.program.body {
+        match stmt {
+            Statement::ExportNamedDeclaration(decl) => {
+                if let Some(Declaration::ClassDeclaration(class_decl)) = &decl.declaration {
+                    process_class_declaration(class_decl, &mut modules, &mut directives, &imports);
+                }
+            }
+            Statement::ClassDeclaration(class_decl) => {
+                process_class_declaration(class_decl, &mut modules, &mut directives, &imports);
+            }
+            Statement::ExpressionStatement(expr_stmt) => {
+                if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
+                    if let AssignmentTarget::StaticMemberExpression(member) = &assign.left {
+                        if let Expression::Identifier(obj_ident) = &member.object {
+                            let class_name = obj_ident.name.to_string();
+                            let key_name = member.property.name.as_str();
+                            eprintln!(
+                                "[Metadata] Visiting static member: {}.{}",
+                                class_name, key_name
+                            );
+                            process_definition(
+                                &class_name,
+                                key_name,
+                                &assign.right,
+                                &mut modules,
+                                &mut directives,
+                                &imports,
+                            );
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     // Store in cache
     if !modules.is_empty() || !directives.is_empty() {
+        // Debug logging
+        #[cfg(not(test))]
+        {
+            // Only log relevant Angular Material modules to avoid noise
+            if module_path.contains("@angular/material") {
+                eprintln!("[Rust] Processed module: {}", module_path);
+                for m in &modules {
+                    eprintln!("[Rust]   Extracted NgModule: {}", m.name);
+                    for e in &m.exports {
+                        eprintln!(
+                            "[Rust]     Export: {} (Source: {:?})",
+                            e.exported_name, e.source_path
+                        );
+                    }
+                }
+                for d in &directives {
+                    eprintln!(
+                        "[Rust]   Extracted Directive: {} (Selector: {})",
+                        d.name, d.selector
+                    );
+                }
+
+                // Log if we found MatLabel
+                if directives.iter().any(|d| d.selector == "mat-label") {
+                    eprintln!("[Rust]   !!! FOUND MatLabel DIRECTIVE !!!");
+                }
+            }
+        }
+
         if let Ok(mut cache) = get_metadata_cache().write() {
             for module in &modules {
-                cache
-                    .modules
-                    .insert(format!("{}:{}", module_path, module.name), module.clone());
+                cache.modules.insert(
+                    format!("{}:{}", normalized_module_path, module.name),
+                    module.clone(),
+                );
             }
             for directive in &directives {
                 cache.directives.insert(
-                    format!("{}:{}", module_path, directive.name),
+                    format!("{}:{}", normalized_module_path, directive.name),
                     directive.clone(),
                 );
             }
@@ -200,84 +226,233 @@ pub fn extract_metadata_from_linked(
     (modules, directives)
 }
 
-/// Parse selectors array from JavaScript: [["button", "mat-button", ""], ["a", "mat-button", ""]]
-/// Returns a single selector string: "button[mat-button], a[mat-button]"
-fn parse_selectors_array(selectors_array_str: &str) -> String {
-    let trimmed = selectors_array_str.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-
-    let mut selector_strings = Vec::new();
-    let mut current_pos = 0;
-
-    // Parse each selector array: ["button", "mat-button", ""]
-    while current_pos < trimmed.len() {
-        // Find the next [
-        if let Some(open_pos) = trimmed[current_pos..].find('[') {
-            let array_start = current_pos + open_pos + 1;
-            let after_open = &trimmed[array_start..];
-
-            // Find the matching ]
-            let mut bracket_count = 1;
-            let mut found_closing = false;
-            let mut end_pos = 0;
-
-            for (i, ch) in after_open.char_indices() {
-                match ch {
-                    '[' => bracket_count += 1,
-                    ']' => {
-                        bracket_count -= 1;
-                        if bracket_count == 0 {
-                            end_pos = i;
-                            found_closing = true;
-                            break;
+fn process_class_declaration(
+    class_decl: &oxc_ast::ast::Class,
+    modules: &mut Vec<ExtractedNgModule>,
+    directives: &mut Vec<ExtractedDirective>,
+    imports: &HashMap<String, (String, String)>,
+) {
+    if let Some(ident) = &class_decl.id {
+        let class_name = ident.name.to_string();
+        for elem in &class_decl.body.body {
+            if let oxc_ast::ast::ClassElement::PropertyDefinition(prop) = elem {
+                if prop.r#static {
+                    if let PropertyKey::StaticIdentifier(key) = &prop.key {
+                        let key_name = key.name.as_str();
+                        eprintln!(
+                            "[Metadata] Visiting class property: {}.{}",
+                            class_name, key_name
+                        );
+                        if let Some(value) = &prop.value {
+                            process_definition(
+                                &class_name,
+                                key_name,
+                                value,
+                                modules,
+                                directives,
+                                imports,
+                            );
                         }
                     }
-                    _ => {}
                 }
             }
+        }
+    }
+}
 
-            if found_closing {
-                let selector_array_str = &after_open[..end_pos];
-                let selector = parse_single_selector_array(selector_array_str);
-                if !selector.is_empty() {
-                    selector_strings.push(selector);
+fn process_definition(
+    class_name: &str,
+    prop_name: &str,
+    value: &Expression,
+    modules: &mut Vec<ExtractedNgModule>,
+    directives: &mut Vec<ExtractedDirective>,
+    imports: &HashMap<String, (String, String)>,
+) {
+    if prop_name == "ɵmod" {
+        // NgModule
+        if let Some(exports) = extract_ng_module_exports(value, imports) {
+            modules.push(ExtractedNgModule {
+                name: class_name.to_string(),
+                exports,
+            });
+        }
+    } else if prop_name == "ɵcmp" || prop_name == "ɵdir" {
+        // Component or Directive
+        if let Some((selector, export_as, host_attrs)) = extract_directive_metadata(value) {
+            directives.push(ExtractedDirective {
+                name: class_name.to_string(),
+                selector,
+                export_as,
+                inputs: vec![],
+                outputs: vec![],
+                host_attrs,
+                is_component: prop_name == "ɵcmp",
+            });
+        }
+    }
+}
+
+fn extract_ng_module_exports(
+    expr: &Expression,
+    imports: &HashMap<String, (String, String)>,
+) -> Option<Vec<ExportReference>> {
+    // Looks for exports: [...] in ObjectExpression of ɵɵdefineNgModule or ɵɵngDeclareNgModule
+    if let Expression::CallExpression(call) = expr {
+        if let Some(arg) = call.arguments.first() {
+            if let oxc_ast::ast::Argument::ObjectExpression(obj) = arg {
+                for prop in &obj.properties {
+                    if let ObjectPropertyKind::ObjectProperty(p) = prop {
+                        if let PropertyKey::StaticIdentifier(key) = &p.key {
+                            if key.name == "exports" {
+                                if let Expression::ArrayExpression(arr) = &p.value {
+                                    let mut exports = Vec::new();
+                                    for elem in &arr.elements {
+                                        if let oxc_ast::ast::ArrayExpressionElement::Identifier(
+                                            ident,
+                                        ) = elem
+                                        {
+                                            let local_name = ident.name.to_string();
+                                            if let Some((source, original)) =
+                                                imports.get(&local_name)
+                                            {
+                                                // Re-exported import
+                                                exports.push(ExportReference {
+                                                    exported_name: local_name,
+                                                    source_path: Some(source.clone()),
+                                                    original_name: Some(original.clone()),
+                                                });
+                                            } else {
+                                                // Local definition
+                                                exports.push(ExportReference {
+                                                    exported_name: local_name,
+                                                    source_path: None,
+                                                    original_name: None,
+                                                });
+                                            }
+                                        }
+                                    }
+                                    return Some(exports);
+                                }
+                            }
+                        }
+                    }
                 }
-                current_pos = array_start + end_pos + 1;
-            } else {
-                break;
             }
-        } else {
-            break;
+        }
+    }
+    None
+}
+
+fn extract_directive_metadata(expr: &Expression) -> Option<(String, Option<String>, Vec<String>)> {
+    let mut selector = String::new();
+    let mut export_as = None;
+    let mut host_attrs = Vec::new();
+
+    eprintln!(
+        "[Metadata]   Extracting metadata from expression: {:?}",
+        expr
+    );
+    if let Expression::CallExpression(call) = expr {
+        if let Some(arg) = call.arguments.first() {
+            eprintln!("[Metadata]     First argument type: {:?}", arg);
+            if let oxc_ast::ast::Argument::ObjectExpression(obj) = arg {
+                for prop in &obj.properties {
+                    if let ObjectPropertyKind::ObjectProperty(p) = prop {
+                        if let PropertyKey::StaticIdentifier(key) = &p.key {
+                            eprintln!("[Metadata]       Found property: {}", key.name);
+                            if key.name == "selectors" {
+                                // JIT/Ivy Component format: selectors: [["tag", ...]]
+                                if let Expression::ArrayExpression(arr) = &p.value {
+                                    selector = parse_selectors_array_ast(arr);
+                                }
+                            } else if key.name == "selector" {
+                                // ngDeclareDirective format (Partial): selector: "tag"
+                                if let Expression::StringLiteral(lit) = &p.value {
+                                    selector = lit.value.to_string();
+                                }
+                            } else if key.name == "exportAs" {
+                                if let Expression::StringLiteral(lit) = &p.value {
+                                    export_as = Some(lit.value.to_string());
+                                    eprintln!(
+                                        "[Metadata]         Matched exportAs: {:?}",
+                                        export_as
+                                    );
+                                } else if let Expression::ArrayExpression(arr) = &p.value {
+                                    let mut names = Vec::new();
+                                    for elem in &arr.elements {
+                                        if let Some(expr) = elem.as_expression() {
+                                            if let Some(val) = extract_string_value(expr) {
+                                                names.push(val);
+                                            }
+                                        }
+                                    }
+                                    if !names.is_empty() {
+                                        export_as = Some(names.join(","));
+                                        eprintln!(
+                                            "[Metadata]         Matched exportAs (array): {:?}",
+                                            export_as
+                                        );
+                                    }
+                                }
+                            } else if key.name == "hostAttrs" {
+                                if let Expression::ArrayExpression(arr) = &p.value {
+                                    host_attrs = parse_host_attrs_ast(arr);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
-    selector_strings.join(", ")
+    if selector.is_empty() {
+        None
+    } else {
+        Some((selector, export_as, host_attrs))
+    }
 }
 
-/// Parse a single selector array: "button", "mat-button", ""
-/// Returns: "button[mat-button]"
-fn parse_single_selector_array(selector_array_str: &str) -> String {
-    let parts: Vec<&str> = selector_array_str
-        .split(',')
-        .map(|s| s.trim().trim_matches('"').trim_matches('\''))
-        .filter(|s| !s.is_empty())
-        .collect();
+fn parse_selectors_array_ast(arr: &oxc_ast::ast::ArrayExpression) -> String {
+    let mut parts = Vec::new();
+    eprintln!(
+        "[Metadata]   Parsing selectors array. Elements: {}",
+        arr.elements.len()
+    );
+    for elem in &arr.elements {
+        if let Some(expr) = elem.as_expression() {
+            if let oxc_ast::ast::Expression::ArrayExpression(inner_arr) = expr {
+                let s = parse_single_selector_array_ast(inner_arr);
+                if !s.is_empty() {
+                    parts.push(s);
+                }
+            }
+        }
+    }
+    let res = parts.join(", ");
+    eprintln!("[Metadata]   Parsed selectors: {}", res);
+    res
+}
 
-    if parts.is_empty() {
+fn parse_single_selector_array_ast(arr: &oxc_ast::ast::ArrayExpression) -> String {
+    let mut str_parts = Vec::new();
+    for elem in &arr.elements {
+        if let oxc_ast::ast::ArrayExpressionElement::StringLiteral(lit) = elem {
+            str_parts.push(lit.value.as_str());
+        }
+    }
+
+    if str_parts.is_empty() {
         return String::new();
     }
 
-    // First part is tag name, rest are attribute pairs (name, value)
-    let tag = parts[0];
+    let tag = str_parts[0];
     let mut attrs = Vec::new();
 
-    // Attributes come in pairs: [name, value, name, value, ...]
-    for i in (1..parts.len()).step_by(2) {
-        let attr_name = parts[i];
-        let attr_value = if i + 1 < parts.len() {
-            parts[i + 1]
+    for i in (1..str_parts.len()).step_by(2) {
+        let attr_name = str_parts[i];
+        let attr_value = if i + 1 < str_parts.len() {
+            str_parts[i + 1]
         } else {
             ""
         };
@@ -298,35 +473,14 @@ fn parse_single_selector_array(selector_array_str: &str) -> String {
     }
 }
 
-/// Extract hostAttrs for a specific class from the linked code
-fn extract_host_attrs_for_class(
-    class_name: &str,
-    linked_code: &str,
-    pattern: &Option<regex::Regex>,
-) -> Vec<String> {
-    // Find the class definition block and extract hostAttrs
-    // This is a simplified extraction - in practice we'd use AST parsing
-
-    let class_marker = format!("{}.ɵcmp", class_name);
-    if let Some(start) = linked_code.find(&class_marker) {
-        // Find the hostAttrs within a reasonable range
-        let search_range = &linked_code[start..std::cmp::min(start + 2000, linked_code.len())];
-
-        if let Some(re) = pattern {
-            if let Some(caps) = re.captures(search_range) {
-                if let Some(attrs) = caps.get(1) {
-                    return attrs
-                        .as_str()
-                        .split(',')
-                        .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                }
-            }
+fn parse_host_attrs_ast(arr: &oxc_ast::ast::ArrayExpression) -> Vec<String> {
+    let mut attrs = Vec::new();
+    for elem in &arr.elements {
+        if let oxc_ast::ast::ArrayExpressionElement::StringLiteral(lit) = elem {
+            attrs.push(lit.value.to_string());
         }
     }
-
-    vec![]
+    attrs
 }
 
 /// Look up an NgModule's exported directives from the cache
@@ -337,11 +491,22 @@ pub fn get_module_exports(module_path: &str, module_name: &str) -> Option<Vec<Ex
         .get(&format!("{}:{}", module_path, module_name))?;
 
     let mut result = Vec::new();
-    for export_name in &module.exports {
-        if let Some(directive) = cache
-            .directives
-            .get(&format!("{}:{}", module_path, export_name))
-        {
+    for export in &module.exports {
+        let lookup_path = export.source_path.as_deref().unwrap_or(module_path);
+        let lookup_name = export
+            .original_name
+            .as_deref()
+            .unwrap_or(&export.exported_name);
+
+        let key = format!("{}:{}", lookup_path, lookup_name);
+
+        // Debug
+        #[cfg(not(test))]
+        if module_path.contains("@angular/material") {
+            // eprintln!("[Rust]   Looking up export {} -> key {}", export.exported_name, key);
+        }
+
+        if let Some(directive) = cache.directives.get(&key) {
             result.push(directive.clone());
         }
     }
@@ -366,50 +531,152 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_single_selector_array() {
-        assert_eq!(
-            parse_single_selector_array(r#""button", "mat-button", """#),
-            "button[mat-button]"
-        );
-        assert_eq!(parse_single_selector_array(r#""div""#), "div");
-    }
-
-    #[test]
-    fn test_parse_selectors_array() {
-        assert_eq!(
-            parse_selectors_array(r#"["button", "mat-button", ""], ["a", "mat-button", ""]"#),
-            "button[mat-button], a[mat-button]"
-        );
-        assert_eq!(
-            parse_selectors_array(
-                r#"["button", "matButton", ""], ["a", "matButton", ""], ["button", "mat-button", ""]"#
-            ),
-            "button[matButton], a[matButton], button[mat-button]"
-        );
-    }
-
-    #[test]
-    fn test_extract_metadata_from_linked() {
+    fn test_extract_metadata_from_ast() {
         let code = r#"
-            MatButtonModule.ɵmod = ɵɵdefineNgModule({
-                type: MatButtonModule,
-                exports: [MatButton, MatFabButton]
-            });
+            class MatButtonModule {
+                static ɵmod = ɵɵdefineNgModule({
+                    type: MatButtonModule,
+                    exports: [MatButton, MatFabButton]
+                });
+            }
             
-            MatButton.ɵcmp = ɵɵdefineComponent({
-                selectors: [["button", "mat-button", ""]],
-                hostAttrs: [1, "mdc-button"]
-            });
+            class MatButton {
+                static ɵcmp = ɵɵdefineComponent({
+                    selectors: [["button", "mat-button", ""]],
+                    exportAs: "matButton",
+                    hostAttrs: [1, "my-class"]
+                });
+            }
         "#;
 
         let (modules, directives) = extract_metadata_from_linked("@angular/material/button", code);
 
         assert_eq!(modules.len(), 1);
         assert_eq!(modules[0].name, "MatButtonModule");
-        assert!(modules[0].exports.contains(&"MatButton".to_string()));
+        // Check exports (local refs)
+        assert!(modules[0]
+            .exports
+            .iter()
+            .any(|e| e.exported_name == "MatButton" && e.source_path.is_none()));
 
         assert_eq!(directives.len(), 1);
-        assert_eq!(directives[0].name, "MatButton");
-        assert_eq!(directives[0].selector, "button[mat-button]");
+        let dir = &directives[0];
+        assert_eq!(dir.name, "MatButton");
+        assert_eq!(dir.selector, "button[mat-button]");
+        assert_eq!(dir.export_as, Some("matButton".to_string()));
+        assert_eq!(dir.host_attrs, vec!["my-class".to_string()]);
+    }
+
+    #[test]
+    fn test_extract_metadata_with_array_export_as() {
+        let allocator = Allocator::default();
+        let program = Parser::new(
+            &allocator,
+            r#"
+            ɵɵngDeclareComponent({
+                minVersion: "14.0.0",
+                version: "15.0.0",
+                ngImport: i0,
+                type: MyComponent,
+                isStandalone: true,
+                selector: "div[my-dir]",
+                exportAs: ["dir1", "dir2"],
+            });
+        "#,
+            SourceType::default(),
+        )
+        .parse()
+        .program;
+
+        let mut directives = Vec::new();
+        let mut modules = Vec::new();
+        let imports = std::collections::HashMap::new();
+
+        for stmt in &program.body {
+            if let Statement::ExpressionStatement(expr_stmt) = stmt {
+                if let Expression::CallExpression(call) = &expr_stmt.expression {
+                    if let Expression::Identifier(_) = &call.callee {
+                        process_definition(
+                            "MyComponent",
+                            "ɵcmp",
+                            &expr_stmt.expression,
+                            &mut modules,
+                            &mut directives,
+                            &imports,
+                        );
+                    }
+                }
+            }
+        }
+
+        assert_eq!(directives.len(), 1);
+        let dir = &directives[0];
+        assert_eq!(dir.export_as, Some("dir1,dir2".to_string()));
+    }
+
+    #[test]
+    fn test_extract_ng_declare_directive() {
+        let code = r#"
+            class MatLabel {
+              static ɵdir = i0.ɵɵngDeclareDirective({
+                minVersion: "14.0.0",
+                version: "21.0.3",
+                type: MatLabel,
+                isStandalone: true,
+                selector: "mat-label",
+                ngImport: i0
+              });
+            }
+        "#;
+        let (modules, directives) = extract_metadata_from_linked("any", code);
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].name, "MatLabel");
+        assert_eq!(directives[0].selector, "mat-label");
+    }
+
+    #[test]
+    fn test_extract_re_export() {
+        let code = r#"
+            import { MatLabel } from './_form-field-chunk.mjs';
+            class MatFormFieldModule {
+                static ɵmod = i0.ɵɵngDeclareNgModule({
+                    type: MatFormFieldModule,
+                    exports: [MatLabel]
+                });
+            }
+        "#;
+        // Mock absolute path (using / for test)
+        let module_path = "/root/node_modules/material/form-field.mjs";
+        let (modules, directives) = extract_metadata_from_linked(module_path, code);
+
+        assert_eq!(modules.len(), 1);
+        let export = &modules[0].exports[0];
+        assert_eq!(export.exported_name, "MatLabel");
+
+        // Path normalization in test (mock fs is strict, but our normalize_path is simple string manip)
+        // /root/node_modules/material + ./_form-field-chunk.mjs -> /root/node_modules/material/_form-field-chunk.mjs
+        assert_eq!(
+            export.source_path,
+            Some("/root/node_modules/material/_form-field-chunk.mjs".to_string())
+        );
+        assert_eq!(export.original_name, Some("MatLabel".to_string()));
+    }
+}
+
+/// Helper to extract string value from Expression (StringLiteral or TemplateLiteral)
+fn extract_string_value(expr: &oxc_ast::ast::Expression) -> Option<String> {
+    use oxc_ast::ast::Expression;
+    match expr {
+        Expression::StringLiteral(s) => Some(s.value.to_string()),
+        Expression::TemplateLiteral(t) => {
+            // Join all quasis into a single string.
+            // Note: We ignore expressions in template literals as they're not common in Angular templates/selectors
+            let mut result = String::new();
+            for quasi in &t.quasis {
+                result.push_str(&quasi.value.raw);
+            }
+            Some(result)
+        }
+        _ => None,
     }
 }

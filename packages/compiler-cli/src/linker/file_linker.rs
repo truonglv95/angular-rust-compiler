@@ -78,8 +78,14 @@ where
 
         let mut constant_pool = ConstantPool::new(false); // Mock Constant Pool (needs implementation or passing in)
 
-        let _definition =
-            linker.link_partial_declaration(&mut constant_pool, &obj, source_url, "0.0.0", None);
+        let _definition = linker.link_partial_declaration(
+            &mut constant_pool,
+            &obj,
+            source_url,
+            "0.0.0",
+            None,
+            None,
+        );
 
         // Translate definition (output AST) to native AST using environment.translator?
         // Since we don't have translator instance yet, we stub.

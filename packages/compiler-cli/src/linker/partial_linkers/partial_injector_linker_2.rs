@@ -22,6 +22,7 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialInjectorLinker2
         _source_url: &str,
         _version: &str,
         _target_name: Option<&str>,
+        _imports: Option<&std::collections::HashMap<String, String>>,
     ) -> o::Expression {
         // Extract type
         let type_expr = match meta_obj.get_value("type") {

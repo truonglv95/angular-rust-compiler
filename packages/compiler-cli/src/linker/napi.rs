@@ -20,13 +20,27 @@ use oxc_span::SourceType;
 
 #[napi]
 pub fn link_file(source_code: String, filename: String) -> Result<String> {
+    eprintln!("[Linker NAPI Debug] link_file: {}", filename);
     let allocator = Allocator::default();
-    let source_type = SourceType::from_path(&filename).unwrap_or_default();
+    let clean_filename = filename.split('?').next().unwrap_or(&filename);
+    let source_type = SourceType::from_path(clean_filename).unwrap_or_default();
 
     let parser = Parser::new(&allocator, &source_code, source_type);
     let ret = parser.parse();
 
     if !ret.errors.is_empty() {
+        let mut log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/linker.log")
+            .unwrap();
+        writeln!(
+            log_file,
+            "Parse error in {}: {:?}",
+            filename,
+            ret.errors.first().unwrap()
+        )
+        .unwrap();
         return Err(Error::new(
             Status::GenericFailure,
             format!("Parse error: {:?}", ret.errors.first().unwrap()),
@@ -36,7 +50,9 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
     let program = ret.program;
 
     // Collect imports
-    let mut imports = HashMap::new();
+    let mut imports = HashMap::new(); // module -> alias
+    let mut alias_imports = HashMap::new(); // alias -> module
+
     for stmt in &program.body {
         if let ast::Statement::ImportDeclaration(decl) = stmt {
             if let Some(specifiers) = &decl.specifiers {
@@ -45,6 +61,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                         let module = decl.source.value.as_str();
                         let alias = ns.local.name.as_str();
                         imports.insert(module.to_string(), alias.to_string());
+                        alias_imports.insert(alias.to_string(), module.to_string());
                     }
                 }
             }
@@ -58,13 +75,16 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
         replacements: Vec<(u32, u32, String)>,
         errors: Vec<String>,
         imports: HashMap<String, String>,
+        alias_imports: HashMap<String, String>, // New field: alias -> module
         source_url: &'a str,
+        logs: Vec<String>,
     }
 
     impl<'a> LinkerVisitor<'a> {
         fn new(
             source_code: &'a str,
             imports: HashMap<String, String>,
+            alias_imports: HashMap<String, String>,
             source_url: &'a str,
         ) -> Self {
             Self {
@@ -73,7 +93,9 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                 replacements: Vec::new(),
                 errors: Vec::new(),
                 imports,
+                alias_imports,
                 source_url,
+                logs: Vec::new(),
             }
         }
 
@@ -548,6 +570,15 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
             }
 
             if let Some(n) = name {
+                {
+                    use std::io::Write;
+                    let mut f = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("/tmp/linker.log")
+                        .unwrap();
+                    writeln!(f, "[DEBUG] Visiting Call: {}", n).unwrap();
+                }
                 // Handle __decorate calls (JIT/Decorator transformation)
                 if n == "__decorate" || n == "_ts_decorate" {
                     if expr.arguments.len() >= 2 {
@@ -613,6 +644,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                                                         self.source_url,
                                                                         "0.0.0",
                                                                         Some(target_name),
+                                                                        Some(&self.alias_imports),
                                                                     );
 
                                                                 let js_code = if constant_pool
@@ -684,6 +716,12 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                                                 self.replacements.push((
                                                                     span.end, span.end, assignment,
                                                                 ));
+
+                                                                {
+                                                                    use std::io::Write;
+                                                                    let mut f = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/linker_debug.log").unwrap();
+                                                                    writeln!(f, "Linked Decorator {} on '{}' -> {}", d_name, target_name, field_name).unwrap();
+                                                                }
                                                             }
                                                             Err(e) => {
                                                                 self.errors.push(format!("Failed to parse metadata for {}: {}", d_name, e));
@@ -720,13 +758,14 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                     let linker = self.selector.get_linker(n, "0.0.0", "0.0.0");
                                     let mut constant_pool = ConstantPool::new(false);
 
-                                    // Link partial declaration
+                                    // Link!
                                     let result_expr = linker.link_partial_declaration(
                                         &mut constant_pool,
                                         &obj,
                                         self.source_url,
-                                        "0.0.0",
+                                        "0.0.0", // TODO: version
                                         None,
+                                        Some(&self.alias_imports),
                                     );
 
                                     // Emit JS
@@ -744,7 +783,26 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                     // println!("[Rust Linker] Linked Partial Declaration {} -> {:.100}...", n, js_code);
 
                                     let span = expr.span;
-                                    self.replacements.push((span.start, span.end, js_code));
+                                    let span = expr.span;
+                                    self.replacements
+                                        .push((span.start, span.end, js_code.clone()));
+                                    eprintln!("[Rust Linker] HIT ɵɵngDeclare: {}", n);
+                                    self.logs.push(format!("Linked Partial Declaration {}", n));
+                                    {
+                                        use std::io::Write;
+                                        if let Ok(mut f) = std::fs::OpenOptions::new()
+                                            .create(true)
+                                            .append(true)
+                                            .open("/tmp/linker_debug.log")
+                                        {
+                                            writeln!(
+                                                f,
+                                                "Linked Partial Declaration {} -> {}",
+                                                n, js_code
+                                            )
+                                            .unwrap();
+                                        }
+                                    }
                                 }
                                 Err(e) => {
                                     self.errors
@@ -776,10 +834,15 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
         .append(true)
         .open("/tmp/linker.log")
         .unwrap();
-    writeln!(log_file, "Linking file: {}", filename).unwrap();
+    writeln!(
+        log_file,
+        "Linking file: {} (original: {})",
+        clean_filename, filename
+    )
+    .unwrap();
     // writeln!(log_file, "Source prefix: {:.100}", source_code).unwrap();
 
-    let mut visitor = LinkerVisitor::new(&source_code, imports, &filename);
+    let mut visitor = LinkerVisitor::new(&source_code, imports, alias_imports, &filename);
     visitor.visit_program(&program);
 
     if !visitor.errors.is_empty() {
@@ -788,6 +851,13 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
             Status::GenericFailure,
             visitor.errors.join("\n"),
         ));
+    }
+
+    if !visitor.logs.is_empty() {
+        writeln!(log_file, "Logs:").unwrap();
+        for log in visitor.logs {
+            writeln!(log_file, "  - {}", log).unwrap();
+        }
     }
 
     writeln!(
@@ -808,14 +878,15 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
         result_code.replace_range((start as usize)..(end as usize), &new_text);
     }
 
+    if result_code.contains("MatFormField") && !filename.contains(".html") {
+        let mut f = std::fs::File::create("/tmp/mat_form_field_linked.js").unwrap();
+        std::io::Write::write_all(&mut f, result_code.as_bytes()).unwrap();
+    }
+
     // Extract NgModule and directive metadata from linked code for later use
     // This enables dynamic resolution of NgModule exports during template compilation
     if had_replacements {
-        let module_path = if filename.contains("@angular/") {
-            filename.split("node_modules/").last().unwrap_or(&filename)
-        } else {
-            &filename
-        };
+        let module_path = clean_filename;
         let (modules, directives) = crate::linker::metadata_extractor::extract_metadata_from_linked(
             module_path,
             &result_code,

@@ -25,6 +25,7 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialFactoryLinker2 
         _source_url: &str,
         _version: &str,
         _target_name: Option<&str>,
+        _imports: Option<&std::collections::HashMap<String, String>>,
     ) -> o::Expression {
         // Extract type
         let type_expr = match meta_obj.get_value("type") {
@@ -40,7 +41,7 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialFactoryLinker2 
 
         let type_str = meta_obj.host.print_node(&type_expr);
         let wrapped_type = o::Expression::ReadVar(o::ReadVarExpr {
-            name: type_str,
+            name: type_str.clone(),
             type_: None,
             source_span: None,
         });
@@ -161,8 +162,11 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialFactoryLinker2 
             None
         };
 
+        // Extract simple class name from type_str (e.g. "i0.MyComponent" -> "MyComponent")
+        let simple_name = type_str.split('.').last().unwrap_or(&type_str).to_string();
+
         let meta = R3FactoryMetadata::Constructor(R3ConstructorFactoryMetadata {
-            name: "Factory".to_string(), // TODO: extract name from type string
+            name: simple_name,
             type_: type_ref,
             type_argument_count: 0,
             deps,

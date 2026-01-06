@@ -13,5 +13,6 @@ pub trait PartialLinker<TExpression: AstNode> {
         source_url: &str,
         version: &str,
         target_name: Option<&str>,
+        imports: Option<&std::collections::HashMap<String, String>>,
     ) -> o::Expression;
 }
