@@ -141,14 +141,11 @@ impl AbstractJsEmitterVisitor {
     fn emit_external_expr(&mut self, expr: &o::ExternalExpr, ctx: &mut EmitterVisitorContext) {
         let ref_expr = &expr.value;
         if let Some(module_name) = &ref_expr.module_name {
+            self.used_imports.insert(module_name.clone());
             if module_name == "@angular/core" {
                 ctx.print(Some(expr), "i0.", false);
             } else if let Some(alias) = self.imports.get(module_name) {
-                self.used_imports.insert(module_name.clone());
                 ctx.print(Some(expr), alias, false);
-                ctx.print(Some(expr), ".", false);
-            } else {
-                ctx.print(Some(expr), module_name, false);
                 ctx.print(Some(expr), ".", false);
             }
         }
