@@ -21,6 +21,11 @@ export const routes: Routes = [
     component: AutocompleteTestComponent,
   },
   {
+    path: 'card',
+    loadComponent: () =>
+      import('./src/components/materials/card/card').then((m) => m.CardTestComponent),
+  },
+  {
     path: 'input',
     component: InputTestComponent,
   },

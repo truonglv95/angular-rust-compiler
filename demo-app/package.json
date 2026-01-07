@@ -3,11 +3,12 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve",
+    "start:ngtsc": "ng serve",
+    "start": "node serve.mjs",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "dev": "rspack serve",
+    "dev": "node serve.mjs",
     "vite": "vite",
     "vite:rolldown": "node node_modules/rolldown-vite/bin/vite.js"
   },
