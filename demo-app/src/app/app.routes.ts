@@ -6,6 +6,7 @@ import { BottomSheetTestComponent } from './src/components/materials/bottom-shee
 import { ButtonToggleOverviewExample } from './src/components/materials/button-toggle/button-toggle';
 import { BadgeOverviewExample } from './src/components/materials/badge/badge';
 import { DialogTestComponent } from './src/components/materials/dialog/dialog';
+import { DividerTestComponent } from './src/components/materials/divider/divider';
 import { CategoriesComponent } from './src/components/categories/categories';
 
 export const routes: Routes = [
@@ -62,6 +63,10 @@ export const routes: Routes = [
   {
     path: 'dialog',
     component: DialogTestComponent,
+  },
+  {
+    path: 'divider',
+    component: DividerTestComponent,
   },
   {
     path: '**',

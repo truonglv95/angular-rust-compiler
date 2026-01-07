@@ -1,0 +1,29 @@
+<div class="divider-container">
+  <h2>Divider</h2>
+
+  <h3>Basic Divider</h3>
+  <p>Content above</p>
+  <mat-divider></mat-divider>
+  <p>Content below</p>
+
+  <h3>Inset Divider</h3>
+  <p>Content above</p>
+  <mat-divider [inset]="true"></mat-divider>
+  <p>Content below</p>
+
+  <h3>Vertical Divider</h3>
+  <div class="vertical-container">
+    <span>Left</span>
+    <mat-divider [vertical]="true"></mat-divider>
+    <span>Right</span>
+  </div>
+
+  <h3>Divider in List</h3>
+  <mat-list>
+    <mat-list-item>Item 1</mat-list-item>
+    <mat-divider></mat-divider>
+    <mat-list-item>Item 2</mat-list-item>
+    <mat-divider></mat-divider>
+    <mat-list-item>Item 3</mat-list-item>
+  </mat-list>
+</div>

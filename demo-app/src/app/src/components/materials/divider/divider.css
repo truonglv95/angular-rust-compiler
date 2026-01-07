@@ -1,0 +1,19 @@
+.divider-container {
+  padding: 20px;
+}
+
+.divider-container h2 {
+  margin-bottom: 20px;
+}
+
+.divider-container h3 {
+  margin-top: 24px;
+  margin-bottom: 12px;
+}
+
+.vertical-container {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 50px;
+}
