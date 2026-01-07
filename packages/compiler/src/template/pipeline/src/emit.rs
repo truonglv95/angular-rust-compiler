@@ -1349,20 +1349,7 @@ pub fn emit_ops(
             }
             ir::OpKind::Property => {
                 if let Some(prop_op) = op.as_any().downcast_ref::<ir::ops::update::PropertyOp>() {
-                    let expression = match &prop_op.expression {
-                        crate::template::pipeline::ir::ops::update::BindingExpression::Expression(e) => {
-                            e.clone()
-                        }
-                        crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(i) => {
-                            // Property interpolation needs to be handled
-                            // Typically interpolated properties use propertyInterpolate
-                            // But here we might receive them as PropertyOp if not specialized?
-                            // For simplicity, panic or handle as error if correct op wasn't generated
-                            // But actually property binding usually expects Expression. 
-                            // If interpolation, it should have been converted to InterpolatePropOp (if exists) or expression
-                            panic!("Unexpected interpolation in PropertyOp");
-                        }
-                    };
+                    let expression = convert_binding_expression_to_expression(&prop_op.expression);
 
                     let instruction = R3::dom_property();
                     let sanitizer = prop_op.sanitizer.clone();
@@ -1387,18 +1374,7 @@ pub fn emit_ops(
             }
             ir::OpKind::Attribute => {
                 if let Some(attr_op) = op.as_any().downcast_ref::<ir::ops::update::AttributeOp>() {
-                    // TODO: attributes can be interpolated (attributeInterpolate)
-                    // If expression is interpolation, use attributeInterpolate
-                    // For now assume expression
-
-                    let expression = match &attr_op.expression {
-                        crate::template::pipeline::ir::ops::update::BindingExpression::Expression(e) => {
-                             e.clone()
-                        }
-                        crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(_) => {
-                            panic!("Unexpected interpolation in AttributeOp");
-                        }
-                     };
+                    let expression = convert_binding_expression_to_expression(&attr_op.expression);
 
                     let instruction = R3::attribute();
                     let sanitizer = attr_op.sanitizer.clone();
@@ -1441,12 +1417,7 @@ pub fn emit_ops(
             }
             ir::OpKind::StyleProp => {
                 if let Some(style_op) = op.as_any().downcast_ref::<ir::ops::update::StylePropOp>() {
-                    let expression = match &style_op.expression {
-                        crate::template::pipeline::ir::ops::update::BindingExpression::Expression(e) => e.clone(),
-                         crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(_) => {
-                            panic!("Unexpected interpolation in StylePropOp");
-                         }
-                    };
+                    let expression = convert_binding_expression_to_expression(&style_op.expression);
 
                     let instruction = R3::style_prop();
                     let mut args = vec![*o::literal(style_op.name.to_string()), expression];
@@ -1471,13 +1442,8 @@ pub fn emit_ops(
                 if let Some(class_map_op) =
                     op.as_any().downcast_ref::<ir::ops::update::ClassMapOp>()
                 {
-                    let expression = match &class_map_op.expression {
-                         crate::template::pipeline::ir::ops::update::BindingExpression::Expression(e) => e.clone(),
-                         crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(_) => {
-                            // classMapInterpolate?
-                             panic!("Unexpected interpolation in ClassMapOp");
-                         }
-                    };
+                    let expression =
+                        convert_binding_expression_to_expression(&class_map_op.expression);
 
                     let instruction = R3::class_map();
                     stmts.push(o::Statement::Expression(o::ExpressionStatement {
@@ -1496,12 +1462,8 @@ pub fn emit_ops(
                 if let Some(style_map_op) =
                     op.as_any().downcast_ref::<ir::ops::update::StyleMapOp>()
                 {
-                    let expression = match &style_map_op.expression {
-                         crate::template::pipeline::ir::ops::update::BindingExpression::Expression(e) => e.clone(),
-                         crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(_) => {
-                             panic!("Unexpected interpolation in StyleMapOp");
-                         }
-                    };
+                    let expression =
+                        convert_binding_expression_to_expression(&style_map_op.expression);
 
                     let instruction = R3::style_map();
                     stmts.push(o::Statement::Expression(o::ExpressionStatement {
@@ -2014,4 +1976,101 @@ fn get_unit<'a>(
     xref: crate::template::pipeline::ir::XrefId,
 ) -> Option<&'a dyn crate::template::pipeline::src::compilation::CompilationUnit> {
     job.units().find(|u| u.xref() == xref)
+}
+
+/// Helper to convert BindingExpression to Expression (handling interpolation desugaring)
+fn convert_binding_expression_to_expression(
+    binding_expression: &crate::template::pipeline::ir::ops::update::BindingExpression,
+) -> o::Expression {
+    match binding_expression {
+        crate::template::pipeline::ir::ops::update::BindingExpression::Expression(e) => e.clone(),
+        crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(i) => {
+            emit_interpolation_expression(i)
+        }
+    }
+}
+
+/// Emit an interpolation as an expression (e.g. ɵɵinterpolate1(p1, p2))
+fn emit_interpolation_expression(
+    interpolation: &crate::template::pipeline::ir::ops::update::Interpolation,
+) -> o::Expression {
+    // Collate arguments: string, expr, string, expr, ..., string
+    let strings = &interpolation.strings;
+    let exprs = &interpolation.expressions;
+
+    // Special case: if we have 1 expression and empty surrounding strings, return the expression directly
+    if exprs.len() == 1
+        && strings.len() >= 2
+        && strings[0].as_ref() == ""
+        && strings[1].as_ref() == ""
+    {
+        return exprs[0].clone();
+    }
+
+    let mut args = vec![];
+    for (i, expr) in exprs.iter().enumerate() {
+        if i < strings.len() {
+            args.push(*o::literal(strings[i].as_ref().to_string()));
+        } else {
+            // Should not happen if strings.len() == exprs.len() + 1
+            args.push(*o::literal("".to_string()));
+        }
+        args.push(expr.clone());
+    }
+    // Add last string
+    if strings.len() > exprs.len() {
+        args.push(*o::literal(strings[exprs.len()].as_ref().to_string()));
+    }
+
+    // Determine instruction based on number of expressions
+    let instruction = match exprs.len() {
+        1 => R3::interpolate1(),
+        2 => R3::interpolate2(),
+        3 => R3::interpolate3(),
+        4 => R3::interpolate4(),
+        5 => R3::interpolate5(),
+        6 => R3::interpolate6(),
+        7 => R3::interpolate7(),
+        8 => R3::interpolate8(),
+        _ => R3::interpolate_v(), // Or interpolateV? Check identifiers.
+    };
+
+    // For interpolateV, the arguments are [literals_array] + expressions?
+    // Wait, let's check ngtsc instruction.ts again.
+    // const TEXT_INTERPOLATE_CONFIG ... variable: Identifiers.textInterpolateV
+    // mapping: (n) => (n-1)/2. which means number of expressions.
+
+    // And callVariadicInstructionExpr:
+    // for interpolateV (variable pattern):
+    // return o.importExpr(config.variable).callFn([...baseArgs, o.literalArr(interpolationArgs), ...extraArgs]);
+
+    // interpolationArgs as constructed by collateInterpolationArgs contains both strings and exprs interleaved.
+    // [s0, e0, s1, e1, ..., sN]
+
+    // So for interpolateV, we pass [ [s0, e0, s1... sN] ] (as array literal).
+
+    // However, looking at R3 identifiers, there is `interpolate_v` and `text_interpolate_v`.
+
+    if exprs.len() > 8 {
+        // For larger interpolations, we use interpolateV which takes an array of the mix
+        o::Expression::InvokeFn(o::InvokeFunctionExpr {
+            fn_: o::import_ref(instruction),
+            args: vec![o::Expression::LiteralArray(o::LiteralArrayExpr {
+                entries: args,
+                type_: None,
+                source_span: None,
+            })],
+            type_: None,
+            source_span: None,
+            pure: false,
+        })
+    } else {
+        o::Expression::InvokeFn(o::InvokeFunctionExpr {
+            fn_: o::import_ref(instruction),
+            args,
+            type_: None,
+            source_span: None,
+            pure: false,
+        })
+    }
 }

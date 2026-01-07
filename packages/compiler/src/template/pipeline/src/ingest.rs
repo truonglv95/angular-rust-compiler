@@ -810,6 +810,89 @@ fn ingest_text(
     view.create.push(text_op);
 }
 
+/// Convert an interpolation AST to an IR interpolation
+fn ingest_interpolation(
+    interpolation: &crate::expression_parser::ast::Interpolation,
+    i18n: Option<&I18nMeta>,
+    job: &mut dyn CompilationJob,
+    view_xref: ir::XrefId,
+    mut view: Option<&mut ViewCompilationUnit>,
+    base_source_span: Option<&ParseSourceSpan>,
+) -> ir::ops::update::Interpolation {
+    // Extract i18n placeholders
+    let i18n_placeholders: Vec<Arc<str>> = match i18n {
+        Some(I18nMeta::Node(I18nNode::Container(container))) => container
+            .children
+            .iter()
+            .filter_map(|child| {
+                if let I18nNode::Placeholder(ph) = child {
+                    Some(ph.name.clone().into())
+                } else {
+                    None
+                }
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+
+    let mut converted_expressions: Vec<Expression> =
+        Vec::with_capacity(interpolation.expressions.len());
+    for expr in &interpolation.expressions {
+        let view_param = match view {
+            Some(ref mut v) => Some(&mut **v),
+            None => None,
+        };
+        converted_expressions.push(crate::template::pipeline::src::conversion::convert_ast(
+            expr,
+            job,
+            view_xref,
+            view_param,
+            base_source_span,
+        ));
+    }
+
+    ir::ops::update::Interpolation::new(
+        interpolation
+            .strings
+            .iter()
+            .map(|s| Arc::from(s.as_str()))
+            .collect(),
+        converted_expressions,
+        i18n_placeholders,
+    )
+}
+
+/// Convert a binding AST to an IR binding expression
+fn convert_binding_expression(
+    value: &ExprAST,
+    i18n: Option<&I18nMeta>,
+    job: &mut dyn CompilationJob,
+    view_xref: ir::XrefId,
+    view: Option<&mut ViewCompilationUnit>,
+    base_source_span: Option<&ParseSourceSpan>,
+) -> ir::ops::update::BindingExpression {
+    use ir::ops::update::BindingExpression;
+
+    if let ExprAST::Interpolation(interp) = value {
+        BindingExpression::Interpolation(ingest_interpolation(
+            interp,
+            i18n,
+            job,
+            view_xref,
+            view,
+            base_source_span,
+        ))
+    } else {
+        BindingExpression::Expression(crate::template::pipeline::src::conversion::convert_ast(
+            value,
+            job,
+            view_xref,
+            view,
+            base_source_span,
+        ))
+    }
+}
+
 /// Ingest a bound text node
 fn ingest_bound_text(
     view: &mut ViewCompilationUnit,
@@ -819,26 +902,13 @@ fn ingest_bound_text(
     job: &mut ComponentCompilationJob,
 ) {
     let value = &bound_text.value;
-    let interpolation_ast = match value {
-        // Also handle ExprAST (Expression Parser AST) if it leaks here?
-        // But bound_text.value is t::AST (R3 AST).
-        // Wait, t::AST DOES exist in r3_ast?
-        // Let's check R3 AST definition.
-        // If t::AST exists, maybe I imported wrong one?
-        // Cargo check said: `could not find AST in t`.
-        // So t (r3_ast) does NOT have AST enum?
-        // Let's use ExprAST (imported as AST).
-        // Wait, BoundText value IS R3 AST.
-        // Maybe it is `t::AST::Interpolation`?
-        // Let's assume it should be ExprAST if that's what convert_ast expects?
-        // No, convert_ast expects AST.
-        // If R3 AST uses ExprAST internally?
-        // Let's try `ExprAST::Interpolation`.
-        ExprAST::Interpolation(interp) => interp,
-        _ => panic!(
+    let interpolation_ast = if let ExprAST::Interpolation(interp) = value {
+        interp
+    } else {
+        panic!(
             "AssertionError: expected Interpolation for BoundText node, got {:?}",
             std::mem::discriminant(value)
-        ),
+        );
     };
 
     // Validate i18n metadata - should be Container or None
@@ -902,29 +972,14 @@ fn ingest_bound_text(
             Some(&bound_text.source_span)
         };
 
-    let converted_expressions: Vec<crate::output::output_ast::Expression> = interpolation_ast
-        .expressions
-        .iter()
-        .map(|expr| {
-            crate::template::pipeline::src::conversion::convert_ast(
-                expr,
-                job,
-                view.xref,
-                Some(&mut *view),
-                base_source_span,
-            )
-        })
-        .collect();
-
-    // Create Interpolation
-    let interpolation = ir::ops::update::Interpolation::new(
-        interpolation_ast
-            .strings
-            .iter()
-            .map(|s| Arc::from(s.clone()))
-            .collect(),
-        converted_expressions,
-        i18n_placeholders,
+    // Create Interpolation using helper
+    let interpolation = ingest_interpolation(
+        interpolation_ast,
+        bound_text.i18n.as_ref(),
+        job,
+        view.xref,
+        Some(view),
+        base_source_span,
     );
 
     // Create InterpolateTextOp
@@ -2244,11 +2299,12 @@ fn ingest_element_bindings(
         };
 
         // Convert input value
-        let expression = crate::template::pipeline::src::conversion::convert_ast(
+        let expression = convert_binding_expression(
             &input.value,
+            input.i18n.as_ref(),
             job,
-            view.xref, // pass view xref for context lookup
-            Some(&mut *view),
+            view.xref,
+            Some(view),
             input.value_span.as_ref(),
         );
 
@@ -2262,7 +2318,7 @@ fn ingest_element_bindings(
             element_xref,
             binding_kind,
             input.name.clone(),
-            BindingExpression::Expression(expression),
+            expression,
             input.unit.as_ref().map(|u| u.to_string()),
             vec![input.security_context],
             false, // is_text_attr
@@ -2904,11 +2960,12 @@ fn ingest_template_bindings(
         };
 
         // Convert input value
-        let expression = crate::template::pipeline::src::conversion::convert_ast(
+        let expression = convert_binding_expression(
             &input.value,
+            input.i18n.as_ref(),
             job,
             view.xref,
-            Some(&mut *view),
+            Some(view),
             input.value_span.as_ref(),
         );
 
@@ -2922,7 +2979,7 @@ fn ingest_template_bindings(
             template_xref,
             binding_kind,
             input.name.clone(),
-            BindingExpression::Expression(expression),
+            expression,
             input.unit.as_ref().map(|u| u.to_string()),
             vec![input.security_context],
             false,               // is_text_attr
@@ -2996,11 +3053,12 @@ fn ingest_template_bindings(
                 };
 
                 // Convert input value
-                let expression = crate::template::pipeline::src::conversion::convert_ast(
+                let expression = convert_binding_expression(
                     &bound_attr.value,
+                    bound_attr.i18n.as_ref(),
                     job,
                     view.xref,
-                    Some(&mut *view),
+                    Some(view),
                     bound_attr.value_span.as_ref(),
                 );
 
@@ -3014,12 +3072,12 @@ fn ingest_template_bindings(
                     template_xref,
                     binding_kind,
                     bound_attr.name.clone(),
-                    BindingExpression::Expression(expression),
+                    expression,
                     bound_attr.unit.as_ref().map(|u| u.to_string()),
                     vec![bound_attr.security_context],
-                    false,                                         // is_text_attr
-                    template_kind == ir::TemplateKind::Structural, // is_structural_template_attribute
-                    Some(template_kind),                           // template_kind
+                    false,               // is_text_attr
+                    true,                // is_structural_template_attribute
+                    Some(template_kind), // template_kind
                     i18n_message,
                     bound_attr.source_span.clone(),
                 );
