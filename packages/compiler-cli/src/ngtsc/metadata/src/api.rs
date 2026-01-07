@@ -221,7 +221,7 @@ pub struct DirectiveMeta<'a> {
     /// File-level imports mapping (local name -> module path).
     pub file_imports: Option<HashMap<String, String>>,
     /// Providers expression extracted from the decorator.
-    pub providers: Option<&'a oxc_ast::Expression<'a>>,
+    pub providers: Option<angular_compiler::output::output_ast::Expression>,
 }
 
 /// Constructor parameter metadata.
@@ -371,7 +371,7 @@ impl<'a> Clone for DirectiveMeta<'a> {
             view_queries: self.view_queries.clone(),
             lifecycle: self.lifecycle.clone(),
             file_imports: self.file_imports.clone(),
-            providers: self.providers, // Copy the reference
+            providers: self.providers.clone(),
         }
     }
 }

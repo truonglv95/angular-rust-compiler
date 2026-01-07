@@ -628,11 +628,16 @@ pub fn extract_directive_metadata<'a>(
             for prop in &obj_expr.properties {
                 if let ObjectPropertyKind::ObjectProperty(prop) = prop {
                     if let PropertyKey::StaticIdentifier(key) = &prop.key {
-                        match key.name.as_str() {
+                        let prop_name = key.name.as_str();
+                        match prop_name {
                             "selector" => {
                                 if let Some(val) = extract_string_value(&prop.value) {
                                     meta.t2.selector = Some(val);
                                 }
+                            }
+                            "providers" => {
+                                meta.providers =
+                                    Some(convert_oxc_expression(&prop.value, imports_map));
                             }
                             "inputs" => match &prop.value {
                                 Expression::ArrayExpression(arr) => {
@@ -790,9 +795,6 @@ pub fn extract_directive_metadata<'a>(
                                         comp.style_urls = Some(vec![val]);
                                     }
                                 }
-                            }
-                            "providers" => {
-                                meta.providers = Some(&prop.value);
                             }
                             "styles" => {
                                 if let Expression::ArrayExpression(arr) = &prop.value {
@@ -1600,5 +1602,133 @@ mod tests {
         } else {
             panic!("Expected Directive metadata");
         }
+    }
+}
+
+pub fn convert_oxc_expression(
+    expr: &oxc_ast::ast::Expression,
+    imports_map: &std::collections::HashMap<String, String>,
+) -> angular_compiler::output::output_ast::Expression {
+    use angular_compiler::output::output_ast::*;
+    match expr {
+        oxc_ast::ast::Expression::ParenthesizedExpression(paren) => {
+            convert_oxc_expression(&paren.expression, imports_map)
+        }
+        oxc_ast::ast::Expression::TSAsExpression(as_expr) => {
+            convert_oxc_expression(&as_expr.expression, imports_map)
+        }
+        oxc_ast::ast::Expression::TSTypeAssertion(assertion) => {
+            convert_oxc_expression(&assertion.expression, imports_map)
+        }
+        oxc_ast::ast::Expression::TSSatisfiesExpression(satisfies) => {
+            convert_oxc_expression(&satisfies.expression, imports_map)
+        }
+        oxc_ast::ast::Expression::TSNonNullExpression(non_null) => {
+            convert_oxc_expression(&non_null.expression, imports_map)
+        }
+        oxc_ast::ast::Expression::Identifier(ident) => {
+            let name = ident.name.as_str();
+            if let Some(module) = imports_map.get(name) {
+                Expression::External(ExternalExpr {
+                    value: ExternalReference {
+                        module_name: Some(module.clone()),
+                        name: Some(name.to_string()),
+                        runtime: None,
+                    },
+                    type_: None,
+                    source_span: None,
+                })
+            } else {
+                Expression::ReadVar(ReadVarExpr {
+                    name: name.to_string(),
+                    type_: None,
+                    source_span: None,
+                })
+            }
+        }
+        oxc_ast::ast::Expression::CallExpression(call) => {
+            let callee = convert_oxc_expression(&call.callee, imports_map);
+            let args = call
+                .arguments
+                .iter()
+                .filter_map(|arg| arg.as_expression())
+                .map(|arg| convert_oxc_expression(arg, imports_map))
+                .collect();
+            Expression::InvokeFn(InvokeFunctionExpr {
+                fn_: Box::new(callee),
+                args,
+                type_: None,
+                source_span: None,
+                pure: false,
+            })
+        }
+        oxc_ast::ast::Expression::ArrayExpression(arr) => {
+            let entries = arr
+                .elements
+                .iter()
+                .filter_map(|elem| elem.as_expression())
+                .map(|elem| convert_oxc_expression(elem, imports_map))
+                .collect();
+            Expression::LiteralArray(LiteralArrayExpr {
+                entries,
+                type_: None,
+                source_span: None,
+            })
+        }
+        oxc_ast::ast::Expression::ObjectExpression(obj) => {
+            let entries = obj
+                .properties
+                .iter()
+                .filter_map(|prop| {
+                    if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) = prop {
+                        let key = match &p.key {
+                            oxc_ast::ast::PropertyKey::StaticIdentifier(id) => {
+                                Some(id.name.as_str())
+                            }
+                            oxc_ast::ast::PropertyKey::StringLiteral(s) => Some(s.value.as_str()),
+                            _ => None,
+                        }?;
+                        let value = convert_oxc_expression(&p.value, imports_map);
+                        Some(LiteralMapEntry {
+                            key: key.to_string(),
+                            value: Box::new(value),
+                            quoted: true,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            Expression::LiteralMap(LiteralMapExpr {
+                entries,
+                type_: None,
+                source_span: None,
+            })
+        }
+        oxc_ast::ast::Expression::StringLiteral(s) => Expression::Literal(LiteralExpr {
+            value: LiteralValue::String(s.value.to_string()),
+            type_: None,
+            source_span: None,
+        }),
+        oxc_ast::ast::Expression::NumericLiteral(n) => Expression::Literal(LiteralExpr {
+            value: LiteralValue::Number(n.value),
+            type_: None,
+            source_span: None,
+        }),
+        oxc_ast::ast::Expression::BooleanLiteral(b) => Expression::Literal(LiteralExpr {
+            value: LiteralValue::Bool(b.value),
+            type_: None,
+            source_span: None,
+        }),
+        oxc_ast::ast::Expression::NullLiteral(_) => Expression::Literal(LiteralExpr {
+            value: LiteralValue::Null,
+            type_: None,
+            source_span: None,
+        }),
+        _ => Expression::Literal(LiteralExpr {
+            value: LiteralValue::Null, // Fallback for unsupported
+            type_: None,
+            source_span: None,
+        }),
     }
 }

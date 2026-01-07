@@ -145,18 +145,17 @@ impl ModuleMetadataReader {
         } else {
             return None;
         };
-        // ...
 
-        let mut queue = vec![entry_path.clone()];
+        let mut queue = vec![(entry_path.clone(), module_name.to_string())];
         let mut visited = std::collections::HashSet::new();
         visited.insert(entry_path.clone());
 
-        // Map class name to metadata
+        // Map class name to (metadata..., module_name)
         let mut all_definitions = HashMap::new();
         // Names of classes exported by NgModules
         let mut all_exported_classes = Vec::new();
 
-        while let Some(path) = queue.pop() {
+        while let Some((path, current_module)) = queue.pop() {
             let content = match fs::read_to_string(&path) {
                 Ok(c) => c,
                 Err(_) => continue,
@@ -167,11 +166,6 @@ impl ModuleMetadataReader {
             let ret = Parser::new(&allocator, &content, source_type).parse();
 
             if !ret.errors.is_empty() {
-                // eprintln!(
-                //     "DEBUG: [fesm_reader] Parser errors for {}: {:?}",
-                //     path.display(),
-                //     ret.errors
-                // );
                 continue;
             }
             let program = ret.program;
@@ -201,31 +195,29 @@ impl ModuleMetadataReader {
 
                         if p.exists() && !visited.contains(&p) {
                             visited.insert(p.clone());
-                            queue.push(p);
-                        }
-                    }
-                }
 
-                // 1b. Also handle ImportDeclarations with local relative paths (e.g., chunk files)
-                if let Some(oxc_ast::ast::ModuleDeclaration::ImportDeclaration(import_decl)) =
-                    stmt.as_module_declaration()
-                {
-                    let import_path = import_decl.source.value.as_str();
-                    if import_path.starts_with(".") {
-                        let resolved_path = current_dir.join(import_path);
-                        let p = if resolved_path.exists() {
-                            resolved_path
-                        } else if resolved_path.with_extension("mjs").exists() {
-                            resolved_path.with_extension("mjs")
-                        } else if resolved_path.with_extension("js").exists() {
-                            resolved_path.with_extension("js")
-                        } else {
-                            resolved_path
-                        };
+                            // Heuristic: If it's a sibling .mjs that doesn't start with '_',
+                            // it's likely a different entry point.
+                            let new_module = if !import_path.starts_with("./_")
+                                && import_path.ends_with(".mjs")
+                                || !import_path.contains("_") && import_path.len() > 2
+                            {
+                                // Extract new module name based on current_module
+                                let parts: Vec<&str> = current_module.split('/').collect();
+                                if parts.len() >= 2 {
+                                    let base = parts[..parts.len() - 1].join("/");
+                                    let new_entry = import_path
+                                        .trim_start_matches("./")
+                                        .trim_end_matches(".mjs");
+                                    format!("{}/{}", base, new_entry)
+                                } else {
+                                    current_module.clone()
+                                }
+                            } else {
+                                current_module.clone()
+                            };
 
-                        if p.exists() && !visited.contains(&p) {
-                            visited.insert(p.clone());
-                            queue.push(p);
+                            queue.push((p, new_module));
                         }
                     }
                 }
@@ -278,6 +270,8 @@ impl ModuleMetadataReader {
                                                                 if let Some(expr) =
                                                                     args.as_expression()
                                                                 {
+                                                                    // ONLY extract exports for NgModules in the entry file or its direct chunks?
+                                                                    // For simplicity, we accumulate them but we'll attribute them correctly.
                                                                     self.extract_exports(
                                                                         expr,
                                                                         &mut all_exported_classes,
@@ -307,7 +301,7 @@ impl ModuleMetadataReader {
                                                                                     == "ɵcmp",
                                                                             )
                                                                         {
-                                                                            all_definitions.insert(class_name.to_string(), (meta.0, meta.1, meta.2, meta.3, meta.4, R3TemplateDependencyKind::Directive));
+                                                                            all_definitions.insert(class_name.to_string(), (meta.0, meta.1, meta.2, meta.3, meta.4, R3TemplateDependencyKind::Directive, current_module.clone()));
                                                                         }
                                                                     }
                                                                 }
@@ -327,7 +321,7 @@ impl ModuleMetadataReader {
                                                                     if let Some(name) =
                                                                         self.parse_pipe_meta(expr)
                                                                     {
-                                                                        all_definitions.insert(class_name.to_string(), (name, vec![], vec![], None, false, R3TemplateDependencyKind::Pipe));
+                                                                        all_definitions.insert(class_name.to_string(), (name, vec![], vec![], None, false, R3TemplateDependencyKind::Pipe, current_module.clone()));
                                                                     }
                                                                 }
                                                             }
@@ -355,12 +349,19 @@ impl ModuleMetadataReader {
         };
 
         for export_name in classes_to_export {
-            if let Some((selector_or_name, inputs, outputs, export_as, is_component, kind)) =
-                all_definitions.get(&export_name)
+            if let Some((
+                selector_or_name,
+                inputs,
+                outputs,
+                export_as,
+                is_component,
+                kind,
+                actual_module,
+            )) = all_definitions.get(&export_name)
             {
                 let expression = Expression::External(ExternalExpr {
                     value: ExternalReference {
-                        module_name: Some(module_name.to_string()),
+                        module_name: Some(actual_module.clone()),
                         name: Some(export_name.clone()),
                         runtime: None,
                     },
@@ -370,7 +371,6 @@ impl ModuleMetadataReader {
 
                 let meta = match kind {
                     R3TemplateDependencyKind::Directive => {
-                        // eprintln!("DEBUG: [metadata] Resolving directive export: {}", selector_or_name);
                         R3TemplateDependencyMetadata::Directive(R3DirectiveDependencyMetadata {
                             selector: selector_or_name.clone(),
                             type_: expression,
@@ -402,8 +402,6 @@ impl ModuleMetadataReader {
                 };
 
                 results.push(meta);
-            } else {
-                // eprintln!("DEBUG: [metadata] Export listed but definition not found: {}", export_name);
             }
         }
 

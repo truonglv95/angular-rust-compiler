@@ -1057,15 +1057,16 @@ fn reify_ir_expression(expr: o::Expression, flags: ir::VisitorContextFlag) -> o:
             )
         }
         o::Expression::Context(ctx) => {
-            // Reify ContextExpr to ReadVariable (which resolves to _rX)
-            reify_ir_expression(
-                o::Expression::ReadVariable(ir::expression::ReadVariableExpr {
-                    xref: ctx.view,
-                    name: None,
-                    source_span: ctx.source_span.clone(),
-                }),
-                flags,
-            )
+            // If resolve_contexts didn't replace this ContextExpr, it means we're in a context
+            // where the ContextExpr should resolve to the component context 'ctx'.
+            // This typically happens in root view listeners where the ContextExpr wasn't transformed.
+            // Instead of creating ReadVariable with the view xref (which doesn't correspond to a variable),
+            // directly emit ReadVar("ctx") which is the standard context variable.
+            o::Expression::ReadVar(o::ReadVarExpr {
+                name: "ctx".to_string(),
+                type_: None,
+                source_span: ctx.source_span.clone(),
+            })
         }
         o::Expression::SlotLiteral(slot_lit) => {
             // Reify SlotLiteralExpr to a numeric literal representing the slot index
