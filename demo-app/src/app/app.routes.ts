@@ -26,6 +26,11 @@ export const routes: Routes = [
       import('./src/components/materials/card/card').then((m) => m.CardTestComponent),
   },
   {
+    path: 'checkbox',
+    loadComponent: () =>
+      import('./src/components/materials/checkbox/checkbox').then((m) => m.CheckboxTestComponent),
+  },
+  {
     path: 'input',
     component: InputTestComponent,
   },
