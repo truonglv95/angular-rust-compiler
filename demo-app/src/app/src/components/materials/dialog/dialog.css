@@ -1,0 +1,12 @@
+.dialog-container {
+  padding: 20px;
+}
+
+.dialog-container h2 {
+  margin-bottom: 20px;
+}
+
+.dialog-container p {
+  margin-bottom: 16px;
+  color: rgba(0, 0, 0, 0.6);
+}

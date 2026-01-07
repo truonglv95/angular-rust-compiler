@@ -5,6 +5,7 @@ import { InputTestComponent } from './src/components/materials/input/input';
 import { BottomSheetTestComponent } from './src/components/materials/bottom-sheet/bottom-sheet';
 import { ButtonToggleOverviewExample } from './src/components/materials/button-toggle/button-toggle';
 import { BadgeOverviewExample } from './src/components/materials/badge/badge';
+import { DialogTestComponent } from './src/components/materials/dialog/dialog';
 import { CategoriesComponent } from './src/components/categories/categories';
 
 export const routes: Routes = [
@@ -57,6 +58,10 @@ export const routes: Routes = [
   {
     path: 'badge',
     component: BadgeOverviewExample,
+  },
+  {
+    path: 'dialog',
+    component: DialogTestComponent,
   },
   {
     path: '**',
