@@ -275,8 +275,50 @@ export default function angularRustPlugin(options = {}) {
             let key = path.relative(projectRoot, resolvedPath);
             
             // Handle src/main.ts -> dist/src/main.js
-            if (key.endsWith('.ts')) {
-                const jsKey = 'dist/' + key.replace(/\.ts$/, '.js');
+            // Handle src/main.ts -> dist/src/main.js
+            // Also handle internal dependencies like ./src/components/... resolved relative to dist/
+            let jsKey;
+            
+            // If resolved against dist/... importer, key will start with dist/
+            // If resolved against physical file, key will be src/...
+            if (key.startsWith('dist/')) {
+                 jsKey = key.endsWith('.js') ? key : key + '.js';
+            } else {
+                 // Check if it's a TS file we need to compile
+                 if (key.endsWith('.ts') || resolvedPath.endsWith('.ts')) {
+                     jsKey = 'dist/' + key.replace(/\.ts$/, '.js');
+                 }
+            }
+
+            if (jsKey) { 
+                 // Lazy Compilation: If not in cache but exists on disk, compile it now!
+                 if (!bundleCache?.files?.[jsKey]) {
+                     // Try to find source file
+                     // Reverse map: dist/path/to/file.js -> path/to/file.ts
+                     let sourceRelPath = jsKey;
+                     if (sourceRelPath.startsWith('dist/')) {
+                         sourceRelPath = sourceRelPath.substring(5); // remove dist/
+                     }
+                     sourceRelPath = sourceRelPath.replace(/\.js$/, '.ts');
+
+                     const sourcePath = path.resolve(projectRoot, sourceRelPath);
+
+                     if (fs.existsSync(sourcePath)) {
+                         console.log(`[rustBundlePlugin] Lazy compiling new file: ${sourcePath} -> ${jsKey}`);
+                         try {
+                             const content = fs.readFileSync(sourcePath, 'utf8');
+                             const result = compiler.compile(sourcePath, content);
+                             if (result.code && !result.code.includes('/* Error')) {
+                                 if (bundleCache.files) {
+                                     bundleCache.files[jsKey] = result.code;
+                                 }
+                             }
+                         } catch (e) {
+                             console.error(`[rustBundlePlugin] Lazy compile failed for ${sourceRelPath}:`, e);
+                         }
+                     }
+                 }
+
                 if (bundleCache?.files?.[jsKey]) {
                     return '\0' + jsKey;
                 }

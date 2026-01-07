@@ -1,188 +1,87 @@
 import { defineConfig } from 'vite';
-import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
-import path from 'path';
-import fs from 'fs';
+import angularRust from '../packages/vite-plugin-angular-rust/src/index.js';
+import fs from 'node:fs';
+import path from 'node:path';
 
-const require = createRequire(import.meta.url);
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
+const angularPackages = Object.keys(packageJson.dependencies || {}).filter((pkg) =>
+  pkg.startsWith('@angular/'),
+);
 
-// Resolve binding path relative to this file
-const bindingPath = path.resolve(__dirname, '../packages/binding');
-const { Compiler } = require(bindingPath);
+console.log('[vite.config.mjs] Angular packages to exclude:', angularPackages);
+console.log('[vite.config.mjs] CWD:', process.cwd());
 
-const compiler = new Compiler();
-
-// ============ Diagnostic Formatting ============
-const RED = '\x1b[31m';
-const YELLOW = '\x1b[33m';
-const CYAN = '\x1b[36m';
-const BOLD = '\x1b[1m';
-const RESET = '\x1b[0m';
-
-function formatDiagnostic(diag, sourceCode) {
-  const level = 'WARNING';
-  const codeStr = `NG${diag.code}`;
-  const file = diag.file || 'unknown';
-
-  let line = 1;
-  let col = 0;
-  let lineStartPos = 0;
-
-  if (diag.start !== undefined && diag.start !== null) {
-    for (let i = 0; i < diag.start && i < sourceCode.length; i++) {
-      if (sourceCode[i] === '\n') {
-        line++;
-        col = 0;
-        lineStartPos = i + 1;
-      } else {
-        col++;
-      }
-    }
-  }
-
-  let output = `\n${BOLD}${YELLOW}▲ [${level}] ${RED}${codeStr}${RESET}${BOLD}: ${diag.message}${RESET} ${YELLOW}[plugin rust-ngc-plugin]${RESET}\n`;
-
-  const lineStr = line.toString();
-  const colStr = (col + 1).toString();
-  output += `\n    ${CYAN}${file}:${lineStr}:${colStr}:${RESET}\n`;
-
-  let lineEndPos = sourceCode.indexOf('\n', lineStartPos);
-  if (lineEndPos === -1) lineEndPos = sourceCode.length;
-  const lineContent = sourceCode.substring(lineStartPos, lineEndPos);
-
-  output += `      ${BOLD}${lineStr} │ ${RESET}${lineContent}\n`;
-
-  const gutterWidth = lineStr.length + 3;
-  const gutterEmpty = ' '.repeat(gutterWidth);
-  const length = diag.length || 1;
-  const underline = '~'.repeat(length);
-
-  output += `      ${gutterEmpty}${' '.repeat(col)}${RED}${underline}${RESET}`;
-
-  return output;
-}
-
-// ============ Vite Plugins ============
-
-// Angular Linker plugin for @angular packages
-function angularLinkerRolldownPlugin() {
+// Plugin to output stats similar to Angular CLI
+function angularStatsPlugin() {
   return {
-    name: 'angular-linker-rolldown',
-    async transform(code, id) {
-      const isAngularPackage = id.includes('@angular') || id.includes('/@angular/');
-      const isNodeModules = id.includes('node_modules');
-      const cleanId = id.split('?')[0];
-      const isJsFile = cleanId.endsWith('.mjs') || cleanId.endsWith('.js');
+    name: 'angular-stats',
+    generateBundle(options, bundle) {
+      const initialChunks = [];
+      const otherChunks = [];
+      let initialTotalSize = 0;
 
-      if (!isAngularPackage || !isNodeModules || !isJsFile) {
-        return null;
-      }
-
-      if (!code.includes('ɵɵngDeclare')) {
-        return null;
-      }
-
-      try {
-        // Cache is handled in Rust side
-        const result = compiler.linkFile(cleanId, code);
-
-        if (result.startsWith('/* Linker Error')) {
-          console.error(`[Rolldown Linker Error] ${id}:\n${result}`);
-          return null;
-        }
-
-        return { code: result, map: null };
-      } catch (e) {
-        console.error(`[Rolldown Linker Failed] ${id}:`, e);
-        return null;
-      }
-    },
-  };
-}
-
-// Rust NGC plugin for .ts files
-function rustNgcPlugin() {
-  return {
-    name: 'rust-ngc-plugin',
-    enforce: 'pre',
-    transform(code, id) {
-      // Skip pre-bundled dependencies
-      if (id.includes('node_modules')) {
-        if (id.includes('@angular') && code.includes('ɵɵngDeclare')) {
-          const cleanId = id.split('?')[0];
-          if (cleanId.endsWith('.mjs') || cleanId.endsWith('.js')) {
-            try {
-              const result = compiler.linkFile(id, code);
-              if (result.startsWith('/* Linker Error')) {
-                console.error(result);
-                return null;
-              }
-              return { code: result, map: null };
-            } catch (e) {
-              console.error(`Linker failed for ${id}:`, e);
-              return null;
-            }
-          }
-        }
-        return null;
-      }
-
-      const cleanId = id.split('?')[0];
-      if (!cleanId.endsWith('.ts') || cleanId.endsWith('.d.ts')) {
-        return null;
-      }
-
-      try {
-        // Cache is handled in Rust side
-        const result = compiler.compile(id, code);
-
-        if (typeof result === 'string') {
-          if (result.startsWith('/* Error')) {
-            console.error(result);
-            throw new Error(`Rust Compilation Failed for ${id}`);
-          }
-          return { code: result, map: null };
-        }
-
-        const { code: compiledCode, diagnostics } = result;
-
-        if (compiledCode.startsWith('/* Error')) {
-          console.error(compiledCode);
-          throw new Error(`Rust Compilation Failed for ${id}`);
-        }
-
-        if (diagnostics && diagnostics.length > 0) {
-          diagnostics.forEach((diag) => {
-            console.warn(formatDiagnostic(diag, code));
+      for (const [fileName, chunk] of Object.entries(bundle)) {
+        if (chunk.type === 'chunk' && chunk.isEntry) {
+          initialChunks.push({
+            file: fileName,
+            name: chunk.name,
+            size: chunk.code.length,
           });
-        }
-
-        return { code: compiledCode, map: null };
-      } catch (err) {
-        console.error('Compilation error:', err);
-        throw err;
-      }
-    },
-    handleHotUpdate({ file, server }) {
-      if (file.endsWith('.html')) {
-        const tsFile = file.replace(/\.html$/, '.ts');
-        const mod = server.moduleGraph.getModuleById(tsFile);
-        if (mod) {
-          server.moduleGraph.invalidateModule(mod);
-          server.ws.send({ type: 'full-reload', path: '*' });
-          return [];
+          initialTotalSize += chunk.code.length;
+        } else if (
+          chunk.type === 'asset' &&
+          (fileName.endsWith('.css') || fileName === 'styles.css')
+        ) {
+          // Treat CSS as initial if it's main styles
+          initialChunks.push({
+            file: fileName,
+            name: chunk.name || fileName.replace(/\.[^/.]+$/, ''),
+            size: chunk.source.length,
+          });
+          initialTotalSize += chunk.source.length;
         } else {
-          server.ws.send({ type: 'full-reload', path: '*' });
-          return [];
+          otherChunks.push(chunk);
         }
       }
+
+      // Helper to format size
+      const formatSize = (bytes) => {
+        if (bytes < 1024) return `${bytes} bytes`;
+        else if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} kB`;
+        else return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+      };
+
+      const padd = (str, len) => str + ' '.repeat(Math.max(0, len - str.length));
+
+      console.log(
+        '\n\x1b[1m' +
+          padd('Initial chunk files', 30) +
+          ' | ' +
+          padd('Names', 20) +
+          ' | ' +
+          'Raw size' +
+          '\x1b[0m',
+      );
+      initialChunks.forEach((chunk) => {
+        const sizeStr = formatSize(chunk.size);
+        console.log(`${padd(chunk.file, 30)} | ${padd(chunk.name, 20)} | ${sizeStr}`);
+      });
+
+      console.log(
+        '\n\x1b[1m' +
+          padd(' ', 30) +
+          ' | ' +
+          padd('Initial total', 20) +
+          ' | ' +
+          formatSize(initialTotalSize) +
+          '\x1b[0m\n',
+      );
     },
   };
 }
 
 export default defineConfig({
-  plugins: [angularLinkerRolldownPlugin(), rustNgcPlugin()],
+  plugins: [angularRust(), angularStatsPlugin()],
   resolve: {
     extensions: ['.ts', '.js', '.json'],
   },
@@ -190,13 +89,7 @@ export default defineConfig({
     port: 4300,
   },
   optimizeDeps: {
-    exclude: [
-      '@angular/core',
-      '@angular/common',
-      '@angular/platform-browser',
-      '@angular/router',
-      '@angular/forms',
-    ],
+    exclude: angularPackages,
     include: ['zone.js', 'rxjs', 'rxjs/operators'],
   },
 });

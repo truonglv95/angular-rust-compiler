@@ -46,10 +46,15 @@ async function startServer() {
           name: 'index-html-redirect',
           configureServer(server) {
             server.middlewares.use((req, res, next) => {
-              if (req.url === '/') {
-                res.writeHead(302, { Location: '/src/index.html' });
-                res.end();
-                return;
+              const cleanUrl = req.url.split('?')[0];
+              // SPA Fallback: serve index.html for non-file requests
+              // Exclude Vite internals (/@...), node_modules, and existing files/extensions
+              if (
+                !cleanUrl.includes('.') &&
+                !cleanUrl.startsWith('/@') &&
+                !cleanUrl.startsWith('/node_modules')
+              ) {
+                req.url = '/src/index.html';
               }
               next();
             });
