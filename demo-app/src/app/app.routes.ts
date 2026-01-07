@@ -36,6 +36,13 @@ export const routes: Routes = [
       import('./src/components/materials/chips/chips').then((m) => m.ChipsTestComponent),
   },
   {
+    path: 'datepicker',
+    loadComponent: () =>
+      import('./src/components/materials/datepicker/datepicker').then(
+        (m) => m.DatepickerTestComponent,
+      ),
+  },
+  {
     path: 'input',
     component: InputTestComponent,
   },
