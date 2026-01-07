@@ -611,8 +611,13 @@ impl ComponentDecoratorHandler {
                     .map(|(k, v)| (k.clone(), v.binding_property_name.clone()))
                     .collect::<IndexMap<_, _>>(),
                 lifecycle: dir.lifecycle.clone(),
-                providers: None,
+
+                providers: dir
+                    .providers
+                    .as_ref()
+                    .map(|expr| convert_oxc_expression(expr, &local_imports_map)),
                 uses_inheritance: false,
+
                 export_as: dir.t2.export_as.clone(),
                 is_standalone: dir.is_standalone,
                 is_signal: dir.is_signal,
@@ -802,6 +807,119 @@ impl ComponentDecoratorHandler {
                 additional_imports,
             },
         ]
+    }
+}
+
+fn convert_oxc_expression(
+    expr: &oxc_ast::ast::Expression,
+    imports_map: &std::collections::HashMap<String, String>,
+) -> angular_compiler::output::output_ast::Expression {
+    use angular_compiler::output::output_ast::*;
+    match expr {
+        oxc_ast::ast::Expression::Identifier(ident) => {
+            let name = ident.name.as_str();
+            if let Some(module) = imports_map.get(name) {
+                Expression::External(ExternalExpr {
+                    value: ExternalReference {
+                        module_name: Some(module.clone()),
+                        name: Some(name.to_string()),
+                        runtime: None,
+                    },
+                    type_: None,
+                    source_span: None,
+                })
+            } else {
+                Expression::ReadVar(ReadVarExpr {
+                    name: name.to_string(),
+                    type_: None,
+                    source_span: None,
+                })
+            }
+        }
+        oxc_ast::ast::Expression::CallExpression(call) => {
+            let callee = convert_oxc_expression(&call.callee, imports_map);
+            let args = call
+                .arguments
+                .iter()
+                .filter_map(|arg| arg.as_expression())
+                .map(|arg| convert_oxc_expression(arg, imports_map))
+                .collect();
+            Expression::InvokeFn(InvokeFunctionExpr {
+                fn_: Box::new(callee),
+                args,
+                type_: None,
+                source_span: None,
+                pure: false,
+            })
+        }
+        oxc_ast::ast::Expression::ArrayExpression(arr) => {
+            let entries = arr
+                .elements
+                .iter()
+                .filter_map(|elem| elem.as_expression())
+                .map(|elem| convert_oxc_expression(elem, imports_map))
+                .collect();
+            Expression::LiteralArray(LiteralArrayExpr {
+                entries,
+                type_: None,
+                source_span: None,
+            })
+        }
+        oxc_ast::ast::Expression::ObjectExpression(obj) => {
+            let entries = obj
+                .properties
+                .iter()
+                .filter_map(|prop| {
+                    if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) = prop {
+                        let key = match &p.key {
+                            oxc_ast::ast::PropertyKey::StaticIdentifier(id) => {
+                                Some(id.name.as_str())
+                            }
+                            oxc_ast::ast::PropertyKey::StringLiteral(s) => Some(s.value.as_str()),
+                            _ => None,
+                        }?;
+                        let value = convert_oxc_expression(&p.value, imports_map);
+                        Some(LiteralMapEntry {
+                            key: key.to_string(),
+                            value: Box::new(value),
+                            quoted: true,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            Expression::LiteralMap(LiteralMapExpr {
+                entries,
+                type_: None,
+                source_span: None,
+            })
+        }
+        oxc_ast::ast::Expression::StringLiteral(s) => Expression::Literal(LiteralExpr {
+            value: LiteralValue::String(s.value.to_string()),
+            type_: None,
+            source_span: None,
+        }),
+        oxc_ast::ast::Expression::NumericLiteral(n) => Expression::Literal(LiteralExpr {
+            value: LiteralValue::Number(n.value),
+            type_: None,
+            source_span: None,
+        }),
+        oxc_ast::ast::Expression::BooleanLiteral(b) => Expression::Literal(LiteralExpr {
+            value: LiteralValue::Bool(b.value),
+            type_: None,
+            source_span: None,
+        }),
+        oxc_ast::ast::Expression::NullLiteral(_) => Expression::Literal(LiteralExpr {
+            value: LiteralValue::Null,
+            type_: None,
+            source_span: None,
+        }),
+        _ => Expression::Literal(LiteralExpr {
+            value: LiteralValue::Null, // Fallback for unsupported
+            type_: None,
+            source_span: None,
+        }),
     }
 }
 

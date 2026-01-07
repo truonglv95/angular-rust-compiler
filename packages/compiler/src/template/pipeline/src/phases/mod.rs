@@ -81,6 +81,7 @@ pub fn run(job: &mut ComponentCompilationJob) {
 
     save_restore_view::save_and_restore_view(job); // Save/restore view for listeners - MUST run AFTER generate_variables so RestoreView is prepended last (appears first)
     resolve_names::phase(job);
+    transform_two_way_binding_set::transform_two_way_binding_set(job); // Transform TwoWayBindingSetExpr BEFORE resolve_contexts so ContextExpr in target is resolved
     resolve_contexts::phase(job);
 
     // Expand safe reads (?. and ?[]) to conditionals
@@ -125,7 +126,7 @@ pub fn run(job: &mut ComponentCompilationJob) {
     conditionals::generate_conditional_expressions(job); // Collapse conditional expressions to single ternary
     temporary_variables::generate_temporary_variables(job); // Name and declare temporary variables (must run after conditionals and expand_safe_reads)
     diagnostics::phase(job);
-    transform_two_way_binding_set::transform_two_way_binding_set(job);
+    // transform_two_way_binding_set moved to run before resolve_contexts (line 84)
     reify::reify(job);
     chaining::chain(job);
 }

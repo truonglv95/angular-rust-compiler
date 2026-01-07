@@ -791,6 +791,9 @@ pub fn extract_directive_metadata<'a>(
                                     }
                                 }
                             }
+                            "providers" => {
+                                meta.providers = Some(&prop.value);
+                            }
                             "styles" => {
                                 if let Expression::ArrayExpression(arr) = &prop.value {
                                     let collected: Vec<String> = arr

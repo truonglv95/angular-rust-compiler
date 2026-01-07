@@ -201,26 +201,80 @@ fn apply_names_to_op_recursive(
             ir::OpKind::Listener => {
                 use crate::template::pipeline::ir::ops::create::ListenerOp;
                 let listener = &mut *(op_ptr as *mut ListenerOp);
-                for handler_op in &mut listener.handler_ops {
-                    apply_names_to_op_recursive(handler_op.as_mut(), var_names);
-                }
+                apply_names_to_handler_ops(&mut listener.handler_ops, var_names);
             }
             ir::OpKind::AnimationListener => {
                 use crate::template::pipeline::ir::ops::create::AnimationListenerOp;
                 let listener = &mut *(op_ptr as *mut AnimationListenerOp);
-                for handler_op in &mut listener.handler_ops {
-                    apply_names_to_op_recursive(handler_op.as_mut(), var_names);
-                }
+                apply_names_to_handler_ops(&mut listener.handler_ops, var_names);
             }
             ir::OpKind::TwoWayListener => {
                 use crate::template::pipeline::ir::ops::create::TwoWayListenerOp;
                 let listener = &mut *(op_ptr as *mut TwoWayListenerOp);
-                for handler_op in &mut listener.handler_ops {
-                    apply_names_to_op_recursive(handler_op.as_mut(), var_names);
-                }
+                apply_names_to_handler_ops(&mut listener.handler_ops, var_names);
             }
             _ => {}
         }
+    }
+}
+
+/// Applies variable names to handler_ops, first collecting variable names defined
+/// within the handler_ops themselves (like context variables from save_restore_view).
+fn apply_names_to_handler_ops(
+    handler_ops: &mut ir::OpList<Box<dyn ir::UpdateOp + Send + Sync>>,
+    parent_var_names: &std::collections::HashMap<ir::XrefId, String>,
+) {
+    use crate::template::pipeline::ir::ops::shared::VariableOp;
+
+    // First pass: collect variable names from VariableOps within handler_ops
+    let mut local_var_names = parent_var_names.clone();
+    let mut naming_index = 0usize;
+
+    for handler_op in handler_ops.iter() {
+        if handler_op.kind() == ir::OpKind::Variable {
+            unsafe {
+                let handler_op_ptr = handler_op.as_ref() as *const dyn ir::UpdateOp;
+                let variable_op_ptr =
+                    handler_op_ptr as *const VariableOp<Box<dyn ir::UpdateOp + Send + Sync>>;
+                let variable_op = &*variable_op_ptr;
+
+                // Generate name for this variable if not already named
+                let name = if let Some(existing) = variable_op.variable.name() {
+                    existing.to_string()
+                } else {
+                    // Generate a context variable name based on semantic type
+                    match &variable_op.variable {
+                        ir::SemanticVariable::Context(_) => {
+                            let name = format!("ctx_r{}", naming_index);
+                            naming_index += 1;
+                            name
+                        }
+                        ir::SemanticVariable::SavedView(_) => {
+                            let name = format!("_r{}", naming_index);
+                            naming_index += 1;
+                            name
+                        }
+                        ir::SemanticVariable::Identifier(ident) => {
+                            let name = format!("{}_r{}", ident.identifier, naming_index);
+                            naming_index += 1;
+                            name
+                        }
+                        _ => {
+                            let name = format!("_r{}", naming_index);
+                            naming_index += 1;
+                            name
+                        }
+                    }
+                };
+
+                local_var_names.insert(variable_op.xref, name);
+            }
+        }
+    }
+
+    // Second pass: apply names to all handler_ops using the combined var_names map
+    for handler_op in handler_ops.iter_mut() {
+        apply_names_to_op_recursive(handler_op.as_mut(), &local_var_names);
     }
 }
 
