@@ -234,25 +234,32 @@ fn process_class_declaration(
 ) {
     if let Some(ident) = &class_decl.id {
         let class_name = ident.name.to_string();
+        // Log ALL classes to see what we are visiting
+        eprintln!("[Metadata] DEBUG: Process Class: {}", class_name);
+
         for elem in &class_decl.body.body {
             if let oxc_ast::ast::ClassElement::PropertyDefinition(prop) = elem {
                 if prop.r#static {
-                    if let PropertyKey::StaticIdentifier(key) = &prop.key {
-                        let key_name = key.name.as_str();
-                        eprintln!(
-                            "[Metadata] Visiting class property: {}.{}",
-                            class_name, key_name
-                        );
+                    if let Some(key_name) = prop.key.name() {
+                        if class_name == "MatChipOption" {
+                            eprintln!("[Metadata] DEBUG: MatChipOption static prop: {}", key_name);
+                        }
+                        // eprintln!(
+                        //     "[Metadata] Visiting class property: {}.{}",
+                        //     class_name, key_name
+                        // );
                         if let Some(value) = &prop.value {
                             process_definition(
                                 &class_name,
-                                key_name,
+                                &key_name,
                                 value,
                                 modules,
                                 directives,
                                 imports,
                             );
                         }
+                    } else if class_name == "MatChipOption" {
+                        eprintln!("[Metadata] DEBUG: MatChipOption static prop has NO NAME");
                     }
                 }
             }
@@ -278,7 +285,9 @@ fn process_definition(
         }
     } else if prop_name == "ɵcmp" || prop_name == "ɵdir" {
         // Component or Directive
-        if let Some((selector, export_as, host_attrs)) = extract_directive_metadata(value) {
+        if let Some((selector, export_as, host_attrs)) =
+            extract_directive_metadata(class_name, value)
+        {
             directives.push(ExtractedDirective {
                 name: class_name.to_string(),
                 selector,
@@ -343,23 +352,33 @@ fn extract_ng_module_exports(
     None
 }
 
-fn extract_directive_metadata(expr: &Expression) -> Option<(String, Option<String>, Vec<String>)> {
+fn extract_directive_metadata(
+    class_name: &str,
+    expr: &Expression,
+) -> Option<(String, Option<String>, Vec<String>)> {
+    // Returns (selector, export_as, host_attrs)
+    eprintln!(
+        "[Metadata]   Extracting metadata from expression for class {}: {:?}",
+        class_name, expr
+    );
+
     let mut selector = String::new();
     let mut export_as = None;
     let mut host_attrs = Vec::new();
 
-    eprintln!(
-        "[Metadata]   Extracting metadata from expression: {:?}",
-        expr
-    );
     if let Expression::CallExpression(call) = expr {
         if let Some(arg) = call.arguments.first() {
-            eprintln!("[Metadata]     First argument type: {:?}", arg);
             if let oxc_ast::ast::Argument::ObjectExpression(obj) = arg {
                 for prop in &obj.properties {
                     if let ObjectPropertyKind::ObjectProperty(p) = prop {
                         if let PropertyKey::StaticIdentifier(key) = &p.key {
-                            eprintln!("[Metadata]       Found property: {}", key.name);
+                            // eprintln!("[Metadata]       Found property: {}", key.name);
+                            if class_name == "MatChipOption" {
+                                eprintln!("[Metadata]       MatChipOption property: {}", key.name);
+                                if key.name == "selector" || key.name == "selectors" {
+                                    eprintln!("[Metadata]       MatChipOption parsing selector from value: {:?}", p.value);
+                                }
+                            }
                             if key.name == "selectors" {
                                 // JIT/Ivy Component format: selectors: [["tag", ...]]
                                 if let Expression::ArrayExpression(arr) = &p.value {

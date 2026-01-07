@@ -160,6 +160,11 @@ pub fn emit_component(
     }
 
     // Emit root template as inline FunctionExpr
+    eprintln!(
+        "[EMIT_DEBUG] emit_component: job.root create ops: {}, update ops: {}",
+        job.root.create().len(),
+        job.root.update().len()
+    );
     let template_fn = emit_view(job, &job.root);
 
     // Construct data for defineComponent
@@ -373,6 +378,12 @@ pub fn emit_component(
 
     // contentQueries function for @ContentChild/@ContentChildren
     if !metadata.directive.queries.is_empty() {
+        eprintln!(
+            "[EMIT] Generating content queries for component: {} ({} queries)",
+            metadata.directive.name,
+            metadata.directive.queries.len()
+        );
+
         let mut constant_pool = crate::constant_pool::ConstantPool::new(false);
         let content_queries_fn =
             crate::render3::view::query_generation::create_content_queries_function(
@@ -629,6 +640,7 @@ pub fn emit_ops(
     let mut stmts = vec![];
 
     for op in ops {
+        eprintln!("[EMIT_DEBUG_OP] OpKind: {:?}", op.kind());
         match op.kind() {
             ir::OpKind::ElementStart => {
                 if let Some(element_op) = op
@@ -1065,6 +1077,7 @@ pub fn emit_ops(
                         .handle
                         .get_slot()
                         .expect("Projection slot must be allocated");
+                    eprintln!("[EMIT] Projection instruction at slot: {}", slot);
 
                     let mut args = vec![*o::literal(slot as f64)];
                     if proj_op.projection_slot_index > 0 {

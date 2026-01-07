@@ -291,7 +291,6 @@ impl ComponentDecoratorHandler {
         let mut declarations_map = indexmap::IndexMap::new();
 
         if let Some(imports) = &dir.imports {
-            // eprintln!(\"DEBUG: [handler] Processing imports for component: {}, total imports: {}\", dir.t2.name, imports.len());
             for import_ref in imports {
                 let import_name = import_ref.debug_name().to_string();
                 // First try best_guess_owning_module, fallback to local_imports_map
@@ -300,7 +299,6 @@ impl ComponentDecoratorHandler {
                     .as_ref()
                     .map(|m| m.specifier.clone())
                     .or_else(|| local_imports_map.get(&import_name).cloned());
-                // eprintln!(\"DEBUG: [handler] Processing import: {} (module: {:?})\", import_name, module_path);
 
                 let source_span = dir.source_file.as_ref().and_then(|path| {
                     import_ref.span.map(|span| {
@@ -436,7 +434,6 @@ impl ComponentDecoratorHandler {
                     } else {
                         // Dynamic loading failed - just add module itself as dependency
                         // The directives/pipes should already be compiled and linked
-                        // eprintln!("DEBUG: [handler] Dynamic loading returned no results for {}, adding module itself", import_name);
 
                         // Dynamic loading failed - just add module itself as dependency
                         let module_meta = R3TemplateDependencyMetadata::NgModule(
@@ -449,7 +446,6 @@ impl ComponentDecoratorHandler {
                     }
                 } else {
                     // Local component/directive - no external module
-                    // eprintln!("DEBUG: [handler] Local import (no module_path): {}", import_name);
 
                     let mut found = false;
                     // Dynamic resolution for local components
@@ -483,7 +479,6 @@ impl ComponentDecoratorHandler {
                                 };
 
                                 if matches {
-                                    // eprintln!("DEBUG: [handler] Resolved local import dynamically: {}", import_name);
                                     let key = match &meta {
                                         R3TemplateDependencyMetadata::Directive(d) => {
                                             format!("dir:{}", d.selector)
@@ -520,9 +515,6 @@ impl ComponentDecoratorHandler {
                 }
             }
         }
-
-        // eprintln!("DEBUG: [handler] Final declarations_map size: {}", declarations_map.len());
-        // eprintln!("DEBUG: [handler] Final declarations_map keys: {:?}", declarations_map.keys().collect::<Vec<_>>());
 
         let mut r3_metadata = R3ComponentMetadata {
             directive: R3DirectiveMetadata {

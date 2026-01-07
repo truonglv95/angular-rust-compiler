@@ -140,32 +140,12 @@ impl ModuleMetadataReader {
     }
 
     pub fn read_metadata(&self, module_name: &str) -> Option<Vec<R3TemplateDependencyMetadata>> {
-        eprintln!(
-            "DEBUG: [fesm_reader] read_metadata called for: {}",
-            module_name
-        );
-        // Try global cache from linker first
-        if let Some(cached) = self.read_from_cache(module_name) {
-            if !cached.is_empty() {
-                // eprintln!("DEBUG: [fesm_reader] Found metadata in global cache for: {}", module_name);
-                return Some(cached);
-            }
-        }
-
         let entry_path = if let Some(p) = self.resolve_module(module_name) {
             p
         } else {
-            // eprintln!(
-            //     "DEBUG: [fesm_reader] Failed to resolve module path: {}",
-            //     module_name
-            // );
             return None;
         };
         // ...
-        // eprintln!(
-        //     "DEBUG: [fesm_reader] Reading metadata from: {}",
-        //     entry_path.display()
-        // );
 
         let mut queue = vec![entry_path.clone()];
         let mut visited = std::collections::HashSet::new();
@@ -270,7 +250,7 @@ impl ModuleMetadataReader {
                         // Check static properties
                         for member in &class_decl.body.body {
                             if let oxc_ast::ast::ClassElement::PropertyDefinition(prop) = member {
-                                if prop.r#static && prop.key.is_identifier() {
+                                if prop.r#static {
                                     if let Some(key_name) = prop.key.name() {
                                         if let Some(value) = &prop.value {
                                             if let OxcExpression::CallExpression(call) = value {
@@ -760,64 +740,31 @@ impl ModuleMetadataReader {
         let entry_path = if let Some(p) = self.resolve_module(module_name) {
             p
         } else {
-            eprintln!("DEBUG: [cache_lookup] Resolve failed for: {}", module_name);
             return None;
         };
         let entry_path_str = entry_path.to_string_lossy().to_string();
-        eprintln!(
-            "DEBUG: [cache_lookup] Normalized entry path: {}",
-            entry_path_str
-        );
 
         // The linker cache uses the full absolute path as the key prefix.
         let cache_key_prefix = entry_path_str.clone();
 
-        eprintln!(
-            "DEBUG: [cache_lookup] Cache key prefix: {}",
-            cache_key_prefix
-        );
-
         let cache = get_metadata_cache().read().ok()?;
-
-        // Debug: Print cache size
-        eprintln!(
-            "DEBUG: [cache_lookup] Total modules in cache: {}, directives: {}",
-            cache.modules.len(),
-            cache.directives.len()
-        );
 
         // 1. Find the NgModule in this file
         let mut results = Vec::new();
         let mut modules_found = Vec::new();
 
         for (key, module) in &cache.modules {
-            // Only log for material modules to reduce noise
-            if key.contains("@angular/material") {
-                eprintln!("DEBUG: [cache_lookup] Module key in cache: {}", key);
-            }
             if key.starts_with(&cache_key_prefix) {
-                eprintln!(
-                    "DEBUG: [cache_lookup] Found NgModule: {} in {}",
-                    key, cache_key_prefix
-                );
                 modules_found.push(module.clone());
             }
         }
 
         if modules_found.is_empty() {
-            eprintln!(
-                "DEBUG: [cache_lookup] No NgModules found for prefix: {}",
-                cache_key_prefix
-            );
             return None;
         }
 
         // 2. Collect all exports from found NgModules
         for module in modules_found {
-            eprintln!(
-                "DEBUG: [cache_lookup] Processing module with {} exports",
-                module.exports.len()
-            );
             for export in &module.exports {
                 // Look up the directive in the cache
                 let lookup_path = export.source_path.as_deref().unwrap_or(&cache_key_prefix);
@@ -827,13 +774,7 @@ impl ModuleMetadataReader {
                     .unwrap_or(&export.exported_name);
                 let directive_key = format!("{}:{}", lookup_path, lookup_name);
 
-                eprintln!(
-                    "DEBUG: [cache_lookup] Looking up directive: {}",
-                    directive_key
-                );
-
                 if let Some(directive) = cache.directives.get(&directive_key) {
-                    eprintln!("DEBUG: [cache_lookup] FOUND directive: {}", directive.name);
                     // Convert ExtractedDirective to R3TemplateDependencyMetadata
                     let expression = Expression::External(ExternalExpr {
                         value: ExternalReference {

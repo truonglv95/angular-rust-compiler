@@ -60,8 +60,13 @@ impl<'a> AstHost<OxcNode<'a>> for OxcAstHost<'a> {
     fn is_string_literal(&self, node: &OxcNode<'a>) -> bool {
         match node {
             OxcNode::Expression(Expression::StringLiteral(_)) => true,
+            OxcNode::Expression(Expression::TemplateLiteral(t)) => t.quasis.len() == 1,
             OxcNode::ArrayElement(ArrayExpressionElement::StringLiteral(_)) => true,
+            OxcNode::ArrayElement(ArrayExpressionElement::TemplateLiteral(t)) => {
+                t.quasis.len() == 1
+            }
             OxcNode::Argument(Argument::StringLiteral(_)) => true,
+            OxcNode::Argument(Argument::TemplateLiteral(t)) => t.quasis.len() == 1,
             _ => false,
         }
     }
@@ -69,10 +74,31 @@ impl<'a> AstHost<OxcNode<'a>> for OxcAstHost<'a> {
     fn parse_string_literal(&self, node: &OxcNode<'a>) -> Result<String, String> {
         match node {
             OxcNode::Expression(Expression::StringLiteral(l)) => Ok(l.value.to_string()),
+            OxcNode::Expression(Expression::TemplateLiteral(l)) => {
+                if l.quasis.len() == 1 {
+                    Ok(l.quasis[0].value.raw.to_string())
+                } else {
+                    Err("Template literal with substitutions not supported".to_string())
+                }
+            }
             OxcNode::ArrayElement(ArrayExpressionElement::StringLiteral(l)) => {
                 Ok(l.value.to_string())
             }
+            OxcNode::ArrayElement(ArrayExpressionElement::TemplateLiteral(l)) => {
+                if l.quasis.len() == 1 {
+                    Ok(l.quasis[0].value.raw.to_string())
+                } else {
+                    Err("Template literal with substitutions not supported".to_string())
+                }
+            }
             OxcNode::Argument(Argument::StringLiteral(l)) => Ok(l.value.to_string()),
+            OxcNode::Argument(Argument::TemplateLiteral(l)) => {
+                if l.quasis.len() == 1 {
+                    Ok(l.quasis[0].value.raw.to_string())
+                } else {
+                    Err("Template literal with substitutions not supported".to_string())
+                }
+            }
             _ => Err("Not a string literal".to_string()),
         }
     }

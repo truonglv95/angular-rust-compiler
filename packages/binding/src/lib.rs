@@ -258,6 +258,29 @@ pub struct CompileResult {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[napi(object)]
+pub struct FileEntry {
+    pub filename: String,
+    pub content: String,
+}
+
+#[napi(object)]
+pub struct BatchEntryResult {
+    pub filename: String,
+    pub code: Option<String>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[napi(object)]
+pub struct NapiBundleResult {
+    pub bundle_js: String,
+    pub styles_css: Option<String>,
+    pub scripts_js: Option<String>,
+    pub index_html: Option<String>,
+    pub files: HashMap<String, String>,
+    pub chunks: HashMap<String, String>,
+}
+
 #[napi]
 pub struct Compiler {
     compiler_cache_dir: PathBuf,
@@ -550,34 +573,6 @@ impl Compiler {
             }
         }
     }
-}
-
-#[napi(object)]
-pub struct FileEntry {
-    pub filename: String,
-    pub content: String,
-}
-
-#[napi(object)]
-pub struct BatchEntryResult {
-    pub filename: String,
-    pub code: Option<String>,
-    pub diagnostics: Vec<Diagnostic>,
-}
-
-#[napi(object)]
-pub struct NapiBundleResult {
-    pub bundle_js: String,
-    pub styles_css: Option<String>,
-    pub scripts_js: Option<String>,
-    pub index_html: Option<String>,
-    pub files: HashMap<String, String>,
-}
-
-#[napi]
-impl Compiler {
-    // ... existing impl ...
-
     #[napi]
     pub fn bundle(&self, project_path: String) -> NapiBundleResult {
         use angular_compiler_cli::bundler::bundle_project;
@@ -590,6 +585,7 @@ impl Compiler {
                 scripts_js: res.scripts_js,
                 index_html: res.index_html,
                 files: res.files,
+                chunks: res.chunks,
             },
             Err(e) => {
                 eprintln!("Bundle Error: {}", e);
@@ -599,10 +595,9 @@ impl Compiler {
                     scripts_js: None,
                     index_html: None,
                     files: HashMap::new(),
+                    chunks: HashMap::new(),
                 }
             }
         }
     }
-
-    // ... existing methods ...
 }
