@@ -9,11 +9,16 @@ import { DialogTestComponent } from './src/components/materials/dialog/dialog';
 import { DividerTestComponent } from './src/components/materials/divider/divider';
 import { ExpansionTestComponent } from './src/components/materials/expansion/expansion';
 import { CategoriesComponent } from './src/components/categories/categories';
+import { FormFieldTestComponent } from './src/components/materials/form-field/form-field';
 
 export const routes: Routes = [
   {
     path: 'categories',
     component: CategoriesComponent,
+  },
+  {
+    path: 'form-field',
+    component: FormFieldTestComponent,
   },
   {
     path: 'button',
