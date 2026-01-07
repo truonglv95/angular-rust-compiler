@@ -1,0 +1,21 @@
+.expansion-container {
+  padding: 20px;
+}
+
+.expansion-container h2 {
+  margin-bottom: 20px;
+}
+
+.expansion-container h3 {
+  margin-top: 24px;
+  margin-bottom: 12px;
+}
+
+.example-headers-align .mat-expansion-panel-header-description {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.example-headers-align .mat-mdc-form-field + .mat-mdc-form-field {
+  margin-left: 8px;
+}

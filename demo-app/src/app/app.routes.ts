@@ -7,6 +7,7 @@ import { ButtonToggleOverviewExample } from './src/components/materials/button-t
 import { BadgeOverviewExample } from './src/components/materials/badge/badge';
 import { DialogTestComponent } from './src/components/materials/dialog/dialog';
 import { DividerTestComponent } from './src/components/materials/divider/divider';
+import { ExpansionTestComponent } from './src/components/materials/expansion/expansion';
 import { CategoriesComponent } from './src/components/categories/categories';
 
 export const routes: Routes = [
@@ -67,6 +68,10 @@ export const routes: Routes = [
   {
     path: 'divider',
     component: DividerTestComponent,
+  },
+  {
+    path: 'expansion',
+    component: ExpansionTestComponent,
   },
   {
     path: '**',
