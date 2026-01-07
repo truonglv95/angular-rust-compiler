@@ -31,6 +31,11 @@ export const routes: Routes = [
       import('./src/components/materials/checkbox/checkbox').then((m) => m.CheckboxTestComponent),
   },
   {
+    path: 'chips',
+    loadComponent: () =>
+      import('./src/components/materials/chips/chips').then((m) => m.ChipsTestComponent),
+  },
+  {
     path: 'input',
     component: InputTestComponent,
   },
