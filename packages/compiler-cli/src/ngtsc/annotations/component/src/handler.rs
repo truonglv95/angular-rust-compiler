@@ -729,32 +729,67 @@ impl ComponentDecoratorHandler {
         let mut local_manager = crate::ngtsc::translator::src::import_manager::import_manager::EmitterImportManager::new();
         let import_manager = external_import_manager.unwrap_or(&mut local_manager);
 
-        // Ensure @angular/core is mapped
+        // 1. Dry run to collect actually used modules
+        let mut used_modules = std::collections::HashSet::new();
+        {
+            let mut dry_emitter = AbstractJsEmitterVisitor::new(); // Empty imports map
+            let mut dry_ctx = EmitterVisitorContext::create_root();
+            let dry_context: &mut dyn Any = &mut dry_ctx;
+
+            // Scan all parts of the component
+            factory_compiled
+                .expression
+                .visit_expression(&mut dry_emitter, dry_context);
+            compiled
+                .expression
+                .visit_expression(&mut dry_emitter, dry_context);
+            for stmt in &compiled.statements {
+                stmt.visit_statement(&mut dry_emitter, dry_context);
+            }
+            used_modules = dry_emitter.used_imports;
+        }
+
+        // 2. Map aliases in stable order based on component imports
+        // Ensure @angular/core is always i0
         let _ = import_manager.get_or_generate_alias("@angular/core");
 
-        for decl in &r3_metadata.declarations {
-            let type_expr = match decl {
-                R3TemplateDependencyMetadata::Directive(d) => &d.type_,
-                R3TemplateDependencyMetadata::Pipe(p) => &p.type_,
-                R3TemplateDependencyMetadata::NgModule(m) => &m.type_,
-            };
+        // Track which used modules have been assigned an alias
+        let mut assigned_modules = std::collections::HashSet::new();
+        assigned_modules.insert("@angular/core".to_string());
 
-            if let Expression::External(ext) = type_expr {
-                let val = &ext.value;
-                if let Some(module_name) = &val.module_name {
-                    import_manager.get_or_generate_alias(module_name);
+        if let Some(imports) = &dir.imports {
+            for import_ref in imports {
+                let import_name = import_ref.debug_name().to_string();
+                let module_path = import_ref
+                    .best_guess_owning_module
+                    .as_ref()
+                    .map(|m| m.specifier.clone())
+                    .or_else(|| local_imports_map.get(&import_name).cloned());
+
+                if let Some(mod_name) = module_path {
+                    if used_modules.contains(&mod_name) && !assigned_modules.contains(&mod_name) {
+                        import_manager.get_or_generate_alias(&mod_name);
+                        assigned_modules.insert(mod_name);
+                    }
                 }
             }
         }
 
-        let imports_map = import_manager.get_imports_map();
-        let additional_imports: Vec<(String, String)> = imports_map
-            .iter()
-            .map(|(k, v)| (v.clone(), k.clone()))
+        // 3. Assign aliases to remaining used modules (implicit dependencies)
+        // Sort remaining modules by name for stability
+        let mut remaining_modules: Vec<_> = used_modules
+            .into_iter()
+            .filter(|m| !assigned_modules.contains(m))
             .collect();
+        remaining_modules.sort();
+        for mod_name in remaining_modules {
+            import_manager.get_or_generate_alias(&mod_name);
+        }
+
+        let imports_map = import_manager.get_imports_map();
 
         // Emit AST to String
-        let mut emitter = AbstractJsEmitterVisitor::with_imports(imports_map);
+        let mut emitter = AbstractJsEmitterVisitor::with_imports(imports_map.clone());
         let mut ctx = EmitterVisitorContext::create_root();
         let context: &mut dyn Any = &mut ctx;
 
@@ -779,6 +814,19 @@ impl ComponentDecoratorHandler {
             stmt.visit_statement(&mut emitter, stmt_context);
             emitted_statements.push(stmt_ctx.to_source());
         }
+
+        // Filter additional_imports based on actual usage during emission
+        let used_imports = emitter.used_imports;
+        let mut additional_imports: Vec<(String, String)> = imports_map
+            .into_iter()
+            .filter(|(k, _)| used_imports.contains(k) || k == "@angular/core")
+            .map(|(k, v)| (v, k))
+            .collect();
+        // Sort by alias name (e.g., i0, i1, i2...) for stable output
+        additional_imports.sort_by(|a, b| {
+            let get_num = |s: &str| s[1..].parse::<u32>().unwrap_or(0);
+            get_num(&a.0).cmp(&get_num(&b.0))
+        });
 
         // 4. Convert diagnostics (not easily available from compiled result yet, need to improve return type of compile_component_from_metadata if we want them back)
         // For now, returning empty diagnostics as the centralized compiler doesn't return them directly in the struct yet

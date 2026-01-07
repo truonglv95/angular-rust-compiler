@@ -10,7 +10,7 @@ use crate::output::abstract_emitter::{
 use crate::output::output_ast as o;
 use crate::output::output_ast::ExpressionTrait;
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Template object polyfill for tagged templates
 #[allow(dead_code)]
@@ -24,6 +24,7 @@ const SINGLE_QUOTE_ESCAPE_STRING_RE: &str = r"'|\\|\n|\r|\$";
 pub struct AbstractJsEmitterVisitor {
     base: AbstractEmitterVisitor,
     imports: HashMap<String, String>,
+    pub used_imports: HashSet<String>,
 }
 
 fn is_assignment_like(expr: &o::Expression) -> bool {
@@ -38,6 +39,7 @@ impl AbstractJsEmitterVisitor {
         AbstractJsEmitterVisitor {
             base: AbstractEmitterVisitor::new(false),
             imports: HashMap::new(),
+            used_imports: HashSet::new(),
         }
     }
 
@@ -45,6 +47,7 @@ impl AbstractJsEmitterVisitor {
         AbstractJsEmitterVisitor {
             base: AbstractEmitterVisitor::new(false),
             imports,
+            used_imports: HashSet::new(),
         }
     }
 
@@ -141,6 +144,7 @@ impl AbstractJsEmitterVisitor {
             if module_name == "@angular/core" {
                 ctx.print(Some(expr), "i0.", false);
             } else if let Some(alias) = self.imports.get(module_name) {
+                self.used_imports.insert(module_name.clone());
                 ctx.print(Some(expr), alias, false);
                 ctx.print(Some(expr), ".", false);
             } else {
@@ -755,6 +759,7 @@ impl o::ExpressionVisitor for AbstractJsEmitterVisitor {
 
         // Handle common Angular imports aliasing and configured imports
         if let Some(module_name) = &ref_expr.module_name {
+            self.used_imports.insert(module_name.clone());
             if module_name == "@angular/core" {
                 ctx.print(Some(expr), "i0.", false);
             } else if let Some(alias) = self.imports.get(module_name) {

@@ -1628,23 +1628,11 @@ pub fn convert_oxc_expression(
         }
         oxc_ast::ast::Expression::Identifier(ident) => {
             let name = ident.name.as_str();
-            if let Some(module) = imports_map.get(name) {
-                Expression::External(ExternalExpr {
-                    value: ExternalReference {
-                        module_name: Some(module.clone()),
-                        name: Some(name.to_string()),
-                        runtime: None,
-                    },
-                    type_: None,
-                    source_span: None,
-                })
-            } else {
-                Expression::ReadVar(ReadVarExpr {
-                    name: name.to_string(),
-                    type_: None,
-                    source_span: None,
-                })
-            }
+            Expression::ReadVar(ReadVarExpr {
+                name: name.to_string(),
+                type_: None,
+                source_span: None,
+            })
         }
         oxc_ast::ast::Expression::CallExpression(call) => {
             let callee = convert_oxc_expression(&call.callee, imports_map);
