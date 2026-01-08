@@ -1,0 +1,18 @@
+.spinner-demo {
+  padding: 20px;
+}
+
+.example-card {
+  margin-bottom: 20px;
+}
+
+.example-section {
+  display: flex;
+  align-items: center;
+  align-content: center;
+  height: 60px;
+}
+
+.example-margin {
+  margin: 0 10px;
+}

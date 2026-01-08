@@ -1,0 +1,29 @@
+<div class="spinner-demo">
+  <h2>Progress Spinner Configuration</h2>
+  <mat-card class="example-card">
+    <mat-card-content>
+      <section class="example-section">
+        <label class="example-margin">Mode:</label>
+        <mat-radio-group [(ngModel)]="mode">
+          <mat-radio-button class="example-margin" value="determinate"
+            >Determinate</mat-radio-button
+          >
+          <mat-radio-button class="example-margin" value="indeterminate"
+            >Indeterminate</mat-radio-button
+          >
+        </mat-radio-group>
+      </section>
+
+      <section class="example-section" *ngIf="mode === 'determinate'">
+        <label class="example-margin">Value:</label>
+        <mat-slider class="example-margin">
+          <input matSliderThumb [(ngModel)]="value" />
+        </mat-slider>
+      </section>
+    </mat-card-content>
+  </mat-card>
+
+  <h2>Result</h2>
+  <mat-progress-spinner class="example-margin" [mode]="mode" [value]="value">
+  </mat-progress-spinner>
+</div>

@@ -86,6 +86,20 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'progress-bar',
+    loadComponent: () =>
+      import('./src/components/materials/progress-bar/progress-bar').then(
+        (m) => m.ProgressBarTestComponent,
+      ),
+  },
+  {
+    path: 'progress-spinner',
+    loadComponent: () =>
+      import('./src/components/materials/progress-spinner/progress-spinner').then(
+        (m) => m.ProgressSpinnerTestComponent,
+      ),
+  },
+  {
     path: 'button-toggle',
     component: ButtonToggleOverviewExample,
   },
