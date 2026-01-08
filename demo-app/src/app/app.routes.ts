@@ -100,6 +100,16 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'radio',
+    loadComponent: () =>
+      import('./src/components/materials/radio/radio').then((m) => m.RadioTestComponent),
+  },
+  {
+    path: 'ripple',
+    loadComponent: () =>
+      import('./src/components/materials/ripple/ripple').then((m) => m.RippleTestComponent),
+  },
+  {
     path: 'button-toggle',
     component: ButtonToggleOverviewExample,
   },

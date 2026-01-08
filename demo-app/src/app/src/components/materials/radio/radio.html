@@ -1,0 +1,11 @@
+<div class="demo-container">
+  <h2>Radio Button Demo</h2>
+
+  <mat-radio-group aria-label="Select an option" class="radio-group" [(ngModel)]="favoriteSeason">
+    @for (season of seasons; track season) {
+      <mat-radio-button class="radio-button" [value]="season">{{ season }}</mat-radio-button>
+    }
+  </mat-radio-group>
+
+  <div>Your favorite season is: {{ favoriteSeason }}</div>
+</div>
