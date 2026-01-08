@@ -50,6 +50,23 @@ pub fn generate_temporary_variables(job: &mut dyn CompilationJob) {
             let update_stmts = generate_temporaries_update(unit.update_mut());
             unit.update_mut().prepend(update_stmts);
         }
+    } else if matches!(job_kind, CompilationJobKind::Host) {
+        use crate::template::pipeline::src::compilation::HostBindingCompilationJob;
+        let host_job = unsafe {
+            let job_ptr = job as *mut dyn CompilationJob;
+            let job_ptr = job_ptr as *mut HostBindingCompilationJob;
+            &mut *job_ptr
+        };
+
+        // Process root unit
+        {
+            use crate::template::pipeline::src::compilation::CompilationUnit;
+            let create_stmts = generate_temporaries_create(host_job.root.create_mut());
+            host_job.root.create_mut().prepend(create_stmts);
+
+            let update_stmts = generate_temporaries_update(host_job.root.update_mut());
+            host_job.root.update_mut().prepend(update_stmts);
+        }
     }
 }
 
