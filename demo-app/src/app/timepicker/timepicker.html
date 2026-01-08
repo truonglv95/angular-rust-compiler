@@ -1,0 +1,8 @@
+<h2>Timepicker</h2>
+
+<mat-form-field>
+  <mat-label>Select time</mat-label>
+  <input matInput [matTimepicker]="picker" placeholder="Select time" />
+  <mat-timepicker-toggle matIconSuffix [for]="picker" />
+  <mat-timepicker #picker />
+</mat-form-field>

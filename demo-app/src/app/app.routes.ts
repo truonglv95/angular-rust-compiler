@@ -157,6 +157,22 @@ export const routes: Routes = [
       import('./src/components/materials/tabs/tabs').then((m) => m.TabsTestComponent),
   },
   {
+    path: 'timepicker',
+    loadComponent: () => import('./timepicker/timepicker').then((m) => m.TimepickerTestComponent),
+  },
+  {
+    path: 'toolbar',
+    loadComponent: () => import('./toolbar/toolbar').then((m) => m.ToolbarTestComponent),
+  },
+  {
+    path: 'tooltip',
+    loadComponent: () => import('./tooltip/tooltip').then((m) => m.TooltipTestComponent),
+  },
+  {
+    path: 'tree',
+    loadComponent: () => import('./tree/tree').then((m) => m.TreeTestComponent),
+  },
+  {
     path: 'button-toggle',
     component: ButtonToggleOverviewExample,
   },

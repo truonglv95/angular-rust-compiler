@@ -1,0 +1,6 @@
+.mat-icon-rtl-mirror {
+  transform: scaleX(-1);
+}
+.mat-tree-node {
+  min-height: 48px;
+}
