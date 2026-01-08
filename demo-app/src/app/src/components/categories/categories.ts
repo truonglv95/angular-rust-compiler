@@ -62,7 +62,7 @@ export class CategoriesComponent {
         { name: 'Button toggle' },
         { name: 'Badge' },
         { name: 'Chips' },
-        { name: 'Icon' },
+        { name: 'Icon', link: '/icon' },
         { name: 'Progress spinner' },
         { name: 'Progress bar' },
         { name: 'Ripple' },

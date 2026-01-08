@@ -64,6 +64,11 @@ export const routes: Routes = [
       import('./src/components/materials/grid-list/grid-list').then((m) => m.GridListTestComponent),
   },
   {
+    path: 'icon',
+    loadComponent: () =>
+      import('./src/components/materials/icon/icon').then((m) => m.IconTestComponent),
+  },
+  {
     path: 'button-toggle',
     component: ButtonToggleOverviewExample,
   },
