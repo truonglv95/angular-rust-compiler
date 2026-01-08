@@ -1,0 +1,7 @@
+.grid-list-demo {
+  padding: 20px;
+}
+
+mat-grid-tile {
+  background: lightblue;
+}

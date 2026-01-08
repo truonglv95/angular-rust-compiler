@@ -59,6 +59,11 @@ export const routes: Routes = [
     component: BottomSheetTestComponent,
   },
   {
+    path: 'grid-list',
+    loadComponent: () =>
+      import('./src/components/materials/grid-list/grid-list').then((m) => m.GridListTestComponent),
+  },
+  {
     path: 'button-toggle',
     component: ButtonToggleOverviewExample,
   },
