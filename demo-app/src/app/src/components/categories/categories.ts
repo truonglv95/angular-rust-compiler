@@ -38,7 +38,7 @@ export class CategoriesComponent {
     {
       name: 'Navigation',
       summary: 'Menus, sidenavs and toolbars that organize your content.',
-      items: [{ name: 'Menu' }, { name: 'Sidenav' }, { name: 'Toolbar' }],
+      items: [{ name: 'Menu', link: '/menu' }, { name: 'Sidenav' }, { name: 'Toolbar' }],
     },
     {
       name: 'Layout',
@@ -81,7 +81,7 @@ export class CategoriesComponent {
     {
       name: 'Data Table',
       summary: 'Tools for displaying and interacting with tabular data.',
-      items: [{ name: 'Paginator' }, { name: 'Sort' }, { name: 'Table' }],
+      items: [{ name: 'Paginator', link: '/paginator' }, { name: 'Sort' }, { name: 'Table' }],
     },
   ];
 }

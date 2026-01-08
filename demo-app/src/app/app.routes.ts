@@ -74,6 +74,18 @@ export const routes: Routes = [
       import('./src/components/materials/list/list').then((m) => m.ListTestComponent),
   },
   {
+    path: 'menu',
+    loadComponent: () =>
+      import('./src/components/materials/menu/menu').then((m) => m.MenuTestComponent),
+  },
+  {
+    path: 'paginator',
+    loadComponent: () =>
+      import('./src/components/materials/paginator/paginator').then(
+        (m) => m.PaginatorTestComponent,
+      ),
+  },
+  {
     path: 'button-toggle',
     component: ButtonToggleOverviewExample,
   },
