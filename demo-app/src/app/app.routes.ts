@@ -137,6 +137,26 @@ export const routes: Routes = [
       import('./src/components/materials/snack-bar/snack-bar').then((m) => m.SnackBarTestComponent),
   },
   {
+    path: 'sort',
+    loadComponent: () =>
+      import('./src/components/materials/sort/sort').then((m) => m.SortTestComponent),
+  },
+  {
+    path: 'stepper',
+    loadComponent: () =>
+      import('./src/components/materials/stepper/stepper').then((m) => m.StepperTestComponent),
+  },
+  {
+    path: 'table',
+    loadComponent: () =>
+      import('./src/components/materials/table/table').then((m) => m.TableTestComponent),
+  },
+  {
+    path: 'tabs',
+    loadComponent: () =>
+      import('./src/components/materials/tabs/tabs').then((m) => m.TabsTestComponent),
+  },
+  {
     path: 'button-toggle',
     component: ButtonToggleOverviewExample,
   },
