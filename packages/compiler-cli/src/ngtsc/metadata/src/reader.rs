@@ -176,6 +176,7 @@ impl ModuleMetadataReader {
                 let source_opt = match stmt {
                     Statement::ExportAllDeclaration(e) => Some(&e.source),
                     Statement::ExportNamedDeclaration(e) => e.source.as_ref(),
+                    Statement::ImportDeclaration(e) => Some(&e.source),
                     _ => None,
                 };
 

@@ -334,7 +334,23 @@ impl PartialDirectiveLinker2 {
             inputs,
             outputs,
             uses_inheritance: meta_obj.get_bool("usesInheritance").unwrap_or(false),
-            export_as: None,
+            export_as: if meta_obj.has("exportAs") {
+                let export_as_val = meta_obj.get_value("exportAs")?;
+                if export_as_val.is_string() {
+                    Some(vec![export_as_val.get_string()?])
+                } else if export_as_val.is_array() {
+                    let arr = export_as_val.get_array()?;
+                    let exports = arr
+                        .iter()
+                        .map(|s| s.get_string())
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Some(exports)
+                } else {
+                    None
+                }
+            } else {
+                None
+            },
             providers: if meta_obj.has("providers") {
                 let providers_node = meta_obj.get_value("providers")?.node;
                 let providers_str = meta_obj.host.print_node(&providers_node);

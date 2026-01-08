@@ -52,16 +52,38 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
     // Collect imports
     let mut imports = HashMap::new(); // module -> alias
     let mut alias_imports = HashMap::new(); // alias -> module
+    let mut named_imports = HashMap::new(); // (module, export_name) -> local_name
 
     for stmt in &program.body {
         if let ast::Statement::ImportDeclaration(decl) = stmt {
             if let Some(specifiers) = &decl.specifiers {
                 for spec in specifiers {
-                    if let ast::ImportDeclarationSpecifier::ImportNamespaceSpecifier(ns) = spec {
-                        let module = decl.source.value.as_str();
-                        let alias = ns.local.name.as_str();
-                        imports.insert(module.to_string(), alias.to_string());
-                        alias_imports.insert(alias.to_string(), module.to_string());
+                    match spec {
+                        ast::ImportDeclarationSpecifier::ImportNamespaceSpecifier(ns) => {
+                            let module = decl.source.value.as_str();
+                            let alias = ns.local.name.as_str();
+                            imports.insert(module.to_string(), alias.to_string());
+                            alias_imports.insert(alias.to_string(), module.to_string());
+                            eprintln!("[Linker Debug] Namespace Import: {} -> {}", module, alias);
+                        }
+                        ast::ImportDeclarationSpecifier::ImportSpecifier(s) => {
+                            let module = decl.source.value.as_str();
+                            let local = s.local.name.as_str();
+                            let imported = match &s.imported {
+                                ast::ModuleExportName::IdentifierName(id) => id.name.as_str(),
+                                ast::ModuleExportName::IdentifierReference(id) => id.name.as_str(),
+                                ast::ModuleExportName::StringLiteral(sl) => sl.value.as_str(),
+                            };
+                            named_imports.insert(
+                                (module.to_string(), imported.to_string()),
+                                local.to_string(),
+                            );
+                            eprintln!(
+                                "[Linker Debug] Named Import: {}::{} -> {}",
+                                module, imported, local
+                            );
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -75,7 +97,8 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
         replacements: Vec<(u32, u32, String)>,
         errors: Vec<String>,
         imports: HashMap<String, String>,
-        alias_imports: HashMap<String, String>, // New field: alias -> module
+        alias_imports: HashMap<String, String>,
+        named_imports: HashMap<(String, String), String>, // New field: (module, exported) -> local
         source_url: &'a str,
         logs: Vec<String>,
     }
@@ -85,6 +108,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
             source_code: &'a str,
             imports: HashMap<String, String>,
             alias_imports: HashMap<String, String>,
+            named_imports: HashMap<(String, String), String>,
             source_url: &'a str,
         ) -> Self {
             Self {
@@ -94,6 +118,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                 errors: Vec::new(),
                 imports,
                 alias_imports,
+                named_imports,
                 source_url,
                 logs: Vec::new(),
             }
@@ -121,6 +146,33 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
             match expr {
                 o::Expression::External(e) => {
                     if let Some(module) = &e.value.module_name {
+                        // Check for named import first
+                        if let Some(prop) = &e.value.name {
+                            if let Some(local) =
+                                self.named_imports.get(&(module.clone(), prop.clone()))
+                            {
+                                return o::Expression::ReadVar(o::ReadVarExpr {
+                                    name: local.clone(),
+                                    type_: None,
+                                    source_span: None,
+                                });
+                            }
+
+                            // Fallback: Check if we have any named import with the same export name.
+                            // This handles cases where the External module path (e.g. resolved file path)
+                            // differs from the import specifier (e.g. package name).
+                            for ((_mod, export_name), local) in &self.named_imports {
+                                if export_name == prop {
+                                    eprintln!("[Linker Debug] Fuzzy match for External: {}::{} -> local {}", module, prop, local);
+                                    return o::Expression::ReadVar(o::ReadVarExpr {
+                                        name: local.clone(),
+                                        type_: None,
+                                        source_span: None,
+                                    });
+                                }
+                            }
+                        }
+
                         if let Some(alias) = self.imports.get(module) {
                             let mut _name = alias.clone();
                             if let Some(prop) = &e.value.name {
@@ -786,23 +838,6 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                     let span = expr.span;
                                     self.replacements
                                         .push((span.start, span.end, js_code.clone()));
-                                    eprintln!("[Rust Linker] HIT ɵɵngDeclare: {}", n);
-                                    self.logs.push(format!("Linked Partial Declaration {}", n));
-                                    {
-                                        use std::io::Write;
-                                        if let Ok(mut f) = std::fs::OpenOptions::new()
-                                            .create(true)
-                                            .append(true)
-                                            .open("/tmp/linker_debug.log")
-                                        {
-                                            writeln!(
-                                                f,
-                                                "Linked Partial Declaration {} -> {}",
-                                                n, js_code
-                                            )
-                                            .unwrap();
-                                        }
-                                    }
                                 }
                                 Err(e) => {
                                     self.errors
@@ -842,7 +877,13 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
     .unwrap();
     // writeln!(log_file, "Source prefix: {:.100}", source_code).unwrap();
 
-    let mut visitor = LinkerVisitor::new(&source_code, imports, alias_imports, &filename);
+    let mut visitor = LinkerVisitor::new(
+        &source_code,
+        imports,
+        alias_imports,
+        named_imports,
+        &filename,
+    );
     visitor.visit_program(&program);
 
     if !visitor.errors.is_empty() {

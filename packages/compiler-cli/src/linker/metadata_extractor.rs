@@ -6,7 +6,7 @@
 //! - Resolving re-exported directives via imports.
 //! - Supporting both `defineComponent` (Ivy) and `ngDeclareComponent` (Partial) formats.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
@@ -505,32 +505,86 @@ fn parse_host_attrs_ast(arr: &oxc_ast::ast::ArrayExpression) -> Vec<String> {
 /// Look up an NgModule's exported directives from the cache
 pub fn get_module_exports(module_path: &str, module_name: &str) -> Option<Vec<ExtractedDirective>> {
     let cache = get_metadata_cache().read().ok()?;
-    let module = cache
-        .modules
-        .get(&format!("{}:{}", module_path, module_name))?;
-
+    let mut visited = HashSet::new();
     let mut result = Vec::new();
-    for export in &module.exports {
-        let lookup_path = export.source_path.as_deref().unwrap_or(module_path);
-        let lookup_name = export
-            .original_name
-            .as_deref()
-            .unwrap_or(&export.exported_name);
 
-        let key = format!("{}:{}", lookup_path, lookup_name);
+    get_module_exports_recursive(module_path, module_name, &cache, &mut visited, &mut result);
 
-        // Debug
+    if result.is_empty() {
+        None
+    } else {
+        Some(result)
+    }
+}
+
+fn get_module_exports_recursive(
+    module_path: &str,
+    module_name: &str,
+    cache: &MetadataCache,
+    visited: &mut HashSet<String>,
+    result: &mut Vec<ExtractedDirective>,
+) {
+    let module_key = format!("{}:{}", module_path, module_name);
+    if visited.contains(&module_key) {
+        return;
+    }
+    visited.insert(module_key.clone());
+
+    if let Some(module) = cache.modules.get(&module_key) {
+        // if module_name.contains("@angular/material") {
+        //     eprintln!(
+        //         "DEBUG: extract_ng_module_exports visiting: {} (from {})",
+        //         module_name, parent_module
+        //     );
+        // }
+
+        for export in &module.exports {
+            let lookup_path = export
+                .source_path
+                .as_deref()
+                .unwrap_or(module_path)
+                .to_string();
+            let lookup_name = export
+                .original_name
+                .as_deref()
+                .unwrap_or(&export.exported_name)
+                .to_string();
+            let export_key = format!("{}:{}", lookup_path, lookup_name);
+
+            // Check if it is a directive
+            if let Some(directive) = cache.directives.get(&export_key) {
+                #[cfg(not(test))]
+                if module_path.contains("@angular/material") {
+                    eprintln!("[Rust]   Found directive export: {}", export_key);
+                }
+                // Check if already in result to avoid duplicates
+                if !result
+                    .iter()
+                    .any(|d| d.name == directive.name && d.selector == directive.selector)
+                {
+                    result.push(directive.clone());
+                }
+            }
+            // Check if it is another module (re-export)
+            else if cache.modules.contains_key(&export_key) {
+                #[cfg(not(test))]
+                if module_path.contains("@angular/material") {
+                    eprintln!("[Rust]   Found module re-export: {}", export_key);
+                }
+                get_module_exports_recursive(&lookup_path, &lookup_name, cache, visited, result);
+            } else {
+                #[cfg(not(test))]
+                if module_path.contains("@angular/material") {
+                    eprintln!("[Rust]   Export NOT FOUND in cache: {}", export_key);
+                }
+            }
+        }
+    } else {
         #[cfg(not(test))]
         if module_path.contains("@angular/material") {
-            // eprintln!("[Rust]   Looking up export {} -> key {}", export.exported_name, key);
-        }
-
-        if let Some(directive) = cache.directives.get(&key) {
-            result.push(directive.clone());
+            eprintln!("[Rust] Module NOT FOUND in cache: {}", module_key);
         }
     }
-
-    Some(result)
 }
 
 /// Look up a directive's metadata from the cache
@@ -679,6 +733,59 @@ mod tests {
             Some("/root/node_modules/material/_form-field-chunk.mjs".to_string())
         );
         assert_eq!(export.original_name, Some("MatLabel".to_string()));
+    }
+
+    #[test]
+    fn test_recursive_module_exports() {
+        // Setup cache manually to simulate recursive structure
+        // ModuleA exports DirectiveA
+        // ModuleB exports ModuleA
+        // get_module_exports(ModuleB) should return DirectiveA
+
+        let mut cache = MetadataCache::new();
+
+        let dir_a = ExtractedDirective {
+            name: "DirectiveA".to_string(),
+            selector: "dir-a".to_string(),
+            export_as: None,
+            inputs: vec![],
+            outputs: vec![],
+            host_attrs: vec![],
+            is_component: false,
+        };
+        cache
+            .directives
+            .insert("path/to/a:DirectiveA".to_string(), dir_a.clone());
+
+        let mod_a = ExtractedNgModule {
+            name: "ModuleA".to_string(),
+            exports: vec![ExportReference {
+                exported_name: "DirectiveA".to_string(),
+                source_path: None, // local to path/to/a
+                original_name: None,
+            }],
+        };
+        cache.modules.insert("path/to/a:ModuleA".to_string(), mod_a);
+
+        let mod_b = ExtractedNgModule {
+            name: "ModuleB".to_string(),
+            exports: vec![ExportReference {
+                exported_name: "ModuleA".to_string(),
+                source_path: Some("path/to/a".to_string()),
+                original_name: Some("ModuleA".to_string()),
+            }],
+        };
+        cache.modules.insert("path/to/b:ModuleB".to_string(), mod_b);
+
+        {
+            let mut w = get_metadata_cache().write().unwrap();
+            *w = cache;
+        }
+
+        let exports = get_module_exports("path/to/b", "ModuleB").unwrap();
+        assert_eq!(exports.len(), 1);
+        assert_eq!(exports[0].name, "DirectiveA");
+        assert_eq!(exports[0].selector, "dir-a");
     }
 }
 

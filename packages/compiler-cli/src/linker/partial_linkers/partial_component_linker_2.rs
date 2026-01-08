@@ -715,7 +715,7 @@ impl PartialComponentLinker2 {
                                                                     selector: dir.selector,
                                                                     inputs: dir.inputs,
                                                                     outputs: dir.outputs,
-                                                                    export_as: None, // TODO: Extract exportAs from metadata if available
+                                                                    export_as: dir.export_as.clone().map(|s| s.split(',').map(|x| x.to_string()).collect()),
                                                                     is_component: true,
                                                                     source_span: None,
                                                                 },
@@ -734,7 +734,7 @@ impl PartialComponentLinker2 {
                                                                     selector: dir.selector,
                                                                     inputs: dir.inputs,
                                                                     outputs: dir.outputs,
-                                                                    export_as: None,
+                                                                    export_as: dir.export_as.clone().map(|s| s.split(',').map(|x| x.to_string()).collect()),
                                                                     is_component: false,
                                                                     source_span: None,
                                                                 },
@@ -750,14 +750,18 @@ impl PartialComponentLinker2 {
                             continue;
                         }
 
+                        let selector = dep_obj.get_string("selector").unwrap_or_default();
                         let type_node = dep_obj.get_value("type")?;
+                        let type_str = meta_obj.host.print_node(&type_node.node);
+                        eprintln!(
+                            "[Linker Debug] Dependency type for selector '{}': {}",
+                            selector, type_str
+                        );
                         let type_expr = o::Expression::ReadVar(o::ReadVarExpr {
-                            name: meta_obj.host.print_node(&type_node.node),
+                            name: type_str,
                             type_: None,
                             source_span: None,
                         });
-
-                        let selector = dep_obj.get_string("selector").unwrap_or_default();
 
                         let mut inputs = Vec::new();
                         if let Ok(inputs_arr) = dep_obj.get_array("inputs") {
