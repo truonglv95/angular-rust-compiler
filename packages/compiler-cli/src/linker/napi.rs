@@ -182,7 +182,17 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                             if key.name == "type" {
                                                 if let ast::Expression::Identifier(id) = &p.value {
                                                     let class_name = id.name.as_str().to_string();
-                                                    self.metadata.insert(class_name, arg_expr);
+                                                    // SAFETY: extending lifetime to 'a for storage in metadata map.
+                                                    // The AST nodes are arena/heap allocated and live for 'a.
+                                                    let arg_expr_a = unsafe {
+                                                        std::mem::transmute::<
+                                                            &_,
+                                                            &'a ast::Expression<'a>,
+                                                        >(
+                                                            arg_expr
+                                                        )
+                                                    };
+                                                    self.metadata.insert(class_name, arg_expr_a);
                                                 }
                                             }
                                         }

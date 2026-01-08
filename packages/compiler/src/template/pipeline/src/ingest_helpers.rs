@@ -190,28 +190,54 @@ fn make_listener_handler_ops(
 ) -> crate::template::pipeline::ir::operations::OpList<
     Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
 > {
-    use crate::output::output_ast::{ReturnStatement, Statement};
+    use crate::expression_parser::ast::AST;
+    use crate::output::output_ast::{ExpressionStatement, ReturnStatement, Statement};
     use crate::template::pipeline::ir::ops::shared::create_statement_op;
 
     let mut handler_ops: crate::template::pipeline::ir::operations::OpList<
         Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
     > = crate::template::pipeline::ir::operations::OpList::new();
 
-    // Convert handler AST to Expression
     let root_xref = job.root_mut().xref();
-    let handler_expr = convert_ast(handler, job, root_xref, None, Some(handler_span));
 
-    // Extract return expression if present
-    // For simplicity, treat the handler as a return statement
-    let return_stmt = ReturnStatement {
-        value: Box::new(handler_expr),
-        source_span: Some(handler_span.clone()),
-    };
-    let stmt = Statement::Return(return_stmt);
-    let stmt_op = create_statement_op::<
-        Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
-    >(Box::new(stmt));
-    handler_ops.push(Box::new(stmt_op));
+    if let AST::Chain(chain) = handler {
+        for (i, expr) in chain.expressions.iter().enumerate() {
+            let expr_converted = convert_ast(expr, job, root_xref, None, Some(handler_span));
+            let is_last = i == chain.expressions.len() - 1;
+
+            let stmt = if is_last {
+                Statement::Return(ReturnStatement {
+                    value: Box::new(expr_converted),
+                    source_span: Some(handler_span.clone()),
+                })
+            } else {
+                Statement::Expression(ExpressionStatement {
+                    expr: Box::new(expr_converted),
+                    source_span: Some(handler_span.clone()),
+                })
+            };
+
+            let stmt_op = create_statement_op::<
+                Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
+            >(Box::new(stmt));
+            handler_ops.push(Box::new(stmt_op));
+        }
+    } else {
+        // Convert handler AST to Expression
+        let handler_expr = convert_ast(handler, job, root_xref, None, Some(handler_span));
+
+        // Extract return expression if present
+        // For simplicity, treat the handler as a return statement
+        let return_stmt = ReturnStatement {
+            value: Box::new(handler_expr),
+            source_span: Some(handler_span.clone()),
+        };
+        let stmt = Statement::Return(return_stmt);
+        let stmt_op = create_statement_op::<
+            Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
+        >(Box::new(stmt));
+        handler_ops.push(Box::new(stmt_op));
+    }
 
     handler_ops
 }
