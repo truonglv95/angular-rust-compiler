@@ -1,0 +1,17 @@
+<div class="demo-container">
+  <h2>Snack Bar Demo</h2>
+
+  <mat-form-field>
+    <mat-label>Message</mat-label>
+    <input matInput value="Disco party!" #message />
+  </mat-form-field>
+
+  <mat-form-field>
+    <mat-label>Action</mat-label>
+    <input matInput value="Dance" #action />
+  </mat-form-field>
+
+  <button mat-stroked-button (click)="openSnackBar(message.value, action.value)">
+    Show snack-bar
+  </button>
+</div>

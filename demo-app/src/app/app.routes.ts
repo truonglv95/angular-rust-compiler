@@ -110,6 +110,33 @@ export const routes: Routes = [
       import('./src/components/materials/ripple/ripple').then((m) => m.RippleTestComponent),
   },
   {
+    path: 'select',
+    loadComponent: () =>
+      import('./src/components/materials/select/select').then((m) => m.SelectTestComponent),
+  },
+  {
+    path: 'sidenav',
+    loadComponent: () =>
+      import('./src/components/materials/sidenav/sidenav').then((m) => m.SidenavTestComponent),
+  },
+  {
+    path: 'slide-toggle',
+    loadComponent: () =>
+      import('./src/components/materials/slide-toggle/slide-toggle').then(
+        (m) => m.SlideToggleTestComponent,
+      ),
+  },
+  {
+    path: 'slider',
+    loadComponent: () =>
+      import('./src/components/materials/slider/slider').then((m) => m.SliderTestComponent),
+  },
+  {
+    path: 'snack-bar',
+    loadComponent: () =>
+      import('./src/components/materials/snack-bar/snack-bar').then((m) => m.SnackBarTestComponent),
+  },
+  {
     path: 'button-toggle',
     component: ButtonToggleOverviewExample,
   },

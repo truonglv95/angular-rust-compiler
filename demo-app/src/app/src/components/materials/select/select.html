@@ -1,0 +1,24 @@
+<div class="demo-container">
+  <h2>Select Demo</h2>
+
+  <mat-form-field>
+    <mat-label>Favorite Food</mat-label>
+    <mat-select [(ngModel)]="selectedFood" name="food">
+      @for (food of foods; track food) {
+        <mat-option [value]="food.value">{{ food.viewValue }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  <p>Selected: {{ selectedFood }}</p>
+
+  <mat-form-field>
+    <mat-label>Cars</mat-label>
+    <select matNativeControl required>
+      <option value="volvo">Volvo</option>
+      <option value="saab">Saab</option>
+      <option value="mercedes">Mercedes</option>
+      <option value="audi">Audi</option>
+    </select>
+  </mat-form-field>
+</div>

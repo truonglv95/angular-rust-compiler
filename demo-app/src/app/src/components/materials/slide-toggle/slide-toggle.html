@@ -1,0 +1,26 @@
+<div class="demo-container">
+  <h2>Slide Toggle Demo</h2>
+
+  <mat-slide-toggle [(ngModel)]="isChecked">Slide me!</mat-slide-toggle>
+  <p>Slide Toggle state: {{ isChecked }}</p>
+
+  <mat-card>
+    <mat-card-content>
+      <h2 class="example-h2">Slide Toggle Configuration</h2>
+
+      <section class="example-section">
+        <mat-slide-toggle class="example-margin" [(ngModel)]="formGroup.enableWifi">
+          Enable Wifi
+        </mat-slide-toggle>
+      </section>
+
+      <section class="example-section">
+        <mat-slide-toggle class="example-margin" [(ngModel)]="formGroup.acceptTerms">
+          Accept Terms of Service
+        </mat-slide-toggle>
+      </section>
+    </mat-card-content>
+  </mat-card>
+
+  <p>Form Group Result: {{ formGroup | json }}</p>
+</div>

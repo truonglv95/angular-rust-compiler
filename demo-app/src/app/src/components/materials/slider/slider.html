@@ -1,0 +1,9 @@
+<div class="demo-container">
+  <h2>Slider Demo</h2>
+
+  <mat-slider [min]="min" [max]="max" step="1" discrete [displayWith]="formatLabel">
+    <input matSliderThumb [(ngModel)]="value" />
+  </mat-slider>
+
+  <p>Value: {{ value }}</p>
+</div>
