@@ -257,6 +257,7 @@ fn process_lexical_scope(
     // Process create ops
     let unit_xref = unit.xref();
     let current_saved_view_ref = &current_saved_view;
+    let empty_ignored_names = std::collections::HashSet::new();
     for op in unit.create_mut().iter_mut() {
         match op.kind() {
             OpKind::Listener | OpKind::AnimationListener | OpKind::TwoWayListener => {
@@ -293,6 +294,7 @@ fn process_lexical_scope(
                     unit_xref,
                     current_saved_view_ref,
                     false,
+                    &empty_ignored_names,
                 );
             },
         }
@@ -308,6 +310,7 @@ fn process_lexical_scope(
             unit_xref,
             current_saved_view_ref,
             false,
+            &empty_ignored_names,
         );
     }
 
@@ -324,11 +327,17 @@ fn transform_lexical_reads_in_op(
     view_xref: ir::XrefId,
     saved_view: &Option<SavedView>,
     is_listener: bool,
+    ignored_names: &std::collections::HashSet<String>,
 ) {
     transform_expressions_in_op(
         op,
         &mut |expr, _flags| {
             if let Expression::LexicalRead(ref lexical_read) = expr {
+                // Check if this name should be ignored (e.g. loop variables in track expression)
+                if ignored_names.contains(&*lexical_read.name) {
+                    return expr;
+                }
+
                 // LexicalRead found - resolve to either local definition, scope entry, or component context
                 // `expr` is a read of a name within the lexical scope of this view.
                 // Either that name is defined within the current view, or it represents a property from the
@@ -455,6 +464,7 @@ fn process_listener_scope_recursive(
 
                 // Build a listener-local local_definitions map
                 let mut local_defs = local_definitions.clone();
+                let empty_ignored_names = std::collections::HashSet::new();
 
                 for handler_op in handler_ops.iter() {
                     if handler_op.kind() == OpKind::Variable {
@@ -508,6 +518,7 @@ fn process_listener_scope_recursive(
                         listener_view_xref,
                         saved_view_ref,
                         true,
+                        &empty_ignored_names,
                     );
                 }
             }
@@ -529,9 +540,31 @@ fn process_repeater_scope_recursive(
         let repeater_ptr = op_ptr as *mut RepeaterCreateOp;
         let repeater = &mut *repeater_ptr;
 
+        // Transform expressions in the repeater itself (e.g. track expression)
+        // For the track expression, we must IGNORE the loop variables (e.g. "item", "index")
+        // because they are not in the scope yet (they are parameters of the track function).
+        // If we resolve them now, they will be incorrectly resolved to `ctx.item`, breaking the track optimization.
+        let mut ignored_names = std::collections::HashSet::new();
+        ignored_names.insert(repeater.var_names.dollar_implicit.clone());
+        for name in &repeater.var_names.dollar_index {
+            ignored_names.insert(name.clone());
+        }
+
+        transform_lexical_reads_in_op(
+            &mut *op_ptr as &mut dyn ir::Op,
+            scope,
+            local_definitions,
+            root_xref,
+            view_xref,
+            &saved_view,
+            false,
+            &ignored_names,
+        );
+
         if let Some(ref mut track_by_ops) = repeater.track_by_ops {
             // Transform expressions in trackByOps
             let saved_view_ref = &saved_view;
+            let empty_ignored_names = std::collections::HashSet::new();
             for track_op in track_by_ops.iter_mut() {
                 transform_lexical_reads_in_op(
                     track_op.as_mut(),
@@ -541,6 +574,7 @@ fn process_repeater_scope_recursive(
                     view_xref,
                     saved_view_ref,
                     false,
+                    &empty_ignored_names,
                 );
             }
         }

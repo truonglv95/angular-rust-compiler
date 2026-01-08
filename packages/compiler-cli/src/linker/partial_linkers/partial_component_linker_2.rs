@@ -246,7 +246,7 @@ impl PartialComponentLinker2 {
                             // We construct a RawCode expression for it
                             let transform_str = meta_obj.host.print_node(&transform_node.node);
                             transform_function = Some(o::Expression::RawCode(o::RawCodeExpr {
-                                code: transform_str,
+                                code: format!("({})", transform_str),
                                 source_span: None,
                             }));
                         }
@@ -276,7 +276,7 @@ impl PartialComponentLinker2 {
                         let transform_node = input_obj.get_value("transformFunction")?.node;
                         let transform_str = meta_obj.host.print_node(&transform_node);
                         Some(o::Expression::RawCode(o::RawCodeExpr {
-                            code: transform_str,
+                            code: format!("({})", transform_str),
                             source_span: None,
                         }))
                     } else {
@@ -337,7 +337,7 @@ impl PartialComponentLinker2 {
                                                         meta_obj.host.print_node(&transform_node);
                                                     transform_function = Some(
                                                         o::Expression::RawCode(o::RawCodeExpr {
-                                                            code: transform_str,
+                                                            code: format!("({})", transform_str),
                                                             source_span: None,
                                                         }),
                                                     );

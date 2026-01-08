@@ -145,6 +145,9 @@ fn process_unit(
 
             // Get variable names from repeater for renaming
             let item_name = repeater.var_names.dollar_implicit.clone();
+            let index_names = repeater.var_names.dollar_index.clone();
+
+            // eprint!("DEBUG: track_fn_opt: item_name={:?}, index_names={:?}", item_name, index_names);
 
             track_expr = transform_expressions_in_expression(
                 track_expr,
@@ -154,13 +157,20 @@ fn process_unit(
                         expr,
                         Expression::PipeBinding(_) | Expression::PipeBindingVariadic(_)
                     ) {
-                        panic!("Illegal State: Pipes are not allowed in this context");
+                        panic!("Illegal State: Pipes are allowed in this context");
                     }
 
                     // Replace ContextExpr with TrackContextExpr
                     if let Expression::Context(context_expr) = &expr {
                         has_context_expr = true;
                         return Expression::TrackContext(TrackContextExpr::new(context_expr.view));
+                    }
+
+                    // Check for ReadVar("ctx") (result of resolve_contexts phase)
+                    if let Expression::ReadVar(read_var) = &expr {
+                        if read_var.name == "ctx" {
+                            has_context_expr = true;
+                        }
                     }
 
                     // Replace template variable names with arrow function parameter names
@@ -185,6 +195,17 @@ fn process_unit(
                                 source_span: None,
                             });
                         }
+                        for index_name in &index_names {
+                            if &*lexical_read.name == index_name.as_str() {
+                                return Expression::ReadVar(
+                                    crate::output::output_ast::ReadVarExpr {
+                                        name: "$index".to_string(),
+                                        type_: None,
+                                        source_span: None,
+                                    },
+                                );
+                            }
+                        }
                     }
 
                     expr
@@ -201,9 +222,6 @@ fn process_unit(
 
             // Generate an arrow function for the track expression: ($index, $item) => trackExpr
             // Hoist it to pool as: const _forTrack{N} = ($index, $item) => expr;
-            let track_fn_name = format!("_forTrack{}", *track_fn_counter);
-            *track_fn_counter += 1;
-
             let arrow_fn = Expression::ArrowFn(crate::output::output_ast::ArrowFunctionExpr {
                 params: vec![
                     crate::output::output_ast::FnParam {
@@ -222,23 +240,34 @@ fn process_unit(
                 source_span: None,
             });
 
-            // Add to pool as const declaration: const _forTrack0 = ($index, $item) => expr;
-            let const_stmt = Statement::DeclareVar(crate::output::output_ast::DeclareVarStmt {
-                name: track_fn_name.clone(),
-                value: Some(Box::new(arrow_fn)),
-                type_: None,
-                modifiers: crate::output::output_ast::StmtModifier::None,
-                source_span: None,
-            });
-            pool.statements.push(const_stmt);
+            if has_context_expr {
+                // If the track function uses the context, we cannot hoist it to the constant pool
+                // because 'ctx' is not available there. Emit it inline.
+                repeater.track_by_fn = Some(Box::new(arrow_fn));
+            } else {
+                // Generate an arrow function for the track expression: ($index, $item) => trackExpr
+                // Hoist it to pool as: const _forTrack{N} = ($index, $item) => expr;
+                let track_fn_name = format!("_forTrack{}", *track_fn_counter);
+                *track_fn_counter += 1;
 
-            // Set track_by_fn to variable reference instead of inline arrow fn
-            let var_ref = Expression::ReadVar(crate::output::output_ast::ReadVarExpr {
-                name: track_fn_name,
-                type_: None,
-                source_span: None,
-            });
-            repeater.track_by_fn = Some(Box::new(var_ref));
+                // Add to pool as const declaration: const _forTrack0 = ($index, $item) => expr;
+                let const_stmt = Statement::DeclareVar(crate::output::output_ast::DeclareVarStmt {
+                    name: track_fn_name.clone(),
+                    value: Some(Box::new(arrow_fn)),
+                    type_: None,
+                    modifiers: crate::output::output_ast::StmtModifier::None,
+                    source_span: None,
+                });
+                pool.statements.push(const_stmt);
+
+                // Set track_by_fn to variable reference instead of inline arrow fn
+                let var_ref = Expression::ReadVar(crate::output::output_ast::ReadVarExpr {
+                    name: track_fn_name,
+                    type_: None,
+                    source_span: None,
+                });
+                repeater.track_by_fn = Some(Box::new(var_ref));
+            }
 
             // Also create an OpList for the tracking expression since it may need
             // additional ops when generating the final code (e.g. temporary variables).
