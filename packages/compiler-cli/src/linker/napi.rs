@@ -90,6 +90,112 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
         }
     }
 
+    // Visitor to collect class metadata
+    struct ClassMetadataVisitor<'a> {
+        metadata: HashMap<String, &'a ast::Expression<'a>>,
+    }
+
+    impl<'a> ClassMetadataVisitor<'a> {
+        fn new() -> Self {
+            Self {
+                metadata: HashMap::new(),
+            }
+        }
+
+        fn visit_program(&mut self, program: &ast::Program<'a>) {
+            for stmt in &program.body {
+                self.visit_statement(stmt);
+            }
+        }
+
+        fn visit_statement(&mut self, stmt: &ast::Statement<'a>) {
+            match stmt {
+                ast::Statement::ExpressionStatement(s) => self.visit_expression(&s.expression),
+                ast::Statement::BlockStatement(s) => {
+                    for st in &s.body {
+                        self.visit_statement(st);
+                    }
+                }
+                ast::Statement::VariableDeclaration(s) => {
+                    for decl in &s.declarations {
+                        if let Some(init) = &decl.init {
+                            self.visit_expression(init);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        fn visit_expression(&mut self, expr: &ast::Expression<'a>) {
+            match expr {
+                ast::Expression::CallExpression(e) => self.visit_call_expression(e),
+                ast::Expression::ParenthesizedExpression(e) => self.visit_expression(&e.expression),
+                ast::Expression::SequenceExpression(e) => {
+                    for ex in &e.expressions {
+                        self.visit_expression(ex);
+                    }
+                }
+                ast::Expression::UnaryExpression(e) => {
+                    self.visit_expression(&e.argument);
+                }
+                _ => {}
+            }
+        }
+
+        fn visit_call_expression(&mut self, expr: &ast::CallExpression<'a>) {
+            // Check for IIFE
+            match &expr.callee {
+                ast::Expression::FunctionExpression(f) => {
+                    if let Some(body) = &f.body {
+                        for s in &body.statements {
+                            self.visit_statement(s);
+                        }
+                    }
+                }
+                ast::Expression::ArrowFunctionExpression(f) => {
+                    for s in &f.body.statements {
+                        self.visit_statement(s);
+                    }
+                }
+                ast::Expression::ParenthesizedExpression(e) => {
+                    if let ast::Expression::FunctionExpression(f) = &e.expression {
+                        if let Some(body) = &f.body {
+                            for s in &body.statements {
+                                self.visit_statement(s);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+
+            // Check for i0.ɵɵngDeclareClassMetadata(...)
+            if let Expression::StaticMemberExpression(member) = &expr.callee {
+                if member.property.name == "ɵɵngDeclareClassMetadata" {
+                    if let Some(arg) = expr.arguments.first() {
+                        if let Some(arg_expr) = arg.as_expression() {
+                            if let ast::Expression::ObjectExpression(obj) = arg_expr {
+                                for prop in &obj.properties {
+                                    if let ast::ObjectPropertyKind::ObjectProperty(p) = prop {
+                                        if let ast::PropertyKey::StaticIdentifier(key) = &p.key {
+                                            if key.name == "type" {
+                                                if let ast::Expression::Identifier(id) = &p.value {
+                                                    let class_name = id.name.as_str().to_string();
+                                                    self.metadata.insert(class_name, arg_expr);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Visitor to find calls
     struct LinkerVisitor<'a> {
         host: OxcAstHost<'a>,
@@ -99,6 +205,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
         imports: HashMap<String, String>,
         alias_imports: HashMap<String, String>,
         named_imports: HashMap<(String, String), String>, // New field: (module, exported) -> local
+        class_metadata: HashMap<String, &'a ast::Expression<'a>>,
         source_url: &'a str,
         logs: Vec<String>,
     }
@@ -109,6 +216,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
             imports: HashMap<String, String>,
             alias_imports: HashMap<String, String>,
             named_imports: HashMap<(String, String), String>,
+            class_metadata: HashMap<String, &'a ast::Expression<'a>>,
             source_url: &'a str,
         ) -> Self {
             Self {
@@ -119,6 +227,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                 imports,
                 alias_imports,
                 named_imports,
+                class_metadata,
                 source_url,
                 logs: Vec::new(),
             }
@@ -697,6 +806,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                                                         "0.0.0",
                                                                         Some(target_name),
                                                                         Some(&self.alias_imports),
+                                                                        None,
                                                                     );
 
                                                                 let js_code = if constant_pool
@@ -818,6 +928,31 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                         "0.0.0", // TODO: version
                                         None,
                                         Some(&self.alias_imports),
+                                        // Try to find class metadata
+                                        // Try to find class metadata
+                                        {
+                                            let mut matched_meta = None;
+                                            if let Ok(type_val) = obj.get_value("type") {
+                                                if let OxcNode::Expression(expr) = type_val.node {
+                                                    if let ast::Expression::Identifier(id) = expr {
+                                                        let t_name = id.name.as_str();
+                                                        matched_meta = self
+                                                            .class_metadata
+                                                            .get(t_name)
+                                                            .copied();
+                                                    }
+                                                }
+                                            }
+
+                                            if let Some(meta_expr) = matched_meta {
+                                                let oxc_node = OxcNode::Expression(meta_expr);
+                                                let val = AstValue::new(oxc_node, &self.host);
+                                                val.get_object().ok()
+                                            } else {
+                                                None
+                                            }
+                                        }
+                                        .as_ref(),
                                     );
 
                                     // Emit JS
@@ -877,11 +1012,17 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
     .unwrap();
     // writeln!(log_file, "Source prefix: {:.100}", source_code).unwrap();
 
+    // Pass 1: Collect Class Metadata
+    let mut meta_visitor = ClassMetadataVisitor::new();
+    meta_visitor.visit_program(&program);
+    let class_metadata = meta_visitor.metadata;
+
     let mut visitor = LinkerVisitor::new(
         &source_code,
         imports,
         alias_imports,
         named_imports,
+        class_metadata,
         &filename,
     );
     visitor.visit_program(&program);

@@ -22,6 +22,7 @@ impl PartialDirectiveLinker2 {
     fn to_r3_directive_metadata<TExpression: AstNode>(
         &self,
         meta_obj: &AstObject<TExpression>,
+        class_metadata: Option<&AstObject<TExpression>>,
     ) -> Result<R3DirectiveMetadata, String> {
         // Essential fields
         let type_expr = meta_obj.get_value("type")?.node;
@@ -157,7 +158,7 @@ impl PartialDirectiveLinker2 {
         }
 
         // Queries
-        let queries = if meta_obj.has("queries") {
+        let mut queries = if meta_obj.has("queries") {
             meta_obj
                 .get_array("queries")?
                 .iter()
@@ -206,6 +207,81 @@ impl PartialDirectiveLinker2 {
         } else {
             vec![]
         };
+
+        // Fallback: Try to extract queries from class metadata if not present in partial metadata
+        if queries.is_empty() {
+            if let Some(class_meta) = class_metadata {
+                if class_meta.has("propDecorators") {
+                    if let Ok(props) = class_meta.get_object("propDecorators") {
+                        for (prop_name, decorators_val) in props.to_map() {
+                            let decorators = AstValue::new(decorators_val.clone(), class_meta.host);
+                            if let Ok(decs) = decorators.get_array() {
+                                for dec in decs {
+                                    if let Ok(dec_obj) = dec.get_object() {
+                                        if let Ok(type_node) = dec_obj.get_value("type") {
+                                            let type_name =
+                                                class_meta.host.print_node(&type_node.node);
+                                            // Check for ContentChild / ContentChildren
+                                            if type_name.contains("ContentChild")
+                                                || type_name.contains("ContentChildren")
+                                            {
+                                                let is_first = type_name.contains("ContentChild")
+                                                    && !type_name.contains("ContentChildren");
+                                                let args =
+                                                    dec_obj.get_array("args").unwrap_or(vec![]);
+
+                                                let mut predicate = angular_compiler::render3::view::api::R3QueryPredicate::Selectors(vec![]);
+                                                let mut descendants = false;
+                                                let mut emit_distinct_changes_only = true;
+                                                let mut is_static = false;
+                                                let is_signal = false;
+
+                                                if !args.is_empty() {
+                                                    let p = &args[0];
+                                                    if p.is_string() {
+                                                        predicate = angular_compiler::render3::view::api::R3QueryPredicate::Selectors(vec![p.get_string()?]);
+                                                    } else {
+                                                        // Token as selector
+                                                        let token_str =
+                                                            class_meta.host.print_node(&p.node);
+                                                        predicate = angular_compiler::render3::view::api::R3QueryPredicate::Selectors(vec![token_str]);
+                                                    }
+
+                                                    if args.len() > 1 {
+                                                        if let Ok(opts) = args[1].get_object() {
+                                                            descendants = opts
+                                                                .get_bool("descendants")
+                                                                .unwrap_or(false);
+                                                            emit_distinct_changes_only = opts
+                                                                .get_bool("emitDistinctChangesOnly")
+                                                                .unwrap_or(true);
+                                                            is_static = opts
+                                                                .get_bool("static")
+                                                                .unwrap_or(false);
+                                                        }
+                                                    }
+                                                }
+
+                                                queries.push(R3QueryMetadata {
+                                                    property_name: prop_name.clone(),
+                                                    first: is_first,
+                                                    predicate,
+                                                    descendants,
+                                                    emit_distinct_changes_only,
+                                                    read: None,
+                                                    static_: is_static,
+                                                    is_signal,
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         let view_queries = vec![]; // TODO: extract from 'viewQueries' property
 
@@ -377,10 +453,11 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialDirectiveLinker
         meta_obj: &AstObject<TExpression>,
         _source_url: &str,
         _version: &str,
-        _target_name: Option<&str>,
-        _imports: Option<&std::collections::HashMap<String, String>>,
+        target_name: Option<&str>,
+        imports: Option<&std::collections::HashMap<String, String>>,
+        class_metadata: Option<&AstObject<TExpression>>,
     ) -> o::Expression {
-        match self.to_r3_directive_metadata(meta_obj) {
+        match self.to_r3_directive_metadata(meta_obj, class_metadata) {
             Ok(meta) => {
                 let parser = angular_compiler::expression_parser::parser::Parser::new();
                 struct DummySchemaRegistry;

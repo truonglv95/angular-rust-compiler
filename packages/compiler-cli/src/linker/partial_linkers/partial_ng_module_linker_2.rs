@@ -118,6 +118,7 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialNgModuleLinker2
         _version: &str,
         _target_name: Option<&str>,
         _imports: Option<&std::collections::HashMap<String, String>>,
+        _class_metadata: Option<&AstObject<TExpression>>,
     ) -> o::Expression {
         match self.to_r3_ng_module_metadata(meta_obj) {
             Ok(meta) => {

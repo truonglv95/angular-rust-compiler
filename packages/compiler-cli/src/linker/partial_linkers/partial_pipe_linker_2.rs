@@ -67,6 +67,7 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialPipeLinker2 {
         _version: &str,
         _target_name: Option<&str>,
         _imports: Option<&std::collections::HashMap<String, String>>,
+        _class_metadata: Option<&AstObject<TExpression>>,
     ) -> o::Expression {
         match self.to_r3_pipe_metadata(meta_obj) {
             Ok(meta) => {

@@ -995,6 +995,7 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialComponentLinker
         _version: &str,
         _target_name: Option<&str>,
         imports: Option<&std::collections::HashMap<String, String>>,
+        _class_metadata: Option<&AstObject<TExpression>>,
     ) -> o::Expression {
         // TODO: Use source_url to resolve template if needed
         // println!("[LINKER] link_partial_declaration called, source_url: {}", source_url);
