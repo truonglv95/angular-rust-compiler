@@ -48,7 +48,7 @@ export class CategoriesComponent {
         { name: 'Divider' },
         { name: 'Expansion Panel' },
         { name: 'Grid list', link: '/grid-list' },
-        { name: 'List' },
+        { name: 'List', link: '/list' },
         { name: 'Stepper' },
         { name: 'Tabs' },
         { name: 'Tree' },

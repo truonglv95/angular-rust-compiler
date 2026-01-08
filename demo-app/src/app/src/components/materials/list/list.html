@@ -1,0 +1,25 @@
+<div class="list-demo">
+  <h2>Basic List</h2>
+  <mat-list role="list">
+    <mat-list-item role="listitem">Item 1</mat-list-item>
+    <mat-list-item role="listitem">Item 2</mat-list-item>
+    <mat-list-item role="listitem">Item 3</mat-list-item>
+  </mat-list>
+
+  <h2>List with icons</h2>
+  <mat-list>
+    <div mat-subheader>Folders</div>
+    <mat-list-item *ngFor="let folder of folders">
+      <mat-icon matListItemIcon>folder</mat-icon>
+      <div matListItemTitle>{{ folder.name }}</div>
+      <div matListItemLine>{{ folder.updated | date }}</div>
+    </mat-list-item>
+    <mat-divider></mat-divider>
+    <div mat-subheader>Notes</div>
+    <mat-list-item *ngFor="let note of notes">
+      <mat-icon matListItemIcon>note</mat-icon>
+      <div matListItemTitle>{{ note.name }}</div>
+      <div matListItemLine>{{ note.updated | date }}</div>
+    </mat-list-item>
+  </mat-list>
+</div>
