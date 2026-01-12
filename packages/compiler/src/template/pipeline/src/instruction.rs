@@ -111,6 +111,42 @@ pub fn dom_element_end(source_span: Option<ParseSourceSpan>) -> o::Statement {
     call(Identifiers::dom_element_end(), vec![], source_span)
 }
 
+pub fn element_container_start(
+    slot: i32,
+    const_index: Option<i32>,
+    local_ref_index: Option<i32>,
+    source_span: ParseSourceSpan,
+) -> o::Statement {
+    element_or_container_base(
+        Identifiers::element_container_start(),
+        slot,
+        None::<&str>,
+        const_index,
+        local_ref_index,
+        source_span,
+    )
+}
+
+pub fn element_container_end(source_span: Option<ParseSourceSpan>) -> o::Statement {
+    call(Identifiers::element_container_end(), vec![], source_span)
+}
+
+pub fn element_container(
+    slot: i32,
+    const_index: Option<i32>,
+    local_ref_index: Option<i32>,
+    source_span: ParseSourceSpan,
+) -> o::Statement {
+    element_or_container_base(
+        Identifiers::element_container(),
+        slot,
+        None::<&str>,
+        const_index,
+        local_ref_index,
+        source_span,
+    )
+}
+
 pub fn text<S: AsRef<str>>(
     slot: i32,
     initial_value: S,
@@ -231,13 +267,50 @@ pub fn two_way_property<S: AsRef<str>>(
     call(Identifiers::two_way_property(), args, Some(source_span))
 }
 
-/// Creates a two-way binding set instruction expression.
-/// Corresponds to `ng.twoWayBindingSet(target, value)` in TypeScript.
 pub fn two_way_binding_set(
     target: Box<o::Expression>,
     value: Box<o::Expression>,
 ) -> Box<o::Expression> {
     o::import_ref(Identifiers::two_way_binding_set()).call_fn(vec![*target, *value], None, None)
+}
+
+pub fn repeater_create(
+    slot: i32,
+    template_fn: o::Expression,
+    decls: usize,
+    vars: usize,
+    tag: Option<String>,
+    const_index: Option<i32>,
+    track_fn: o::Expression,
+    source_span: ParseSourceSpan,
+) -> o::Statement {
+    // Angular runtime signature:
+    // ɵɵrepeaterCreate(index, templateFn, decls, vars, tagName, attrsIndex, trackByFn, ...)
+    let mut args = vec![
+        *o::literal(slot as f64),  // Arg 0: index/slot
+        template_fn,               // Arg 1: templateFn
+        *o::literal(decls as f64), // Arg 2: decls
+        *o::literal(vars as f64),  // Arg 3: vars
+    ];
+
+    // Tag (Arg 4: tagName)
+    if let Some(t) = tag {
+        args.push(*o::literal(t));
+    } else {
+        args.push(*o::literal(o::LiteralValue::Null));
+    }
+
+    // Const index (Arg 5: attrsIndex)
+    if let Some(c) = const_index {
+        args.push(*o::literal(c as f64));
+    } else {
+        args.push(*o::literal(o::LiteralValue::Null));
+    }
+
+    // Track function (Arg 6: trackByFn)
+    args.push(track_fn);
+
+    call(Identifiers::repeater_create(), args, Some(source_span))
 }
 
 pub fn pure_function(slot: i32, func: o::Expression, args: Vec<o::Expression>) -> o::Expression {

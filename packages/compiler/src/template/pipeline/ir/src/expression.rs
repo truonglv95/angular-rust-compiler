@@ -1841,11 +1841,32 @@ pub fn transform_expressions_in_op(
 ) {
     use crate::template::pipeline::ir::enums::OpKind;
 
-    // This is a simplified implementation that works with trait objects
-    // In practice, you'd want to match on concrete op types and transform their fields
-    // For now, this is a placeholder that can be extended
-
     match op.kind() {
+        OpKind::Variable => {
+            if let Some(op) = op
+                .as_any_mut()
+                .downcast_mut::<crate::template::pipeline::ir::ops::VariableOp<
+                    Box<dyn crate::template::pipeline::ir::operations::CreateOp + Send + Sync>,
+                >>()
+            {
+                op.initializer = Box::new(transform_expressions_in_expression(
+                    *op.initializer.clone(),
+                    transform,
+                    flags,
+                ));
+            } else if let Some(op) = op
+                .as_any_mut()
+                .downcast_mut::<crate::template::pipeline::ir::ops::VariableOp<
+                    Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
+                >>()
+            {
+                op.initializer = Box::new(transform_expressions_in_expression(
+                    *op.initializer.clone(),
+                    transform,
+                    flags,
+                ));
+            }
+        }
         OpKind::Binding | OpKind::AnimationString | OpKind::AnimationBinding => {
             if let Some(op) = op
                 .as_any_mut()
@@ -2043,6 +2064,46 @@ pub fn transform_expressions_in_op(
             {
                 // UpdateOp StatementOp - transform statement expressions
                 transform_expressions_in_statement(&mut op.statement, transform, flags);
+            }
+        }
+        OpKind::Listener => {
+            if let Some(op) = op
+                .as_any_mut()
+                .downcast_mut::<crate::template::pipeline::ir::ops::create::ListenerOp>()
+            {
+                for handler_op in op.handler_ops.iter_mut() {
+                    transform_expressions_in_op(handler_op.as_mut(), transform, flags);
+                }
+            }
+        }
+        OpKind::TwoWayListener => {
+            if let Some(op) =
+                op.as_any_mut()
+                    .downcast_mut::<crate::template::pipeline::ir::ops::create::TwoWayListenerOp>()
+            {
+                for handler_op in op.handler_ops.iter_mut() {
+                    transform_expressions_in_op(handler_op.as_mut(), transform, flags);
+                }
+            }
+        }
+        OpKind::Animation => {
+            if let Some(op) = op
+                .as_any_mut()
+                .downcast_mut::<crate::template::pipeline::ir::ops::create::AnimationOp>()
+            {
+                for handler_op in op.handler_ops.iter_mut() {
+                    transform_expressions_in_op(handler_op.as_mut(), transform, flags);
+                }
+            }
+        }
+        OpKind::AnimationListener => {
+            if let Some(op) = op
+                .as_any_mut()
+                .downcast_mut::<crate::template::pipeline::ir::ops::create::AnimationListenerOp>(
+            ) {
+                for handler_op in op.handler_ops.iter_mut() {
+                    transform_expressions_in_op(handler_op.as_mut(), transform, flags);
+                }
             }
         }
 

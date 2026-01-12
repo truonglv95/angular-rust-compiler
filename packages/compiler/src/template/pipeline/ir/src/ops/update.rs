@@ -638,6 +638,97 @@ pub fn create_property_op(
     ))
 }
 
+/// A logical operation representing binding to a DOM property in the update IR.
+#[derive(Debug, Clone)]
+pub struct DomPropertyOp {
+    /// Reference to the element on which the property is bound.
+    pub target: XrefId,
+    /// Name of the bound property.
+    pub name: Arc<str>,
+    /// Expression which is bound to the property.
+    pub expression: BindingExpression,
+    /// The security context of the binding.
+    pub security_context: Vec<SecurityContext>,
+    /// The sanitizer for this property.
+    pub sanitizer: Option<Expression>,
+    /// Source span.
+    pub source_span: ParseSourceSpan,
+}
+
+impl DomPropertyOp {
+    pub fn new(
+        target: XrefId,
+        name: Arc<str>,
+        expression: BindingExpression,
+        security_context: Vec<SecurityContext>,
+        source_span: ParseSourceSpan,
+    ) -> Self {
+        DomPropertyOp {
+            target,
+            name,
+            expression,
+            security_context,
+            sanitizer: None,
+            source_span,
+        }
+    }
+}
+
+impl Op for DomPropertyOp {
+    fn kind(&self) -> OpKind {
+        OpKind::DomProperty
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        Some(&self.source_span)
+    }
+}
+
+impl UpdateOp for DomPropertyOp {
+    fn xref(&self) -> XrefId {
+        self.target
+    }
+}
+
+impl ConsumesVarsTrait for DomPropertyOp {}
+impl DependsOnSlotContextOpTrait for DomPropertyOp {
+    fn target(&self) -> XrefId {
+        self.target
+    }
+
+    fn source_span(&self) -> &ParseSourceSpan {
+        &self.source_span
+    }
+}
+
+unsafe impl Send for DomPropertyOp {}
+unsafe impl Sync for DomPropertyOp {}
+
+/// Create a DomPropertyOp.
+pub fn create_dom_property_op(
+    target: XrefId,
+    name: Arc<str>,
+    expression: BindingExpression,
+    security_context: Vec<SecurityContext>,
+    source_span: ParseSourceSpan,
+) -> Box<dyn UpdateOp + Send + Sync> {
+    Box::new(DomPropertyOp::new(
+        target,
+        name,
+        expression,
+        security_context,
+        source_span,
+    ))
+}
+
 /// A logical operation representing the property binding side of a two-way binding in the update IR.
 #[derive(Debug, Clone)]
 pub struct TwoWayPropertyOp {

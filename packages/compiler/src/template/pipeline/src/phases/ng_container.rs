@@ -46,10 +46,10 @@ fn process_unit(unit: &mut crate::template::pipeline::src::compilation::ViewComp
                 let elem_start = &*elem_start_ptr;
 
                 if elem_start.base.tag.as_deref() == Some(CONTAINER_TAG) {
-                    if let Some(slot) = elem_start.base.base.handle.clone().get_slot() {
-                        // Already slotted, nothing to do
-                        return;
-                    }
+                    // if let Some(slot) = elem_start.base.base.handle.clone().get_slot() {
+                    //     // Already slotted, nothing to do
+                    //     return;
+                    // }
                     let xref = elem_start.base.base.xref;
                     let start_source_span = elem_start.base.base.start_source_span.clone();
                     let whole_source_span = elem_start.base.base.whole_source_span.clone();

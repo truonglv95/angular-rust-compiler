@@ -182,9 +182,21 @@ impl PartialDirectiveLinker2 {
                                 selectors,
                             )
                         } else {
-                            angular_compiler::render3::view::api::R3QueryPredicate::Selectors(vec![
-                                "".to_string(),
-                            ])
+                            // Token as selector (Type reference)
+                            let token_expr = o::Expression::RawCode(o::RawCodeExpr {
+                                code: meta_obj.host.print_node(&p.node),
+                                source_span: None,
+                            });
+
+                            let maybe_forward =
+                                angular_compiler::render3::util::MaybeForwardRefExpression::new(
+                                    token_expr,
+                                    angular_compiler::render3::util::ForwardRefHandling::None,
+                                );
+
+                            angular_compiler::render3::view::api::R3QueryPredicate::Expression(
+                                maybe_forward,
+                            )
                         }
                     } else {
                         angular_compiler::render3::view::api::R3QueryPredicate::Selectors(vec![])
@@ -238,27 +250,34 @@ impl PartialDirectiveLinker2 {
 
                                                 if !args.is_empty() {
                                                     let p = &args[0];
-                                                    if p.is_string() {
-                                                        predicate = angular_compiler::render3::view::api::R3QueryPredicate::Selectors(vec![p.get_string()?]);
-                                                    } else {
-                                                        // Token as selector
-                                                        let token_str =
-                                                            class_meta.host.print_node(&p.node);
-                                                        predicate = angular_compiler::render3::view::api::R3QueryPredicate::Selectors(vec![token_str]);
-                                                    }
+                                                    // Token as selector (Type reference)
+                                                    let token_expr =
+                                                        o::Expression::RawCode(o::RawCodeExpr {
+                                                            code: class_meta
+                                                                .host
+                                                                .print_node(&p.node),
+                                                            source_span: None,
+                                                        });
 
-                                                    if args.len() > 1 {
-                                                        if let Ok(opts) = args[1].get_object() {
-                                                            descendants = opts
-                                                                .get_bool("descendants")
-                                                                .unwrap_or(false);
-                                                            emit_distinct_changes_only = opts
-                                                                .get_bool("emitDistinctChangesOnly")
-                                                                .unwrap_or(true);
-                                                            is_static = opts
-                                                                .get_bool("static")
-                                                                .unwrap_or(false);
-                                                        }
+                                                    let maybe_forward = angular_compiler::render3::util::MaybeForwardRefExpression::new(
+                                                        token_expr,
+                                                        angular_compiler::render3::util::ForwardRefHandling::None
+                                                    );
+
+                                                    predicate = angular_compiler::render3::view::api::R3QueryPredicate::Expression(maybe_forward);
+                                                }
+
+                                                if args.len() > 1 {
+                                                    if let Ok(opts) = args[1].get_object() {
+                                                        descendants = opts
+                                                            .get_bool("descendants")
+                                                            .unwrap_or(false);
+                                                        emit_distinct_changes_only = opts
+                                                            .get_bool("emitDistinctChangesOnly")
+                                                            .unwrap_or(true);
+                                                        is_static = opts
+                                                            .get_bool("static")
+                                                            .unwrap_or(false);
                                                     }
                                                 }
 

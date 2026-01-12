@@ -4,6 +4,7 @@
 
 use crate::parse_util::sanitize_identifier;
 use crate::template::pipeline::ir;
+use crate::template::pipeline::ir::expression::transform_expressions_in_expression;
 use crate::template::pipeline::ir::operations::UpdateOp;
 use crate::template::pipeline::ir::ops::create::{
     ConditionalCreateOp, ProjectionOp, RepeaterCreateOp, TemplateOp,
@@ -570,6 +571,26 @@ fn process_op_with_var_names(
             ir::OpKind::RepeaterCreate => {
                 let rep_ptr = op_ptr as *mut RepeaterCreateOp;
                 let rep = &mut *rep_ptr;
+
+                if let Some(ref mut track_fn) = rep.track_by_fn {
+                    use crate::output::output_ast::Expression;
+                    use crate::template::pipeline::ir::expression::VisitorContextFlag;
+                    **track_fn = transform_expressions_in_expression(
+                        (**track_fn).clone(),
+                        &mut |mut expr: Expression, _flags| {
+                            if let Expression::ReadVariable(ref mut read_var) = expr {
+                                if read_var.name.is_none() {
+                                    if let Some(name) = var_names.get(&read_var.xref) {
+                                        read_var.name = Some(name.clone());
+                                    }
+                                }
+                            }
+                            expr
+                        },
+                        VisitorContextFlag::NONE,
+                    );
+                }
+
                 if let Some(empty) = rep.empty_view {
                     let index = rep.base.base.handle.get_slot().unwrap();
                     tasks.push(RecTask {

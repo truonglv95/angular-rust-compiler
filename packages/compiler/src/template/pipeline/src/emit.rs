@@ -676,10 +676,6 @@ pub fn emit_ops(
 
                     // FORCE domElementStart
                     let instruction = R3::dom_element_start();
-                    eprintln!(
-                        "[EMIT_DEBUG] tag={} instruction={:?}",
-                        tag, instruction.name
-                    );
 
                     stmts.push(o::Statement::Expression(o::ExpressionStatement {
                         expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
@@ -742,6 +738,97 @@ pub fn emit_ops(
                         source_span: None,
                     }));
                 }
+            }
+
+            // Handle empty container (OpKind::Container)
+            ir::OpKind::Container => {
+                eprintln!("[EMIT_DEBUG] OpKind::Container found. Debug: {:?}", op);
+                if let Some(container_op) =
+                    op.as_any().downcast_ref::<ir::ops::create::ContainerOp>()
+                {
+                    eprintln!(
+                        "[EMIT] Handling Container op for slot {}",
+                        container_op.base.handle.get_slot().unwrap()
+                    );
+                    let index = container_op.base.handle.get_slot().unwrap();
+                    let mut args = vec![*o::literal(index as f64)];
+
+                    // Add attrsIndex if present
+                    if let Some(const_idx) = container_op.base.attributes {
+                        args.push(*o::literal(const_idx.as_usize() as f64));
+                    } else if container_op.base.local_refs_index.is_some() {
+                        args.push(*o::literal(o::LiteralValue::Null));
+                    }
+
+                    // Add localRefsIndex if present
+                    if let Some(local_refs_idx) = container_op.base.local_refs_index {
+                        args.push(*o::literal(local_refs_idx.as_usize() as f64));
+                    }
+
+                    stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                        expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                            fn_: o::import_ref(R3::element_container()),
+                            args,
+                            type_: None,
+                            source_span: None,
+                            pure: false,
+                        })),
+                        source_span: None,
+                    }));
+                } else {
+                    eprintln!("[EMIT_ERROR] Failed to downcast OpKind::Container to ir::ops::create::ContainerOp");
+                }
+            }
+
+            // Handle element container (ng-container)
+            ir::OpKind::ContainerStart => {
+                if let Some(container_op) = op
+                    .as_any()
+                    .downcast_ref::<ir::ops::create::ContainerStartOp>()
+                {
+                    eprintln!(
+                        "[EMIT] Handling ContainerStart op for slot {}",
+                        container_op.base.handle.get_slot().unwrap()
+                    );
+                    let index = container_op.base.handle.get_slot().unwrap();
+                    let mut args = vec![*o::literal(index as f64)];
+
+                    // Add attrsIndex if present
+                    if let Some(const_idx) = container_op.base.attributes {
+                        args.push(*o::literal(const_idx.as_usize() as f64));
+                    } else if container_op.base.local_refs_index.is_some() {
+                        args.push(*o::literal(o::LiteralValue::Null));
+                    }
+
+                    // Add localRefsIndex if present
+                    if let Some(local_refs_idx) = container_op.base.local_refs_index {
+                        args.push(*o::literal(local_refs_idx.as_usize() as f64));
+                    }
+
+                    stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                        expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                            fn_: o::import_ref(R3::element_container_start()),
+                            args,
+                            type_: None,
+                            source_span: None,
+                            pure: false,
+                        })),
+                        source_span: None,
+                    }));
+                }
+            }
+
+            ir::OpKind::ContainerEnd => {
+                stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                    expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                        fn_: o::import_ref(R3::element_container_end()),
+                        args: vec![],
+                        type_: None,
+                        source_span: None,
+                        pure: false,
+                    })),
+                    source_span: None,
+                }));
             }
 
             // Handle template (ng-template) declaration
@@ -871,7 +958,7 @@ pub fn emit_ops(
                 {
                     let index = rep_op.base.base.handle.get_slot().unwrap();
 
-                    // Build args: slot, templateFn, decls, vars, tag, constIndex, trackFn
+                    // Build args: slot, templateFn, decls, vars, trackFn, [constIndex], [localRefsIndex]
                     let mut args: Vec<o::Expression> = vec![*o::literal(index as f64)];
 
                     // Template function reference - get from referenced view
@@ -906,23 +993,50 @@ pub fn emit_ops(
                         args.push(*o::literal(0.0));
                     }
 
-                    // Tag (optional)
+                    // Tag (Arg 4 - optional)
                     if let Some(ref tag) = rep_op.base.tag {
                         args.push(o::Expression::Literal(o::LiteralExpr {
                             value: o::LiteralValue::String(tag.clone()),
                             type_: None,
                             source_span: None,
                         }));
+                    } else {
+                        args.push(*o::literal(o::LiteralValue::Null));
                     }
 
-                    // Const index (optional)
+                    // Const index / Attrs index (Arg 5 - optional)
                     if let Some(const_idx) = rep_op.base.base.attributes {
                         args.push(*o::literal(const_idx.as_usize() as f64));
+                    } else {
+                        args.push(*o::literal(o::LiteralValue::Null));
                     }
 
-                    // Track function (optional)
+                    // Track function (Arg 6 - Required for control flow)
                     if let Some(ref track_fn) = rep_op.track_by_fn {
-                        args.push(track_fn.as_ref().clone());
+                        println!("[Emit Debug] Repeater track_fn IS SOME");
+                        // Implement trackBy function: (index, item) => track_expr
+                        let params = vec![
+                            o::FnParam {
+                                name: "$index".to_string(),
+                                type_: None,
+                            },
+                            o::FnParam {
+                                name: rep_op.var_names.dollar_implicit.clone(),
+                                type_: None,
+                            },
+                        ];
+
+                        let arrow_fn = o::Expression::ArrowFn(o::ArrowFunctionExpr {
+                            params,
+                            body: o::ArrowFunctionBody::Expression(track_fn.clone()),
+                            type_: None,
+                            source_span: None,
+                        });
+
+                        args.push(arrow_fn);
+                    } else {
+                        println!("[Emit Debug] Repeater track_fn IS NONE");
+                        args.push(*o::literal(o::LiteralValue::Null));
                     }
 
                     stmts.push(o::Statement::Expression(o::ExpressionStatement {
@@ -1347,8 +1461,67 @@ pub fn emit_ops(
                     ));
                 }
             }
+            ir::OpKind::Variable => {
+                // Handle variable declarations (e.g. NextContext)
+                // We need to support both CreateOp and UpdateOp variants of VariableOp
+                if let Some(var_op) = op.as_any().downcast_ref::<ir::ops::shared::VariableOp<Box<dyn ir::CreateOp + Send + Sync>>>() {
+                     let initializer = convert_binding_expression_to_expression(&ir::ops::update::BindingExpression::Expression(*var_op.initializer.clone()));
+                     let name = var_op.variable.name().unwrap_or_else(|| {
+                         // Fallback structure if name is missing? Usually variables have names.
+                         // For generated variables like context restores, they have names.
+                         panic!("VariableOp (Create) must have a name");
+                     });
+
+                     stmts.push(o::Statement::DeclareVar(o::DeclareVarStmt {
+                        name: name.to_string(),
+                        value: Some(Box::new(initializer)),
+                        type_: None,
+                        modifiers: o::StmtModifier::Final,
+                        source_span: None,
+                     }));
+                } else if let Some(var_op) = op.as_any().downcast_ref::<ir::ops::shared::VariableOp<Box<dyn ir::UpdateOp + Send + Sync>>>() {
+                     let initializer = convert_binding_expression_to_expression(&ir::ops::update::BindingExpression::Expression(*var_op.initializer.clone()));
+                     let name = var_op.variable.name().unwrap_or_else(|| {
+                         panic!("VariableOp (Update) must have a name");
+                     });
+
+                     stmts.push(o::Statement::DeclareVar(o::DeclareVarStmt {
+                        name: name.to_string(),
+                        value: Some(Box::new(initializer)),
+                        type_: None,
+                        modifiers: o::StmtModifier::Final,
+                        source_span: None,
+                     }));
+                }
+            }
             ir::OpKind::Property => {
                 if let Some(prop_op) = op.as_any().downcast_ref::<ir::ops::update::PropertyOp>() {
+                    let expression = convert_binding_expression_to_expression(&prop_op.expression);
+
+                    let instruction = R3::property();
+                    let sanitizer = prop_op.sanitizer.clone();
+
+                    let mut args = vec![*o::literal(prop_op.name.to_string()), expression];
+
+                    if let Some(sanitizer_fn) = sanitizer {
+                        args.push(sanitizer_fn);
+                    }
+
+                    stmts.push(o::Statement::Expression(o::ExpressionStatement {
+                        expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                            fn_: o::import_ref(instruction),
+                            args,
+                            type_: None,
+                            source_span: None,
+                            pure: false,
+                        })),
+                        source_span: None,
+                    }));
+                }
+            }
+            ir::OpKind::DomProperty => {
+                if let Some(prop_op) = op.as_any().downcast_ref::<ir::ops::update::DomPropertyOp>()
+                {
                     let expression = convert_binding_expression_to_expression(&prop_op.expression);
 
                     let instruction = R3::dom_property();
@@ -1983,7 +2156,33 @@ fn convert_binding_expression_to_expression(
     binding_expression: &crate::template::pipeline::ir::ops::update::BindingExpression,
 ) -> o::Expression {
     match binding_expression {
-        crate::template::pipeline::ir::ops::update::BindingExpression::Expression(e) => e.clone(),
+        crate::template::pipeline::ir::ops::update::BindingExpression::Expression(e) => {
+            // Check for NextContext specifically
+            if let o::Expression::NextContext(next_ctx) = e {
+                // Emit ɵɵnextContext(steps)
+                let instruction = R3::next_context();
+                let steps = next_ctx.steps;
+                let mut args = vec![];
+
+                // If steps is 1, we can omit the argument if we want strict parity with ngtsc
+                // But ngtsc often emits ɵɵnextContext() for 1, or ɵɵnextContext(1)
+                // Let's emit it explicitly for clarity, or check ngtsc defaults.
+                // Generally ɵɵnextContext() defaults to 1.
+                if steps != 1 {
+                    args.push(*o::literal(steps as f64));
+                }
+
+                return o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                    fn_: o::import_ref(instruction),
+                    args,
+                    type_: None,
+                    source_span: None,
+                    pure: false,
+                });
+            }
+
+            e.clone()
+        }
         crate::template::pipeline::ir::ops::update::BindingExpression::Interpolation(i) => {
             emit_interpolation_expression(i)
         }

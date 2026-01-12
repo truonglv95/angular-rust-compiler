@@ -80,17 +80,22 @@ struct OpInfo {
 /// which optimizations are safe to perform.
 pub fn optimize_variables(job: &mut dyn CompilationJob) {
     let compatibility = job.compatibility();
+
+    // Collect ALL global usages from the WHOLE job to handle cross-view dependencies
+    // (e.g. parent variable used in child view)
+    let global_usages = collect_global_usages(job);
+
     let component_job = job
         .as_any_mut()
         .downcast_mut::<crate::template::pipeline::src::compilation::ComponentCompilationJob>()
         .expect("Only ComponentCompilationJob is supported");
 
     // Optimize the root unit
-    optimize_unit(&mut component_job.root, compatibility);
+    optimize_unit(&mut component_job.root, compatibility, &global_usages);
 
     // Optimize each unit
     for view in component_job.views.values_mut() {
-        optimize_unit(view, compatibility);
+        optimize_unit(view, compatibility, &global_usages);
     }
 }
 
@@ -132,7 +137,86 @@ fn collect_remote_usages_for_unit(unit: &dyn CompilationUnit) -> HashSet<XrefId>
     remote_usages
 }
 
-fn optimize_unit(unit: &mut dyn CompilationUnit, compatibility: CompatibilityMode) {
+/// Helper to collect all variable usages across the entire compilation job.
+fn collect_global_usages(job: &dyn CompilationJob) -> HashSet<XrefId> {
+    let mut global_usages = HashSet::new();
+    let mut dummy_map = IndexMap::new();
+
+    let component_job = job
+        .as_any()
+        .downcast_ref::<crate::template::pipeline::src::compilation::ComponentCompilationJob>()
+        .expect("Only ComponentCompilationJob is supported");
+
+    // Helper to traverse a unit
+    let mut traverse_unit = |unit: &dyn CompilationUnit| {
+        // Create ops
+        for op in unit.create().iter() {
+            count_variable_usages(op.as_ref(), &mut dummy_map, &mut global_usages, true);
+
+            // Manually traverse handlers since we can't use process_handler_ops_create easily on immutable ref
+            // effectively identifying listener ops and recursing
+            use crate::template::pipeline::ir::ops::create::{
+                AnimationListenerOp, ListenerOp, RepeaterCreateOp, TwoWayListenerOp,
+            };
+            if let Some(listener) = op.as_any().downcast_ref::<ListenerOp>() {
+                for handler_op in &listener.handler_ops {
+                    count_variable_usages(
+                        handler_op.as_ref(),
+                        &mut dummy_map,
+                        &mut global_usages,
+                        true,
+                    );
+                }
+            } else if let Some(anim_listener) = op.as_any().downcast_ref::<AnimationListenerOp>() {
+                for handler_op in &anim_listener.handler_ops {
+                    count_variable_usages(
+                        handler_op.as_ref(),
+                        &mut dummy_map,
+                        &mut global_usages,
+                        true,
+                    );
+                }
+            } else if let Some(two_way) = op.as_any().downcast_ref::<TwoWayListenerOp>() {
+                for handler_op in &two_way.handler_ops {
+                    count_variable_usages(
+                        handler_op.as_ref(),
+                        &mut dummy_map,
+                        &mut global_usages,
+                        true,
+                    );
+                }
+            } else if let Some(repeater) = op.as_any().downcast_ref::<RepeaterCreateOp>() {
+                if let Some(ref track_by_ops) = repeater.track_by_ops {
+                    for track_op in track_by_ops {
+                        count_variable_usages(
+                            track_op.as_ref(),
+                            &mut dummy_map,
+                            &mut global_usages,
+                            true,
+                        );
+                    }
+                }
+            }
+        }
+        // Update ops
+        for op in unit.update().iter() {
+            count_variable_usages(op.as_ref(), &mut dummy_map, &mut global_usages, true);
+        }
+    };
+
+    traverse_unit(&component_job.root);
+    for view in component_job.views.values() {
+        traverse_unit(view);
+    }
+
+    global_usages
+}
+
+fn optimize_unit(
+    unit: &mut dyn CompilationUnit,
+    compatibility: CompatibilityMode,
+    global_usages: &HashSet<XrefId>,
+) {
     inline_always_inline_variables_create(unit.create_mut());
     inline_always_inline_variables_update(unit.update_mut());
 
@@ -144,8 +228,9 @@ fn optimize_unit(unit: &mut dyn CompilationUnit, compatibility: CompatibilityMod
         });
     }
 
-    // Collect ALL remote usages from the WHOLE unit (including all listeners)
-    let remote_usages = collect_remote_usages_for_unit(unit);
+    // Collect local remote usages (listeners) and combine with global usages
+    let mut remote_usages = collect_remote_usages_for_unit(unit);
+    remote_usages.extend(global_usages);
 
     let unit_xref = unit.xref();
 
@@ -387,6 +472,11 @@ fn optimize_variables_in_op_list_impl_create(
                     .as_any()
                     .downcast_ref::<VariableOp<Box<dyn ir::CreateOp + Send + Sync>>>()
                 {
+                    eprintln!(
+                        "[VAR_OPT] Declared variable {:#?} (xref: {})",
+                        var_op.variable,
+                        var_op.xref.as_usize()
+                    );
                     if var_decls.contains_key(&var_op.xref) || var_usages.contains_key(&var_op.xref)
                     {
                         panic!(
@@ -445,9 +535,11 @@ fn optimize_variables_in_op_list_impl_create(
                         if (context_is_used && op_info.fences.contains(Fence::VIEW_CONTEXT_WRITE))
                             || op_info.fences.contains(Fence::SIDE_EFFECTFUL)
                         {
+                            eprintln!("[VAR_OPT] Converting unused var {:?} (xref: {}) to statement. ContextUsed: {}, Fences: {:?}", var_op.variable, var_op.xref.as_usize(), context_is_used, op_info.fences);
                             let stmt = (*var_op.initializer).clone().to_stmt();
                             indices_to_replace.push((index, stmt));
                         } else {
+                            eprintln!("[VAR_OPT] Removing unused variable {:#?} (xref: {}). Is remote: {}. ContextUsed: {}, Fences: {:?}", var_op.variable, var_op.xref.as_usize(), is_remote, context_is_used, op_info.fences);
                             indices_to_remove.push(index);
                             uncount_variable_usages(op.as_ref(), &mut var_usages);
                             op_map.swap_remove(&index);
@@ -675,8 +767,10 @@ fn optimize_variables_in_op_list_impl_update(
 
                         if keep_for_side_effects {
                             let stmt = (*var_op.initializer).clone().to_stmt();
+                            eprintln!("[VAR_OPT_UPDATE] Converting unused variable {:?} (xref: {}) to statement due to side effects. ContextUsed: {}, WritesCtx: {}, SideEffect: {}", var_op.variable, var_op.xref.as_usize(), context_is_used, op_info.fences.contains(Fence::VIEW_CONTEXT_WRITE), op_info.fences.contains(Fence::SIDE_EFFECTFUL));
                             indices_to_replace.push((index, stmt));
                         } else {
+                            eprintln!("[VAR_OPT] Removing unused variable {:#?} (xref: {}). Is remote: {}", var_op.variable, var_op.xref.as_usize(), !var_remote_usages.contains(&var_op.xref));
                             indices_to_remove.push(index);
                             uncount_variable_usages(op.as_ref(), &mut var_usages);
                             op_map.swap_remove(&index);
@@ -1369,6 +1463,11 @@ fn count_variable_usages(
             // 1. Handle regular ReadVariable usage
             // 1. Handle regular ReadVariable usage
             if let Expression::ReadVariable(read_var) = expr {
+                eprintln!(
+                    "[VAR_USAGE] Usage: xref {} in op {:?}",
+                    read_var.xref.as_usize(),
+                    op.kind()
+                );
                 *var_usages.entry(read_var.xref).or_insert(0) += 1;
 
                 // If we are in a child operation (like a listener) or if is_remote_context is set,
@@ -1384,6 +1483,11 @@ fn count_variable_usages(
                     match ir_expr {
                         ir::IRExpression::ReadVariable(read_var) => {
                             if let Some(count) = var_usages.get_mut(&read_var.xref) {
+                                eprintln!(
+                                    "[VAR_USAGE] Usage (IR): xref {} in op {:?}",
+                                    read_var.xref.as_usize(),
+                                    op.kind()
+                                );
                                 *count += 1;
                             }
 

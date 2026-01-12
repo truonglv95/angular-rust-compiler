@@ -109,7 +109,9 @@ pub fn compile_component_from_metadata(
 
     // 2. Run phases
     crate::template::pipeline::src::phases::run(&mut job);
-    *constant_pool = job.pool.clone();
+    // NOTE: We do NOT copy job.pool back to constant_pool here because
+    // emit_component already includes job.pool.statements in its output.
+    // Copying would cause duplicate statements in the final output.
 
     // 3. Handle Host Bindings if present
     let host_job = if !meta.directive.host.attributes.is_empty()

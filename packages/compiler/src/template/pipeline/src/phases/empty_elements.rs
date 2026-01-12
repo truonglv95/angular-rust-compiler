@@ -14,7 +14,7 @@ use crate::template::pipeline::src::compilation::{
 };
 
 /// Op kinds that should not prevent merging of start/end ops.
-const IGNORED_OP_KINDS: &[OpKind] = &[OpKind::Pipe];
+const IGNORED_OP_KINDS: &[OpKind] = &[OpKind::Pipe, OpKind::ExtractedAttribute];
 
 /// Replace sequences of mergable instructions (e.g. `ElementStart` and `ElementEnd`) with a
 /// consolidated instruction (e.g. `Element`).

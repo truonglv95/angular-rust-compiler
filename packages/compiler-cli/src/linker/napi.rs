@@ -977,7 +977,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                             stmts_code, expr_code
                                         )
                                     };
-                                    // println!("[Rust Linker] Linked Partial Declaration {} -> {:.100}...", n, js_code);
+                                    println!("[Rust Linker] Linked Partial Declaration {} -> {:.2000}...", n, js_code);
 
                                     let span = expr.span;
                                     let span = expr.span;

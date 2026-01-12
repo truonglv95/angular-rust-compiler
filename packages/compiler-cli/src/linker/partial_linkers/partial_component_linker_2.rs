@@ -64,6 +64,11 @@ impl PartialComponentLinker2 {
         let selector = meta_obj.get_string("selector").ok();
         let mut template_str = meta_obj.get_string("template").unwrap_or_default();
 
+        eprintln!("[Linker2] Processing component: {}", type_name_str);
+        if type_name_str.contains("MatTree") {
+            eprintln!("[Linker2] MatTree template: {}", template_str);
+        }
+
         if template_str.is_empty() {}
 
         if template_str.is_empty() && meta_obj.has("templateUrl") {
@@ -200,6 +205,13 @@ impl PartialComponentLinker2 {
             "template.html", // TODO: get real URL
             template_opts,
         );
+
+        if type_name_str.contains("MatTree") {
+            eprintln!(
+                "[Linker2] Parsed MatTree template. Nodes: {}",
+                parsed_template.nodes.len()
+            );
+        }
 
         // Inputs
         let mut inputs = IndexMap::new();
@@ -391,6 +403,7 @@ impl PartialComponentLinker2 {
                     let q_obj = q.get_object()?;
                     let property_name = q_obj.get_string("propertyName")?;
                     let is_signal = q_obj.get_bool("isSignal").unwrap_or(false);
+                    eprintln!("[Linker Debug] Query {} isSignal: {}", property_name, is_signal);
                     let first = q_obj.get_bool("first").unwrap_or(false);
                     let predicate = if q_obj.has("predicate") {
                         let p = q_obj.get_value("predicate")?;
@@ -1086,11 +1099,18 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialComponentLinker
                 let res =
                     compile_component_from_metadata(&meta, constant_pool, &mut binding_parser);
 
-                if res.statements.is_empty() {
+                // Merge res.statements into constant_pool. Because compile_component_from_metadata
+                // adds statements (template functions) directly to res.statements while also
+                // populating constant_pool.statements (e.g., _forTrack vars), we need to combine
+                // them into a single scope to avoid duplicate declarations.
+                // Prepend constant_pool.statements before res.statements and emit once.
+                if res.statements.is_empty() && constant_pool.statements.is_empty() {
                     res.expression
                 } else {
-                    let mut stmts = res.statements;
-                    stmts.push(o::Statement::Return(o::ReturnStatement {
+                    // Combine: constant_pool statements first, then res.statements
+                    let mut all_stmts = std::mem::take(&mut constant_pool.statements);
+                    all_stmts.extend(res.statements);
+                    all_stmts.push(o::Statement::Return(o::ReturnStatement {
                         value: Box::new(res.expression),
                         source_span: None,
                     }));
@@ -1098,7 +1118,7 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialComponentLinker
                     o::Expression::InvokeFn(o::InvokeFunctionExpr {
                         fn_: Box::new(o::Expression::ArrowFn(o::ArrowFunctionExpr {
                             params: vec![],
-                            body: o::ArrowFunctionBody::Statements(stmts),
+                            body: o::ArrowFunctionBody::Statements(all_stmts),
                             type_: None,
                             source_span: None,
                         })),

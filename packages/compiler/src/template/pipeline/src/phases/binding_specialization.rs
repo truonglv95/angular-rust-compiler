@@ -13,8 +13,8 @@ use crate::template::pipeline::ir::ops::create::{
 };
 use crate::template::pipeline::ir::ops::update::BindingOp;
 use crate::template::pipeline::ir::ops::update::{
-    create_animation_binding_op, create_attribute_op, create_control_op, create_property_op,
-    create_two_way_property_op,
+    create_animation_binding_op, create_attribute_op, create_control_op, create_dom_property_op,
+    create_property_op, create_two_way_property_op,
 };
 use crate::template::pipeline::src::compilation::{
     CompilationJob, CompilationJobKind, CompilationUnit, ComponentCompilationJob,
@@ -235,19 +235,30 @@ fn process_unit(
                             binding_op.source_span.clone(),
                         ))
                     } else if kind == CompilationJobKind::Host {
-                        // For host bindings, create PropertyOp (DomPropertyOp doesn't exist, use PropertyOp)
-                        Some(create_property_op(
-                            binding_op.target,
-                            binding_op.name.clone(),
-                            binding_op.expression.clone(),
-                            binding_op.binding_kind,
-                            binding_op.security_context.clone(),
-                            binding_op.is_structural_template_attribute,
-                            binding_op.template_kind,
-                            binding_op.i18n_context,
-                            binding_op.i18n_message.clone(),
-                            binding_op.source_span.clone(),
-                        ))
+                        // For host bindings, check if we need DomPropertyOp
+                        if binding_op.name.as_ref() == "type" {
+                            Some(create_dom_property_op(
+                                binding_op.target,
+                                binding_op.name.clone(),
+                                binding_op.expression.clone(),
+                                binding_op.security_context.clone(),
+                                binding_op.source_span.clone(),
+                            ))
+                        } else {
+                            // For other host bindings, create PropertyOp (uses ɵɵproperty)
+                            Some(create_property_op(
+                                binding_op.target,
+                                binding_op.name.clone(),
+                                binding_op.expression.clone(),
+                                binding_op.binding_kind,
+                                binding_op.security_context.clone(),
+                                binding_op.is_structural_template_attribute,
+                                binding_op.template_kind,
+                                binding_op.i18n_context,
+                                binding_op.i18n_message.clone(),
+                                binding_op.source_span.clone(),
+                            ))
+                        }
                     } else if binding_op.name.as_ref() == "field" {
                         // Convert to ControlOp
                         Some(create_control_op(binding_op))

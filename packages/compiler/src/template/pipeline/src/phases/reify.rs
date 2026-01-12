@@ -190,6 +190,49 @@ fn reify_create_operations(
                     None
                 }
             }
+            ir::OpKind::RepeaterCreate => {
+                println!("[REIFY] Handling RepeaterCreate");
+                if let Some(rep_op) = op
+                    .as_any()
+                    .downcast_ref::<ir::ops::create::RepeaterCreateOp>()
+                {
+                    let slot = rep_op.base.base.handle.get_slot().expect("Expected a slot") as i32;
+                    let view_xref = rep_op.base.base.xref;
+                    let fn_name = view_name_map
+                        .get(&view_xref)
+                        .expect("Template function name not assigned");
+
+                    let decls = rep_op.decls.unwrap_or(0);
+                    let vars = rep_op.vars.unwrap_or(0);
+                    let tag = rep_op.base.tag.clone();
+                    let const_index = rep_op.base.base.attributes.map(|idx| idx.as_usize() as i32);
+
+                    // Handle track function
+                    let track_fn = if let Some(track_ir) = &rep_op.track_by_fn {
+                        println!("[REIFY] TrackFn is Some");
+                        reify_ir_expression(*track_ir.clone(), ir::VisitorContextFlag::NONE)
+                    } else {
+                        println!("[REIFY] TrackFn is None");
+                        *o::literal(o::LiteralValue::Null)
+                    };
+
+                    let stmt = ng::repeater_create(
+                        slot,
+                        *o::variable(fn_name),
+                        decls,
+                        vars,
+                        tag,
+                        const_index,
+                        track_fn,
+                        rep_op.base.base.start_source_span.clone(),
+                    );
+                    Some(Box::new(ir::ops::shared::create_statement_op::<
+                        Box<dyn CreateOp + Send + Sync>,
+                    >(Box::new(stmt))))
+                } else {
+                    None
+                }
+            }
             ir::OpKind::ConditionalCreate => {
                 if let Some(cond_op) = op
                     .as_any()
@@ -366,6 +409,45 @@ fn reify_create_operations(
                 } else {
                     ng::element_end(op.source_span().cloned())
                 };
+                Some(Box::new(ir::ops::shared::create_statement_op::<
+                    Box<dyn CreateOp + Send + Sync>,
+                >(Box::new(stmt))))
+            }
+
+            ir::OpKind::ContainerStart => {
+                if let Some(container_op) = op
+                    .as_any()
+                    .downcast_ref::<ir::ops::create::ContainerStartOp>()
+                {
+                    if let Some(slot) = container_op.base.handle.get_slot() {
+                        let const_index = container_op
+                            .base
+                            .attributes
+                            .map(|idx| idx.as_usize() as i32);
+                        let local_ref_index = container_op
+                            .base
+                            .local_refs_index
+                            .map(|idx| idx.as_usize() as i32);
+
+                        let stmt = ng::element_container_start(
+                            slot as i32,
+                            const_index,
+                            local_ref_index,
+                            container_op.base.start_source_span.clone(),
+                        );
+                        Some(Box::new(ir::ops::shared::create_statement_op::<
+                            Box<dyn CreateOp + Send + Sync>,
+                        >(Box::new(stmt))))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+
+            ir::OpKind::ContainerEnd => {
+                let stmt = ng::element_container_end(op.source_span().cloned());
                 Some(Box::new(ir::ops::shared::create_statement_op::<
                     Box<dyn CreateOp + Send + Sync>,
                 >(Box::new(stmt))))

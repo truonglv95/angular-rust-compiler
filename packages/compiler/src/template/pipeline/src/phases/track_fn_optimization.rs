@@ -18,6 +18,7 @@ use crate::template::pipeline::ir::ops::shared::create_statement_op;
 use crate::template::pipeline::src::compilation::{
     CompilationJob, CompilationUnit, ComponentCompilationJob,
 };
+use indexmap::IndexMap;
 
 /// `track` functions in `for` repeaters can sometimes be "optimized," i.e. transformed into inline
 /// expressions, in lieu of an external function call.
@@ -31,12 +32,21 @@ pub fn optimize_track_fns(job: &mut dyn CompilationJob) {
     let root_xref = component_job.root.xref();
     let mut track_fn_counter: usize = 0;
 
+    // Create unsafe alias for views to bypass borrow checker conflicts during iteration
+    let views_ptr = &component_job.views
+        as *const IndexMap<
+            ir::XrefId,
+            crate::template::pipeline::src::compilation::ViewCompilationUnit,
+        >;
+    let views = unsafe { &*views_ptr };
+
     // Process root unit
     process_unit(
         &mut component_job.root,
         root_xref,
         &mut component_job.pool,
         &mut track_fn_counter,
+        views,
     );
 
     // Process all view units - need to split borrows
@@ -48,6 +58,7 @@ pub fn optimize_track_fns(job: &mut dyn CompilationJob) {
                 root_xref,
                 &mut component_job.pool,
                 &mut track_fn_counter,
+                views,
             );
         }
     }
@@ -58,6 +69,7 @@ fn process_unit(
     root_xref: ir::XrefId,
     pool: &mut crate::constant_pool::ConstantPool,
     track_fn_counter: &mut usize,
+    views: &IndexMap<ir::XrefId, crate::template::pipeline::src::compilation::ViewCompilationUnit>,
 ) {
     // Get unit xref before borrowing create_mut
     let unit_xref = unit.xref();
@@ -72,6 +84,7 @@ fn process_unit(
             let repeater_ptr = op_ptr as *mut RepeaterCreateOp;
             let repeater = &mut *repeater_ptr;
 
+            // ... (existing code for $index/$item checks) ...
             // Check if track is ReadVarExpr with '$index' or '$item'
             if let Expression::ReadVar(read_var) = &*repeater.track {
                 if read_var.name == "$index" {
@@ -99,6 +112,7 @@ fn process_unit(
 
             // Check if track is a function call pattern: fn($index, item) or fn($index)
             if is_track_by_function_call(root_xref, &*repeater.track) {
+                // ... (existing function call handling) ...
                 // Mark the function as using the component instance
                 repeater.uses_component_instance = true;
 
@@ -147,7 +161,33 @@ fn process_unit(
             let item_name = repeater.var_names.dollar_implicit.clone();
             let index_names = repeater.var_names.dollar_index.clone();
 
-            // eprint!("DEBUG: track_fn_opt: item_name={:?}, index_names={:?}", item_name, index_names);
+            println!(
+                "[TRACK_OPT] Processing repeater. Item: {:?}, Indices: {:?}. Expr: {:?}",
+                item_name, index_names, track_expr
+            );
+
+            // Find xref for the item variable if possible
+            let mut item_xref = None;
+            let primary_view_xref = repeater.base.base.xref; // Repeater xref points to its primary view?
+
+            if let Some(view_unit) = views.get(&primary_view_xref) {
+                // Scan for VariableOp that matches item_name in Identifier
+                // We scan create ops of the child view
+                for create_op in view_unit.create() {
+                    if let ir::OpKind::Variable = create_op.kind() {
+                        // Need to downcast to check variable
+                        if let Some(var_op) = create_op.as_any().downcast_ref::<ir::ops::shared::VariableOp<Box<dyn ir::CreateOp + Send + Sync>>>() {
+                             if let ir::SemanticVariable::Identifier(ident) = &var_op.variable {
+                                 if ident.identifier == item_name {
+                                     item_xref = Some(var_op.xref);
+                                     println!("[TRACK_OPT] Found item variable xref: {:?}", item_xref);
+                                     break;
+                                 }
+                             }
+                         }
+                    }
+                }
+            }
 
             track_expr = transform_expressions_in_expression(
                 track_expr,
@@ -170,6 +210,21 @@ fn process_unit(
                     if let Expression::ReadVar(read_var) = &expr {
                         if read_var.name == "ctx" {
                             has_context_expr = true;
+                        }
+                    }
+
+                    // Replace ReadVariable that matches item_xref
+                    if let Some(target_xref) = item_xref {
+                        if let Expression::ReadVariable(read_var) = &expr {
+                            if read_var.xref == target_xref {
+                                return Expression::ReadVar(
+                                    crate::output::output_ast::ReadVarExpr {
+                                        name: "$item".to_string(),
+                                        type_: None,
+                                        source_span: None,
+                                    },
+                                );
+                            }
                         }
                     }
 

@@ -90,6 +90,9 @@ pub fn run(job: &mut ComponentCompilationJob) {
     // Remove $any() calls - they have no runtime effects
     any_cast::delete_any_casts(job);
 
+    // Convert ng-container elements to container ops (must run BEFORE attribute extraction/binding specialization)
+    ng_container::generate_ng_container_ops(job);
+
     // Added phases for correctness
     style_binding_specialization::specialize_style_bindings(job); // Specialize [style] and [class] bindings
     binding_specialization::specialize_bindings(job); // Converts BindingOp -> AttributeOp, PropertyOp, etc.

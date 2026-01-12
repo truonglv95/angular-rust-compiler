@@ -119,11 +119,14 @@ impl ElementAttributes {
         array.push(Expression::Literal(LiteralExpr {
             value: LiteralValue::String(name),
             type_: None,
-            source_span,
+            source_span: source_span.clone(),
         }));
 
-        // Add value for attribute and style properties
-        if matches!(kind, BindingKind::Attribute | BindingKind::StyleProperty) {
+        // Add value for attribute, style, and template properties
+        if matches!(
+            kind,
+            BindingKind::Attribute | BindingKind::StyleProperty | BindingKind::Template
+        ) {
             if let Some(val) = value {
                 if let Some(trusted_fn) = trusted_value_fn {
                     // Use tagged template if trusted value function is provided
@@ -154,10 +157,34 @@ impl ElementAttributes {
                         );
                     }
                 } else {
-                    array.push(val);
+                    // Start of workaround: For template bindings, if the value is an empty string,
+                    // we should NOT emit it. ngtsc emits ["key"] instead of ["key", ""] for structural directives.
+                    // This is critical for directive matching parity.
+                    let should_skip_val = if matches!(kind, BindingKind::Template) {
+                        if let Expression::Literal(LiteralExpr {
+                            value: LiteralValue::String(s),
+                            ..
+                        }) = &val
+                        {
+                            s.is_empty()
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    if !should_skip_val {
+                        array.push(val);
+                    }
                 }
             } else {
-                panic!("Attribute and style element attributes must have a value");
+                // Values for template bindings (e.g. *directive) are optional and default to empty string
+                if matches!(kind, BindingKind::Template) {
+                    // Do nothing for template bindings with no value
+                } else {
+                    panic!("Attribute and style element attributes must have a value");
+                }
             }
         }
     }
@@ -189,6 +216,22 @@ pub fn collect_element_consts(job: &mut dyn CompilationJob) {
                 );
 
                 indices_to_remove.push(index);
+            }
+        }
+
+        // DEBUG: Check for matTreeNodeOutlet
+        for (xref, attrs) in &all_element_attributes {
+            for attr in &attrs.attributes {
+                if let Expression::Literal(lit) = attr {
+                    if let LiteralValue::String(s) = &lit.value {
+                        if s == "matTreeNodeOutlet" {
+                            eprintln!(
+                                "DEBUG: [const_collection] Found matTreeNodeOutlet for xref {:?}",
+                                xref
+                            );
+                        }
+                    }
+                }
             }
         }
 
@@ -291,6 +334,8 @@ fn process_component_job(
                 || kind == ir::OpKind::ConditionalCreate
                 || kind == ir::OpKind::ConditionalBranchCreate
                 || kind == ir::OpKind::Projection
+                || kind == ir::OpKind::ContainerStart
+                || kind == ir::OpKind::Container
             {
                 if let Some(xref) = get_xref_from_create_op(op.as_ref()) {
                     ordered_elements.push((xref, kind));

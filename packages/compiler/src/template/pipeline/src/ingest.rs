@@ -413,27 +413,10 @@ fn maybe_record_directive_usage(
     let used_dependencies = &mut job.used_dependencies;
 
     let mut has_directives = false;
-    let mut matched_indices = Vec::new();
     matcher.match_selector(selector, |_, &dep_index| {
-        matched_indices.push(dep_index);
         used_dependencies.insert(dep_index);
         has_directives = true;
     });
-
-    if tag_name == "ng-template" {
-        eprintln!(
-            "[INGEST] matched {} directives for <ng-template>: {:?}",
-            matched_indices.len(),
-            matched_indices
-        );
-        for &idx in &matched_indices {
-            if let Some(R3TemplateDependencyMetadata::Directive(dir)) =
-                job.available_dependencies.get(idx)
-            {
-                eprintln!("[INGEST]   - matched: {}", dir.selector);
-            }
-        }
-    }
 
     has_directives
 }
@@ -2003,18 +1986,12 @@ fn ingest_for_block(
                     "$index".to_string(),
                     "$index".to_string(), // Property name to read from context
                 );
-                repeater_view
-                    .context_variables
-                    .insert(index_name.clone(), "$index".to_string());
             } else if &*variable.name == "$count" {
                 // $count should be read as ctx.$count property, not ctx directly
                 repeater_view.context_variables.insert(
                     "$count".to_string(),
                     "$count".to_string(), // Property name to read from context
                 );
-                repeater_view
-                    .context_variables
-                    .insert(count_name.clone(), "$count".to_string());
             } else {
                 // For other variables, we need to create an alias
                 let expression =
@@ -2025,6 +2002,15 @@ fn ingest_for_block(
                 ));
             }
         }
+
+        // Always add special internal variables for index/count to ensure aliases works
+        eprintln!("[RUST_DEBUG] Adding implicit context variables for repeater view {}: {} -> $index, {} -> $count", repeater_view_xref.as_usize(), index_name, count_name);
+        repeater_view
+            .context_variables
+            .insert(index_name.clone(), "$index".to_string());
+        repeater_view
+            .context_variables
+            .insert(count_name.clone(), "$count".to_string());
     }
 
     // Re-build index names for repeater op creation
