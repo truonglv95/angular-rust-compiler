@@ -87,6 +87,10 @@ pub fn compile_component_from_metadata(
         "[COMPILER_DEBUG] compile_component_from_metadata: {}",
         meta.directive.name
     );
+    eprintln!(
+        "[COMPILER_DEBUG] compile_component_from_metadata queries len: {}",
+        meta.directive.queries.len()
+    );
     // eprintln!("DEBUG: compile_component_from_metadata called for {}, inputs len: {}", meta.directive.name, meta.directive.inputs.len());
     // 1. Ingest
     let mut job = crate::template::pipeline::src::ingest::ingest_component(

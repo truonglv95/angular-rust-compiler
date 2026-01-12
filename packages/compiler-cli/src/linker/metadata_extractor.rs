@@ -502,18 +502,117 @@ fn parse_host_attrs_ast(arr: &oxc_ast::ast::ArrayExpression) -> Vec<String> {
     attrs
 }
 
-/// Look up an NgModule's exported directives from the cache
+/// Look up an NgModule's exported directives from the cache, lazily extracting if needed
 pub fn get_module_exports(module_path: &str, module_name: &str) -> Option<Vec<ExtractedDirective>> {
+    // 1. Ensure main module is loaded
+    {
+        let cache = get_metadata_cache().read().ok()?;
+        let module_key = format!("{}:{}", module_path, module_name);
+        if !cache.modules.contains_key(&module_key) {
+            drop(cache);
+            lazy_load_file(module_path);
+        }
+    }
+
+    // 2. Ensure dependencies are loaded (Handling re-exports)
+    // We iteratively check for missing dependencies and load them.
+    for _ in 0..5 {
+        // Max depth 5 to prevent infinite loops
+        let mut missing_paths = Vec::new();
+        {
+            let cache = get_metadata_cache().read().ok()?;
+            let mut visited = HashSet::new();
+            collect_missing_dependencies(
+                module_path,
+                module_name,
+                &cache,
+                &mut visited,
+                &mut missing_paths,
+            );
+        }
+
+        if missing_paths.is_empty() {
+            break;
+        }
+
+        // Remove duplicates
+        missing_paths.sort();
+        missing_paths.dedup();
+
+        for path in missing_paths {
+            lazy_load_file(&path);
+        }
+    }
+
+    // 3. Return result
     let cache = get_metadata_cache().read().ok()?;
     let mut visited = HashSet::new();
     let mut result = Vec::new();
-
     get_module_exports_recursive(module_path, module_name, &cache, &mut visited, &mut result);
 
     if result.is_empty() {
         None
     } else {
         Some(result)
+    }
+}
+
+fn lazy_load_file(path_str: &str) {
+    let path = Path::new(path_str);
+    if path.exists() && path.is_file() {
+        if let Ok(code) = std::fs::read_to_string(path) {
+            // eprintln!("[Metadata] Lazy loading module: {}", path_str);
+            extract_metadata_from_linked(path_str, &code);
+        }
+    }
+}
+
+fn collect_missing_dependencies(
+    module_path: &str,
+    module_name: &str,
+    cache: &MetadataCache,
+    visited: &mut HashSet<String>,
+    missing_paths: &mut Vec<String>,
+) {
+    let module_key = format!("{}:{}", module_path, module_name);
+    if visited.contains(&module_key) {
+        return;
+    }
+    visited.insert(module_key.clone());
+
+    if let Some(module) = cache.modules.get(&module_key) {
+        for export in &module.exports {
+            let lookup_path = export
+                .source_path
+                .as_deref()
+                .unwrap_or(module_path)
+                .to_string();
+            let lookup_name = export
+                .original_name
+                .as_deref()
+                .unwrap_or(&export.exported_name)
+                .to_string();
+            let export_key = format!("{}:{}", lookup_path, lookup_name);
+
+            // If it's NOT a known directive AND NOT a known module, it might be missing
+            if !cache.directives.contains_key(&export_key)
+                && !cache.modules.contains_key(&export_key)
+            {
+                // If we have a source path different from current module, it implies a dependency
+                if let Some(src) = &export.source_path {
+                    missing_paths.push(src.clone());
+                }
+            } else if cache.modules.contains_key(&export_key) {
+                // If it is a known module, recurse into it
+                collect_missing_dependencies(
+                    &lookup_path,
+                    &lookup_name,
+                    cache,
+                    visited,
+                    missing_paths,
+                );
+            }
+        }
     }
 }
 
@@ -587,11 +686,32 @@ fn get_module_exports_recursive(
     }
 }
 
-/// Look up a directive's metadata from the cache
+/// Look up a directive's metadata from the cache, lazily extracting if needed
 pub fn get_directive_metadata(
     module_path: &str,
     directive_name: &str,
 ) -> Option<ExtractedDirective> {
+    // 1. Try cache
+    {
+        let cache = get_metadata_cache().read().ok()?;
+        if let Some(d) = cache
+            .directives
+            .get(&format!("{}:{}", module_path, directive_name))
+        {
+            return Some(d.clone());
+        }
+    }
+
+    // 2. Lazy load
+    let path = Path::new(module_path);
+    if path.exists() && path.is_file() {
+        if let Ok(code) = std::fs::read_to_string(path) {
+            eprintln!("[Metadata] Lazy loading directive source: {}", module_path);
+            extract_metadata_from_linked(module_path, &code);
+        }
+    }
+
+    // 3. Retry cache
     let cache = get_metadata_cache().read().ok()?;
     cache
         .directives

@@ -1096,6 +1096,7 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialComponentLinker
                         vec![],
                     );
 
+                eprintln!("[Linker CHECKPOINT] About to call compile_component_from_metadata. Queries count: {}", meta.directive.queries.len());
                 let res =
                     compile_component_from_metadata(&meta, constant_pool, &mut binding_parser);
 
