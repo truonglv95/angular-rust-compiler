@@ -340,15 +340,20 @@ export default function angularRustPlugin(options = {}) {
         },
 
         async transform(code, id) {
+            if (id.includes('node_modules') && id.includes('@angular')) {
+                 console.log('[Vite Transform] Saw Angular file:', id);
+            }
             // Link Angular libraries from node_modules
             if (id.includes('node_modules') && id.includes('@angular') && !id.endsWith('.css') && !id.endsWith('.scss')) {
+                // console.log('[Vite Transform] Checking:', id);
+                if (id.includes('form-field')) console.log('[Vite Transform] HIT FormField:', id);
                 try {
-                    const result = compiler.linkFile(id, code);
+                    let result = compiler.linkFile(id, code);
                     if (result.startsWith('/* Linker Error')) {
                         return null;
                     }
                     if (result !== code) {
-                        return { code: `/* LINKED BY RUST LINKER */\n${result}`, map: null };
+                        return `/* LINKED BY RUST LINKER */\n${result}`;
                     }
                 } catch (e) {
                     // console.error(`[Linker] Error for ${id}:`, e);
