@@ -234,6 +234,10 @@ fn check_expressions_in_variable_op(op: &Box<dyn ir::UpdateOp + Send + Sync>) ->
 
 fn check_expressions_in_statement(stmt: &crate::output::output_ast::Statement) -> bool {
     match stmt {
+        Statement::Block(block) => block
+            .statements
+            .iter()
+            .any(|stmt| check_expressions_in_statement(stmt)),
         Statement::Return(ref return_stmt) => check_expressions_recursive(&return_stmt.value),
         Statement::Expression(ref expr_stmt) => check_expressions_recursive(&expr_stmt.expr),
         Statement::DeclareVar(ref var_stmt) => {
@@ -243,9 +247,13 @@ fn check_expressions_in_statement(stmt: &crate::output::output_ast::Statement) -
                 false
             }
         }
-        Statement::DeclareFn(_) | Statement::IfStmt(_) => {
-            // For now, we don't check inside function declarations or if statements
+        Statement::IfStmt(_) => {
+            // For now, we don't check inside if statements
             // as they're less likely to contain ReferenceExpr directly
+            false
+        }
+        Statement::DeclareFn(_) => {
+            // For now, we don't check inside function declarations
             false
         }
     }

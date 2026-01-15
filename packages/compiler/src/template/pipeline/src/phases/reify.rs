@@ -58,6 +58,74 @@ fn reify_create_operations(
         );
 
         let new_op: Option<Box<dyn CreateOp + Send + Sync>> = match op.kind() {
+            ir::OpKind::Projection => {
+                if let Some(proj_op) = op.as_any().downcast_ref::<ir::ops::create::ProjectionOp>() {
+                    let slot_idx = proj_op.projection_slot_index;
+                    println!("[REIFY_DEBUG] Projection slot_idx={}", slot_idx);
+
+                    let stmt_or_none = if let Some(fallback_xref) = proj_op.fallback_view {
+                        if false {
+                            // Fallback view logic
+                            let fn_name = view_name_map
+                                .get(&fallback_xref)
+                                .expect("Fallback view function name not assigned");
+
+                            let handle_slot = proj_op
+                                .handle
+                                .get_slot()
+                                .expect("Expected slot for projection with fallback")
+                                as i32;
+                            let decls = proj_op.decls.unwrap_or(0);
+                            let vars = proj_op.vars.unwrap_or(0);
+
+                            // Create template instruction for fallback view
+                            // Note: Tag is None for fallback (it's implicit ng-template)
+                            let template_stmt = ng::template(
+                                handle_slot,
+                                *o::variable(fn_name),
+                                decls,
+                                vars,
+                                None, // tag
+                                None, // const_index
+                                None, // local_ref_index
+                                proj_op.source_span.clone(),
+                            );
+
+                            // Create projection instruction referencing the template slot
+                            let proj_stmt = ng::projection(
+                                slot_idx as i32,
+                                proj_op.projection_slot_index,
+                                None, // fallback_fn - handle_slot is i32, incompatible with new signature
+                                None, // fallback_decls
+                                None, // fallback_vars
+                                Some(proj_op.source_span.clone()),
+                            );
+
+                            Some(o::Statement::Block(o::BlockStmt {
+                                statements: vec![template_stmt, proj_stmt],
+                                source_span: Some(proj_op.source_span.clone()),
+                            }))
+                        } else {
+                            // Defer to emit.rs for standard projection
+                            // This ensures we don't break existing behavior for non-fallback cases
+                            None
+                        }
+                    } else {
+                        // Standard projection: Defer to emit.rs
+                        None
+                    };
+
+                    if let Some(stmt) = stmt_or_none {
+                        Some(Box::new(ir::ops::shared::create_statement_op::<
+                            Box<dyn CreateOp + Send + Sync>,
+                        >(Box::new(stmt))))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
             ir::OpKind::Pipe => {
                 if let Some(pipe_op) = op.as_any().downcast_ref::<ir::ops::create::PipeOp>() {
                     let slot = pipe_op.handle.get_slot().expect("Expected a slot") as i32;
@@ -144,32 +212,19 @@ fn reify_create_operations(
 
                     let stmt = if template_op.template_kind == ir::TemplateKind::NgTemplate {
                         let tag = "ng-template".to_string();
-                        // Use ng::template (ɵɵtemplate) when the ng-template has matched directives
-                        // (e.g., [ngTemplateOutlet]) OR has local refs (which need templateRefExtractor).
-                        // This ensures proper TemplateRef creation and directive matching.
-                        if template_op.base.has_directives || local_ref_index.is_some() {
-                            ng::template(
-                                slot,
-                                *o::variable(fn_name),
-                                decls,
-                                vars,
-                                Some(tag),
-                                const_index,
-                                local_ref_index,
-                                template_op.base.base.start_source_span.clone(),
-                            )
-                        } else {
-                            ng::dom_template(
-                                slot,
-                                *o::variable(fn_name),
-                                decls,
-                                vars,
-                                tag,
-                                const_index,
-                                local_ref_index,
-                                template_op.base.base.start_source_span.clone(),
-                            )
-                        }
+                        // Use ng::template (ɵɵtemplate) for all ng-template nodes.
+                        // Previously we used ɵɵdomTemplate as an optimization for templates without directives,
+                        // but this caused issues with TemplateRef usage (e.g. ngTemplateOutlet or fallback slots).
+                        ng::template(
+                            slot,
+                            *o::variable(fn_name),
+                            decls,
+                            vars,
+                            Some(tag),
+                            const_index,
+                            local_ref_index,
+                            template_op.base.base.start_source_span.clone(),
+                        )
                     } else {
                         let tag = template_op.base.tag.clone().filter(|t| t != "ng-template");
                         ng::template(
@@ -351,6 +406,7 @@ fn reify_create_operations(
                             .local_refs_index
                             .map(|idx| idx.as_usize() as i32);
                         let tag = el_op.base.tag.clone().unwrap_or_default();
+                        println!("[REIFY_DEBUG] ElementStart tag={} slot={}", tag, slot);
                         // Use domElementStart in DomOnly mode (no directive dependencies)
                         let stmt = if mode == TemplateCompilationMode::DomOnly {
                             ng::dom_element_start(

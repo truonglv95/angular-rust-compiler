@@ -238,6 +238,14 @@ impl<'a> o::StatementVisitor for JitEmitterVisitor<'a> {
     ) -> Box<dyn std::any::Any> {
         self.base.visit_if_stmt(stmt, context)
     }
+
+    fn visit_block_stmt(
+        &mut self,
+        stmt: &o::BlockStmt,
+        context: &mut dyn std::any::Any,
+    ) -> Box<dyn std::any::Any> {
+        self.base.visit_block_stmt(stmt, context)
+    }
 }
 
 impl<'a> o::ExpressionVisitor for JitEmitterVisitor<'a> {

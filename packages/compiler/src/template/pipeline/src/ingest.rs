@@ -336,8 +336,8 @@ fn ingest_nodes(
     ingest_nodes_internal(view, template, job);
 }
 
-fn create_dummy_view() -> ViewCompilationUnit {
-    ViewCompilationUnit::new(ir::XrefId::new(usize::MAX), None)
+fn create_dummy_view(xref: ir::XrefId) -> ViewCompilationUnit {
+    ViewCompilationUnit::new(xref, None)
 }
 
 /// Safely ingest children into a view by using XrefId.
@@ -352,7 +352,7 @@ fn ingest_children_into_view(
 
     // Extract the view from the job to allow passing &mut ViewCompilationUnit separately
     let mut view = if is_root {
-        std::mem::replace(&mut job.root, create_dummy_view())
+        std::mem::replace(&mut job.root, create_dummy_view(view_xref))
     } else {
         job.views
             .shift_remove(&view_xref)
@@ -707,10 +707,12 @@ fn ingest_content(
 
     if has_non_empty_content {
         let fallback_view_xref = job.allocate_view(Some(view.xref));
-        // Take ownership - no clone needed!
-        // Recurse using helper
+        // Recurse using helper to ingest fallback children into the new view
         ingest_children_into_view(job, fallback_view_xref, content.children);
         fallback_view = Some(fallback_view_xref);
+
+        // Removed explicit TemplateOp creation here.
+        // The fallback view will be referenced by the ProjectionOp and passed to ɵɵprojection directly.
     }
 
     let id = job.allocate_xref_id();
@@ -2045,8 +2047,10 @@ fn ingest_for_block(
 
         // Extract tag name from single root element/template for content projection
         let empty_tag_name = {
-            let mut empty_view =
-                std::mem::replace(job.views.get_mut(&empty_xref).unwrap(), create_dummy_view());
+            let mut empty_view = std::mem::replace(
+                job.views.get_mut(&empty_xref).unwrap(),
+                create_dummy_view(ir::XrefId::new(usize::MAX)),
+            );
             let name = ingest_control_flow_insertion_point_from_children(
                 &mut empty_view,
                 job,
@@ -2088,7 +2092,7 @@ fn ingest_for_block(
     let tag_name = {
         let mut repeater_view = std::mem::replace(
             job.views.get_mut(&repeater_view_xref).unwrap(),
-            create_dummy_view(),
+            create_dummy_view(ir::XrefId::new(usize::MAX)),
         );
         let name = ingest_control_flow_insertion_point_from_children(
             &mut repeater_view,
@@ -2329,6 +2333,8 @@ fn ingest_element_events(
 ) {
     use crate::expression_parser::ast::ParsedEventType;
     use crate::template::pipeline::ir::ops::create::create_listener_op;
+
+    if &*element.name == "button" {}
 
     // target_slot is passed in
 

@@ -24,6 +24,7 @@ use crate::template::pipeline::src::compilation::{
 /// that store those contexts (for contexts accessed via the `nextContext()` instruction).
 pub fn phase(job: &mut dyn CompilationJob) {
     let job_kind = job.kind();
+    let job_kind = job.kind();
     eprintln!("[RESOLVE_CTX] ENTERING PHASE. Job kind: {:?}", job_kind);
 
     use crate::template::pipeline::src::compilation::HostBindingCompilationJob;
@@ -74,6 +75,7 @@ fn process_lexical_scope(unit: &mut dyn CompilationUnit, root_xref: ir::XrefId) 
         unit.create().len(),
         unit.update().len()
     );
+    let unit_xref = unit.xref();
 
     // The current view's context is accessible via the `ctx` parameter.
 
@@ -117,7 +119,6 @@ fn process_lexical_scope(unit: &mut dyn CompilationUnit, root_xref: ir::XrefId) 
     let mut update_scope = scope.clone();
 
     for op in unit.update().iter() {
-        eprintln!("[RESOLVE_CTX] ScopeBuilder UpdateOp kind: {:?}", op.kind());
         if op.kind() == OpKind::Variable {
             unsafe {
                 let op_ptr = op.as_ref() as *const dyn ir::UpdateOp;
@@ -125,18 +126,8 @@ fn process_lexical_scope(unit: &mut dyn CompilationUnit, root_xref: ir::XrefId) 
                     op_ptr as *const VariableOp<Box<dyn ir::UpdateOp + Send + Sync>>;
                 let variable_op = &*variable_op_ptr;
 
-                eprintln!(
-                    "[RESOLVE_CTX] Checking variable kind: {:?} xref: {:?}",
-                    variable_op.variable.kind(),
-                    variable_op.xref
-                );
-
                 if matches!(variable_op.variable.kind(), SemanticVariableKind::Context) {
                     if let ir::SemanticVariable::Context(ctx_var) = &variable_op.variable {
-                        eprintln!(
-                            "[RESOLVE_CTX] Found Context var {:?} for view {:?} (xref: {:?})",
-                            ctx_var.name, ctx_var.view, variable_op.xref
-                        );
                         update_scope.insert(
                             ctx_var.view,
                             Expression::ReadVariable(ReadVariableExpr {
@@ -209,18 +200,8 @@ fn transform_context_exprs_in_op(
             if let Expression::Context(ref ctx_expr) = expr {
                 let view_xref = ctx_expr.view;
                 if let Some(replacement) = scope.get(&view_xref) {
-                    eprintln!(
-                        "    Resolved ContextExpr({:?}) -> {:?}",
-                        view_xref, replacement
-                    );
                     return replacement.clone();
                 } else {
-                    eprintln!(
-                        "    FAILED to resolve ContextExpr({:?}). Scope keys: {:?}",
-                        view_xref,
-                        scope.keys().collect::<Vec<_>>()
-                    );
-                    // Return a placeholder to avoid SyntaxError in the bundle
                     return Expression::Literal(crate::output::output_ast::LiteralExpr {
                         value: crate::output::output_ast::LiteralValue::Null,
                         type_: None,

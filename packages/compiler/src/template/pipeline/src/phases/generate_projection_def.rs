@@ -92,10 +92,7 @@ pub fn generate_projection_defs(job: &mut dyn CompilationJob) {
         if proj_info.view_is_root {
             if let Some(op) = component_job.root.create.iter_mut().nth(proj_info.op_index) {
                 if op.kind() == ir::OpKind::Projection {
-                    unsafe {
-                        let op_ptr = op.as_mut() as *mut dyn ir::CreateOp;
-                        let projection_ptr = op_ptr as *mut ProjectionOp;
-                        let projection = &mut *projection_ptr;
+                    if let Some(projection) = op.as_any_mut().downcast_mut::<ProjectionOp>() {
                         projection.projection_slot_index = slot_index;
                     }
                 }
@@ -104,10 +101,7 @@ pub fn generate_projection_defs(job: &mut dyn CompilationJob) {
             if let Some(view) = component_job.views.get_mut(&proj_info.view_xref) {
                 if let Some(op) = view.create.iter_mut().nth(proj_info.op_index) {
                     if op.kind() == ir::OpKind::Projection {
-                        unsafe {
-                            let op_ptr = op.as_mut() as *mut dyn ir::CreateOp;
-                            let projection_ptr = op_ptr as *mut ProjectionOp;
-                            let projection = &mut *projection_ptr;
+                        if let Some(projection) = op.as_any_mut().downcast_mut::<ProjectionOp>() {
                             projection.projection_slot_index = slot_index;
                         }
                     }
@@ -117,9 +111,8 @@ pub fn generate_projection_defs(job: &mut dyn CompilationJob) {
     }
 
     if !selectors.is_empty() {
-        // Create the projectionDef array. If we only found a single wildcard selector, then we use the
-        // default behavior with no arguments instead.
-        let def_expr: Option<Expression> = if selectors.len() > 1 || selectors[0] != "*" {
+        // Create the projectionDef array.
+        let def_expr: Option<Expression> = {
             // Parse selectors to R3 selector format
             // ProjectionDef = (string | R3CssSelector[])[]
             let def: Vec<LiteralType> = selectors
@@ -213,8 +206,6 @@ pub fn generate_projection_defs(job: &mut dyn CompilationJob) {
                 .pool
                 .get_const_literal(literal_or_array_literal(LiteralType::Array(def)), share);
             Some(expr)
-        } else {
-            None
         };
 
         // Create the ngContentSelectors constant

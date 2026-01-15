@@ -1211,7 +1211,7 @@ impl ConsumesSlotOpTrait for ConditionalBranchCreateOp {
 
 // Projection operation
 /// Logical operation representing a content projection in the creation IR.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProjectionOp {
     /// XrefId allocated for this projection
     pub xref: XrefId,
@@ -1236,6 +1236,13 @@ pub struct ProjectionOp {
     pub fallback_view: Option<XrefId>,
     /// Fallback view i18n placeholder
     pub fallback_view_i18n_placeholder: Option<BlockPlaceholder>,
+    /// Decls count for fallback view
+    pub decls: Option<usize>,
+    /// Vars count for fallback view
+    pub vars: Option<usize>,
+    /// Fallback template slot - the actual slot of the TemplateOp for fallback content
+    /// (populated during slot allocation)
+    pub fallback_slot: Option<usize>,
 }
 
 impl ProjectionOp {
@@ -1258,6 +1265,9 @@ impl ProjectionOp {
             source_span,
             fallback_view,
             fallback_view_i18n_placeholder: None,
+            decls: None,
+            vars: None,
+            fallback_slot: None,
         }
     }
 }
@@ -1292,11 +1302,12 @@ impl ConsumesSlotOpTrait for ProjectionOp {
     }
 
     fn num_slots_used(&self) -> usize {
-        if self.fallback_view.is_some() {
-            2
-        } else {
-            1
-        }
+        let slots = if self.fallback_view.is_some() { 2 } else { 1 };
+        eprintln!(
+            "DEBUG: ProjectionOp xref={:?} fallback={:?} slots={}",
+            self.xref, self.fallback_view, slots
+        );
+        slots
     }
 
     fn xref(&self) -> XrefId {

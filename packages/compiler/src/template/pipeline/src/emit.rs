@@ -650,6 +650,10 @@ pub fn emit_ops(
                     let index = element_op.base.base.handle.get_slot().unwrap();
                     // Handle tag which might be Option<String>
                     let mut tag = element_op.base.tag.clone().unwrap_or("div".to_string());
+                    println!(
+                        "[EMIT_DEBUG_OP] OpKind: ElementStart tag={} index={}",
+                        tag, index
+                    );
 
                     if tag == "mat-label" {
                         eprintln!("[EMIT] mat-label index={}", index);
@@ -674,8 +678,8 @@ pub fn emit_ops(
                         args.push(*o::literal(consts_index.0 as f64));
                     }
 
-                    // FORCE domElementStart
-                    let instruction = R3::dom_element_start();
+                    // Use elementStart (generic) instead of domElementStart to ensure components are handled correctly
+                    let instruction = R3::element_start();
 
                     stmts.push(o::Statement::Expression(o::ExpressionStatement {
                         expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
@@ -693,7 +697,7 @@ pub fn emit_ops(
             ir::OpKind::ElementEnd => {
                 stmts.push(o::Statement::Expression(o::ExpressionStatement {
                     expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
-                        fn_: o::import_ref(R3::dom_element_end()),
+                        fn_: o::import_ref(R3::element_end()),
                         args: vec![],
                         type_: None,
                         source_span: None,
@@ -884,12 +888,10 @@ pub fn emit_ops(
                                 args.push(*o::literal(local_refs_idx.as_usize() as f64));
                             }
 
-                            // Use ɵɵtemplate when directives are present, ɵɵdomTemplate otherwise
-                            if template_op.base.has_directives {
-                                R3::template_create() // ɵɵtemplate - triggers directive matching
-                            } else {
-                                R3::dom_template() // ɵɵdomTemplate - no directive matching
-                            }
+                            // Use ɵɵtemplate for all ng-template nodes.
+                            // Previously we used ɵɵdomTemplate as an optimization for templates without directives,
+                            // but this caused issues with TemplateRef usage (e.g. ngTemplateOutlet or fallback slots).
+                            R3::template_create()
                         }
                         ir::enums::TemplateKind::Structural | ir::enums::TemplateKind::Block => {
                             // Add tag if present (for structural directives like *ngIf)
@@ -956,10 +958,7 @@ pub fn emit_ops(
                     .as_any()
                     .downcast_ref::<ir::ops::create::RepeaterCreateOp>()
                 {
-                    let index = rep_op.base.base.handle.get_slot().unwrap();
-
-                    // Build args: slot, templateFn, decls, vars, trackFn, [constIndex], [localRefsIndex]
-                    let mut args: Vec<o::Expression> = vec![*o::literal(index as f64)];
+                    let index = rep_op.base.base.handle.get_slot().unwrap() as i32;
 
                     // Template function reference - get from referenced view
                     let view_xref = rep_op.base.base.xref;
@@ -973,47 +972,24 @@ pub fn emit_ops(
                         .expect("Template function name not assigned")
                         .to_string();
 
-                    args.push(o::Expression::ReadVar(o::ReadVarExpr {
+                    let template_fn = o::Expression::ReadVar(o::ReadVarExpr {
                         name: fn_name,
                         type_: None,
                         source_span: None,
-                    }));
+                    });
 
-                    // Decls
-                    if let Some(decls) = rep_op.decls {
-                        args.push(*o::literal(decls as f64));
-                    } else {
-                        args.push(*o::literal(0.0));
-                    }
+                    // Decls & Vars
+                    let decls = rep_op.decls.unwrap_or(0);
+                    let vars = rep_op.vars.unwrap_or(0);
 
-                    // Vars
-                    if let Some(vars) = rep_op.vars {
-                        args.push(*o::literal(vars as f64));
-                    } else {
-                        args.push(*o::literal(0.0));
-                    }
+                    // Tag
+                    let tag = rep_op.base.tag.clone();
 
-                    // Tag (Arg 4 - optional)
-                    if let Some(ref tag) = rep_op.base.tag {
-                        args.push(o::Expression::Literal(o::LiteralExpr {
-                            value: o::LiteralValue::String(tag.clone()),
-                            type_: None,
-                            source_span: None,
-                        }));
-                    } else {
-                        args.push(*o::literal(o::LiteralValue::Null));
-                    }
+                    // Const index
+                    let const_index = rep_op.base.base.attributes.map(|idx| idx.as_usize() as i32);
 
-                    // Const index / Attrs index (Arg 5 - optional)
-                    if let Some(const_idx) = rep_op.base.base.attributes {
-                        args.push(*o::literal(const_idx.as_usize() as f64));
-                    } else {
-                        args.push(*o::literal(o::LiteralValue::Null));
-                    }
-
-                    // Track function (Arg 6 - Required for control flow)
-                    if let Some(ref track_fn) = rep_op.track_by_fn {
-                        println!("[Emit Debug] Repeater track_fn IS SOME");
+                    // Track function
+                    let track_fn_expr = if let Some(ref track_fn) = rep_op.track_by_fn {
                         // Implement trackBy function: (index, item) => track_expr
                         let params = vec![
                             o::FnParam {
@@ -1026,29 +1002,26 @@ pub fn emit_ops(
                             },
                         ];
 
-                        let arrow_fn = o::Expression::ArrowFn(o::ArrowFunctionExpr {
+                        o::Expression::ArrowFn(o::ArrowFunctionExpr {
                             params,
                             body: o::ArrowFunctionBody::Expression(track_fn.clone()),
                             type_: None,
                             source_span: None,
-                        });
-
-                        args.push(arrow_fn);
+                        })
                     } else {
-                        println!("[Emit Debug] Repeater track_fn IS NONE");
-                        args.push(*o::literal(o::LiteralValue::Null));
-                    }
+                        *o::literal(o::LiteralValue::Null)
+                    };
 
-                    stmts.push(o::Statement::Expression(o::ExpressionStatement {
-                        expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
-                            fn_: o::import_ref(R3::repeater_create()),
-                            args,
-                            type_: None,
-                            source_span: None,
-                            pure: false,
-                        })),
-                        source_span: None,
-                    }));
+                    stmts.push(ng::repeater_create(
+                        index,
+                        template_fn,
+                        decls,
+                        vars,
+                        tag,
+                        const_index,
+                        track_fn_expr,
+                        rep_op.base.base.start_source_span.clone(),
+                    ));
                 }
             }
 
@@ -1191,42 +1164,44 @@ pub fn emit_ops(
                         .handle
                         .get_slot()
                         .expect("Projection slot must be allocated");
-                    eprintln!("[EMIT] Projection instruction at slot: {}", slot);
 
-                    let mut args = vec![*o::literal(slot as f64)];
-                    if proj_op.projection_slot_index > 0 {
-                        args.push(*o::literal(proj_op.projection_slot_index as f64));
-                    }
-                    if let Some(const_idx) = proj_op.attributes.as_ref() {
-                        // TODO: Support projection attributes (e.g. for fallback view)
-                        // For now, we only support basic projection
-                        // If attributes exist, we might need to handle them similar to directives
-                    }
-                    // Fallback view handling (optional)
-                    if let Some(fallback_view_xref) = proj_op.fallback_view {
-                        let fallback_view = if fallback_view_xref == job.root_xref() {
-                            job.root()
-                        } else {
-                            get_unit(job, fallback_view_xref).expect("Fallback view not found")
-                        };
-                        let fn_name = fallback_view
-                            .fn_name()
-                            .expect("Fallback view function name not assigned")
-                            .to_string();
-                        // Fallback view not fully implemented yet in args, mimicking ngtsc might require more complex logic
-                        // But typically it's just projection(slot, selector, attrs)
+                    // ɵɵprojection(nodeIndex, selectorIndex, [attrsIndex, fallbackFn, fallbackDecls, fallbackVars])
+                    let mut fallback_fn: Option<o::Expression> = None;
+                    let mut fallback_decls: Option<i32> = None;
+                    let mut fallback_vars: Option<i32> = None;
+
+                    if let Some(fallback_xref) = proj_op.fallback_view {
+                        // Downcast job to access views directly since CompilationJob trait doesn't expose them
+                        if let Some(comp_job) =
+                            job.as_any().downcast_ref::<ComponentCompilationJob>()
+                        {
+                            if let Some(fallback_view) = comp_job.views.get(&fallback_xref) {
+                                if let Some(ref fn_name) = fallback_view.fn_name {
+                                    fallback_fn = Some(*o::variable(fn_name.clone()));
+                                    // ViewCompilationUnit has decls/vars.
+                                    // Note: CompilationUnit trait has vars() but not decls.
+                                    // We are accessing fallback_view which is ViewCompilationUnit.
+                                    // But wait, comp_job.views values are ViewCompilationUnit.
+                                    // Does ViewCompilationUnit expose decls pub? Yes.
+                                    if let Some(d) = fallback_view.decls {
+                                        fallback_decls = Some(d as i32);
+                                    }
+                                    if let Some(v) = fallback_view.vars {
+                                        fallback_vars = Some(v as i32);
+                                    }
+                                }
+                            }
+                        }
                     }
 
-                    stmts.push(o::Statement::Expression(o::ExpressionStatement {
-                        expr: Box::new(o::Expression::InvokeFn(o::InvokeFunctionExpr {
-                            fn_: o::import_ref(R3::projection()),
-                            args,
-                            type_: None,
-                            source_span: None,
-                            pure: false,
-                        })),
-                        source_span: None,
-                    }));
+                    stmts.push(ng::projection(
+                        slot as i32,
+                        proj_op.projection_slot_index,
+                        fallback_fn,
+                        fallback_decls,
+                        fallback_vars,
+                        None,
+                    ));
                 }
             }
             ir::OpKind::ProjectionDef => {

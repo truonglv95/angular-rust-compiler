@@ -96,20 +96,33 @@ pub fn phase(job: &mut ComponentCompilationJob) {
     {
         let unit = &mut job.root;
         for op in unit.create_mut().iter_mut() {
-            if matches!(
-                op.kind(),
+            match op.kind() {
                 ir::OpKind::Template
-                    | ir::OpKind::ConditionalCreate
-                    | ir::OpKind::ConditionalBranchCreate
-                    | ir::OpKind::RepeaterCreate
-            ) {
-                // Record the number of slots used by the view this op declares in the
-                // operation itself, so it can be emitted later.
-                let xref = op.xref();
-                if let Some(child_view) = job.views.get(&xref) {
-                    let decls = child_view.decls.unwrap_or(0);
-                    set_decls_on_op(op.as_mut(), decls);
+                | ir::OpKind::ConditionalCreate
+                | ir::OpKind::ConditionalBranchCreate
+                | ir::OpKind::RepeaterCreate => {
+                    // Record the number of slots used by the view this op declares in the
+                    // operation itself, so it can be emitted later.
+                    let xref = op.xref();
+                    if let Some(child_view) = job.views.get(&xref) {
+                        let decls = child_view.decls.unwrap_or(0);
+                        set_decls_on_op(op.as_mut(), decls);
+                    }
                 }
+                ir::OpKind::Projection => {
+                    // ProjectionOp might have a fallback view
+                    if let Some(proj_op) =
+                        op.as_any().downcast_ref::<ir::ops::create::ProjectionOp>()
+                    {
+                        if let Some(fallback_xref) = proj_op.fallback_view {
+                            if let Some(child_view) = job.views.get(&fallback_xref) {
+                                let decls = child_view.decls.unwrap_or(0);
+                                set_decls_on_op(op.as_mut(), decls);
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -119,18 +132,31 @@ pub fn phase(job: &mut ComponentCompilationJob) {
     let mut decls_to_set: Vec<(ir::XrefId, usize)> = Vec::new();
     for (_, unit) in job.views.iter() {
         for op in unit.create() {
-            if matches!(
-                op.kind(),
+            match op.kind() {
                 ir::OpKind::Template
-                    | ir::OpKind::ConditionalCreate
-                    | ir::OpKind::ConditionalBranchCreate
-                    | ir::OpKind::RepeaterCreate
-            ) {
-                let xref = op.xref();
-                if let Some(child_view) = job.views.get(&xref) {
-                    let decls = child_view.decls.unwrap_or(0);
-                    decls_to_set.push((xref, decls));
+                | ir::OpKind::ConditionalCreate
+                | ir::OpKind::ConditionalBranchCreate
+                | ir::OpKind::RepeaterCreate => {
+                    let xref = op.xref();
+                    if let Some(child_view) = job.views.get(&xref) {
+                        let decls = child_view.decls.unwrap_or(0);
+                        decls_to_set.push((xref, decls));
+                    }
                 }
+                ir::OpKind::Projection => {
+                    if let Some(proj_op) =
+                        op.as_any().downcast_ref::<ir::ops::create::ProjectionOp>()
+                    {
+                        if let Some(fallback_xref) = proj_op.fallback_view {
+                            if let Some(child_view) = job.views.get(&fallback_xref) {
+                                let decls = child_view.decls.unwrap_or(0);
+                                // We use the projection's xref to identify the op, but we get decls from fallback view
+                                decls_to_set.push((proj_op.xref, decls));
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -158,6 +184,42 @@ pub fn phase(job: &mut ComponentCompilationJob) {
     // Process all other views
     for (_, unit) in job.views.iter_mut() {
         propagate_slot_indexes_in_unit(unit, &slot_map);
+    }
+
+    // Populate fallback_slot on ProjectionOps from slot_map
+    // The fallback_view XrefId corresponds to the TemplateOp's xref, which is in slot_map
+    {
+        let unit = &mut job.root;
+        for op in unit.create_mut().iter_mut() {
+            if op.kind() == ir::OpKind::Projection {
+                if let Some(proj_op) = op
+                    .as_any_mut()
+                    .downcast_mut::<ir::ops::create::ProjectionOp>()
+                {
+                    if let Some(fallback_xref) = proj_op.fallback_view {
+                        if let Some(&fallback_slot) = slot_map.get(&fallback_xref) {
+                            proj_op.fallback_slot = Some(fallback_slot);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for (_, unit) in job.views.iter_mut() {
+        for op in unit.create_mut().iter_mut() {
+            if op.kind() == ir::OpKind::Projection {
+                if let Some(proj_op) = op
+                    .as_any_mut()
+                    .downcast_mut::<ir::ops::create::ProjectionOp>()
+                {
+                    if let Some(fallback_xref) = proj_op.fallback_view {
+                        if let Some(&fallback_slot) = slot_map.get(&fallback_xref) {
+                            proj_op.fallback_slot = Some(fallback_slot);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -503,6 +565,11 @@ fn set_decls_on_op(op: &mut dyn ir::CreateOp, decls: usize) {
                 use crate::template::pipeline::ir::ops::create::RepeaterCreateOp;
                 let repeater_ptr = op_ptr as *mut RepeaterCreateOp;
                 (*repeater_ptr).decls = Some(decls);
+            }
+            ir::OpKind::Projection => {
+                use crate::template::pipeline::ir::ops::create::ProjectionOp;
+                let proj_ptr = op_ptr as *mut ProjectionOp;
+                (*proj_ptr).decls = Some(decls);
             }
             _ => {}
         }

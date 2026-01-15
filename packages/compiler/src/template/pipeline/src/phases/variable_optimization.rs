@@ -1382,6 +1382,11 @@ fn visit_expressions_in_statement(
 ) {
     use crate::output::output_ast::Statement;
     match stmt {
+        Statement::Block(block) => {
+            for stmt in &block.statements {
+                visit_expressions_in_statement(stmt, visitor, flags);
+            }
+        }
         Statement::Expression(expr_stmt) => {
             visit_expressions_recursive(&expr_stmt.expr, visitor, flags);
         }

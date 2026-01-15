@@ -285,6 +285,10 @@ fn check_expressions_in_statement(
     use crate::output::output_ast::Statement;
 
     match stmt {
+        Statement::Block(block) => block
+            .statements
+            .iter()
+            .any(|stmt| check_expressions_in_statement(stmt, expected_target)),
         Statement::Expression(expr_stmt) => {
             check_expressions_in_expression(&expr_stmt.expr, expected_target)
         }

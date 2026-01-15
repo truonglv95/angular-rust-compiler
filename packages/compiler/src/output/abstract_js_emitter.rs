@@ -1515,6 +1515,10 @@ impl o::StatementVisitor for AbstractJsEmitterVisitor {
         }
         Box::new(())
     }
+
+    fn visit_block_stmt(&mut self, stmt: &o::BlockStmt, context: &mut dyn Any) -> Box<dyn Any> {
+        self.base.visit_block_stmt(stmt, context)
+    }
 }
 
 impl Default for AbstractJsEmitterVisitor {

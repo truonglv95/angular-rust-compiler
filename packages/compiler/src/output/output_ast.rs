@@ -971,7 +971,13 @@ pub enum Statement {
     Expression(ExpressionStatement),
     Return(ReturnStatement),
     IfStmt(IfStmt),
-    // Add more statement types as needed...
+    Block(BlockStmt),
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockStmt {
+    pub statements: Vec<Statement>,
+    pub source_span: Option<ParseSourceSpan>,
 }
 
 #[derive(Debug, Clone)]
@@ -1039,7 +1045,11 @@ pub trait StatementVisitor {
         stmt: &IfStmt,
         context: &mut dyn std::any::Any,
     ) -> Box<dyn std::any::Any>;
-    // Add more visitor methods as needed...
+    fn visit_block_stmt(
+        &mut self,
+        stmt: &BlockStmt,
+        context: &mut dyn std::any::Any,
+    ) -> Box<dyn std::any::Any>;
 }
 
 // Helper functions for creating common expressions
@@ -1374,6 +1384,12 @@ impl Expression {
 }
 
 // Implement HasSourceSpan for all expression and statement types
+impl HasSourceSpan for BlockStmt {
+    fn source_span(&self) -> Option<&ParseSourceSpan> {
+        self.source_span.as_ref()
+    }
+}
+
 impl HasSourceSpan for ReadVarExpr {
     fn source_span(&self) -> Option<&ParseSourceSpan> {
         self.source_span.as_ref()
@@ -1824,6 +1840,7 @@ impl Statement {
             Statement::Expression(s) => visitor.visit_expression_stmt(s, context),
             Statement::Return(s) => visitor.visit_return_stmt(s, context),
             Statement::IfStmt(s) => visitor.visit_if_stmt(s, context),
+            Statement::Block(s) => visitor.visit_block_stmt(s, context),
         }
     }
 }

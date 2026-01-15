@@ -1314,4 +1314,25 @@ impl o::StatementVisitor for AbstractEmitterVisitor {
         }
         Box::new(())
     }
+
+    fn visit_block_stmt(
+        &mut self,
+        stmt: &o::BlockStmt,
+        context: &mut dyn std::any::Any,
+    ) -> Box<dyn std::any::Any> {
+        {
+            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+            ctx.println(Some(stmt), "{");
+            ctx.inc_indent();
+        }
+        for statement in &stmt.statements {
+            statement.visit_statement(self, context);
+        }
+        {
+            let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+            ctx.dec_indent();
+            ctx.println(Some(stmt), "}");
+        }
+        Box::new(())
+    }
 }

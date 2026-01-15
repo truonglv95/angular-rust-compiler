@@ -97,14 +97,22 @@ fn process_unit(unit: &mut crate::template::pipeline::src::compilation::ViewComp
 
             let slot = *slot_map.get(&target).unwrap();
 
-            // Does the slot counter need to be adjusted?
-            if slot_context != slot {
+            if slot_context != slot as i64 {
                 // If so, generate an `ir.AdvanceOp` to advance the counter.
-                let delta = slot as i64 - slot_context as i64;
+                let mut delta = slot as i64 - slot_context as i64;
+
+                eprintln!(
+                    "[GEN_ADVANCE] Unit OpIndex={} Slot={} Context={} Delta={} Kind={:?}",
+                    index,
+                    slot,
+                    slot_context,
+                    delta,
+                    op.kind()
+                );
                 if delta < 0 {
                     // Slot counter moving backwards can happen with complex template structures
                     // Reset context to current slot and continue
-                    slot_context = slot;
+                    slot_context = slot as i64;
                     continue;
                 }
 
@@ -114,7 +122,7 @@ fn process_unit(unit: &mut crate::template::pipeline::src::compilation::ViewComp
                         .unwrap_or_else(|| create_empty_parse_source_span())
                 });
                 insertions.push((index, delta as usize, span));
-                slot_context = slot;
+                slot_context = slot as i64;
             }
         }
     }
@@ -454,6 +462,15 @@ fn check_statement_for_reference(
 ) -> (Option<ir::XrefId>, Option<ParseSourceSpan>) {
     use crate::output::output_ast::Statement;
     match stmt {
+        Statement::Block(block) => {
+            for stmt in &block.statements {
+                let result = check_statement_for_reference(stmt);
+                if result.0.is_some() {
+                    return result;
+                }
+            }
+            (None, None)
+        }
         Statement::Return(ref return_stmt) => {
             check_expression_recursive_for_reference(&return_stmt.value)
         }
@@ -467,8 +484,12 @@ fn check_statement_for_reference(
                 (None, None)
             }
         }
-        Statement::DeclareFn(_) | Statement::IfStmt(_) => {
-            // For now, we don't check inside function declarations or if statements
+        Statement::IfStmt(_) => {
+            // For now, we don't check inside if statements
+            (None, None)
+        }
+        Statement::DeclareFn(_) => {
+            // For now, we don't check inside function declarations
             (None, None)
         }
     }

@@ -52,8 +52,13 @@ where
             o::Statement::Expression(s) => self.visit_expression_stmt(s, context),
             o::Statement::Return(s) => self.visit_return_stmt(s, context),
             o::Statement::IfStmt(s) => self.visit_if_stmt(s, context),
-            // TODO: Add other statement variants as needed
+            o::Statement::Block(s) => self.visit_block_stmt(s, context),
         }
+    }
+
+    fn visit_block_stmt(&mut self, stmt: &o::BlockStmt, context: Context) -> A::Statement {
+        self.factory
+            .create_block(self.visit_statements(&stmt.statements, context.with_statement_mode()))
     }
 
     pub fn visit_expression(&mut self, expr: &o::Expression, context: Context) -> A::Expression {

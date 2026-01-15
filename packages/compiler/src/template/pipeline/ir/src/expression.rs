@@ -1799,6 +1799,11 @@ pub fn transform_expressions_in_statement(
                 transform_expressions_in_statement(case_stmt, transform, flags);
             }
         }
+        Statement::Block(block_stmt) => {
+            for stmt in &mut block_stmt.statements {
+                transform_expressions_in_statement(stmt, transform, flags);
+            }
+        }
         Statement::DeclareFn(declare_fn) => {
             for stmt in &mut declare_fn.statements {
                 transform_expressions_in_statement(stmt, transform, flags);

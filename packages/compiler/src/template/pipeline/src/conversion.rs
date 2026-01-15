@@ -651,6 +651,7 @@ fn convert_ast_internal(
             if is_implicit_receiver {
                 // TODO: Implement LexicalWriteExpr in IR and use it here.
                 // For now, assume it's a property write on the component context.
+                // Return IR ContextExpr using root view's xref
                 let root_xref = job.root().xref();
                 Expression::WriteProp(WritePropExpr {
                     receiver: Box::new(Expression::Context(ContextExpr::new(root_xref))),

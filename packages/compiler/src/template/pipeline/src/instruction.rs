@@ -516,6 +516,31 @@ pub fn class_prop<S: AsRef<str>>(
 
 /// Creates a styleProp instruction.
 /// Generates ɵɵstyleProp(styleName, expression, unit?) statement.
+pub fn projection(
+    slot: i32,
+    projection_slot_index: usize,
+    fallback_fn: Option<o::Expression>,
+    fallback_decls: Option<i32>,
+    fallback_vars: Option<i32>,
+    source_span: Option<ParseSourceSpan>,
+) -> o::Statement {
+    let mut args = vec![
+        *o::literal(slot as f64),
+        *o::literal(projection_slot_index as f64),
+    ];
+    if let Some(fn_expr) = fallback_fn {
+        args.push(*o::literal(o::LiteralValue::Null)); // attrs
+        args.push(fn_expr);
+        if let Some(decls) = fallback_decls {
+            args.push(*o::literal(decls as f64));
+        }
+        if let Some(vars) = fallback_vars {
+            args.push(*o::literal(vars as f64));
+        }
+    }
+    call(Identifiers::projection(), args, source_span)
+}
+
 pub fn style_prop<S: AsRef<str>, U: AsRef<str>>(
     name: S,
     expression: o::Expression,
