@@ -432,6 +432,11 @@ pub struct NgModuleMeta {
     pub decorator: Option<String>,
     pub may_declare_providers: bool,
     pub source_file: Option<PathBuf>,
+    // New fields for preserving expressions
+    pub declarations_expression: Option<angular_compiler::output::output_ast::Expression>,
+    pub imports_expression: Option<angular_compiler::output::output_ast::Expression>,
+    pub exports_expression: Option<angular_compiler::output::output_ast::Expression>,
+    pub providers_expression: Option<angular_compiler::output::output_ast::Expression>,
 }
 
 impl Default for NgModuleMeta {
@@ -450,6 +455,10 @@ impl Default for NgModuleMeta {
             decorator: None,
             may_declare_providers: false,
             source_file: None,
+            declarations_expression: None,
+            imports_expression: None,
+            exports_expression: None,
+            providers_expression: None,
         }
     }
 }

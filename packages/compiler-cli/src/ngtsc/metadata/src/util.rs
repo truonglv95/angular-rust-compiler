@@ -1163,6 +1163,130 @@ pub fn extract_injectable_metadata<'a>(
     }))
 }
 
+/// Extract NgModule metadata from a class declaration and its @NgModule decorator.
+pub fn extract_ng_module_metadata<'a>(
+    class_decl: &'a ClassDeclaration<'a>,
+    decorator: &Decorator<'a>,
+    source_file: &std::path::Path,
+    imports_map: &HashMap<String, String>,
+) -> Option<DecoratorMetadata<'a>> {
+    let name = class_decl
+        .id
+        .as_ref()
+        .map(|id| id.name.to_string())
+        .unwrap_or_default();
+
+    let mut meta = crate::ngtsc::metadata::src::api::NgModuleMeta {
+        name: name.clone(),
+        source_file: Some(source_file.to_path_buf()),
+        ..Default::default()
+    };
+
+    if let Some(args) = &decorator.args {
+        if let Some(first_arg) = args.first() {
+            if let Expression::ObjectExpression(obj) = first_arg {
+                for prop in &obj.properties {
+                    if let ObjectPropertyKind::ObjectProperty(obj_prop) = prop {
+                        let key = match &obj_prop.key {
+                            PropertyKey::StaticIdentifier(id) => Some(id.name.as_str()),
+                            _ => None,
+                        };
+
+                        if let Some(key_name) = key {
+                            match key_name {
+                                "declarations" => {
+                                    if let Some(val) = extract_string_array(&obj_prop.value) {
+                                        meta.declarations = val;
+                                    }
+                                    meta.declarations_expression =
+                                        Some(convert_oxc_expression(&obj_prop.value, imports_map));
+                                }
+                                "imports" => {
+                                    if let Some(val) = extract_string_array(&obj_prop.value) {
+                                        meta.imports = val;
+                                    }
+                                    meta.imports_expression =
+                                        Some(convert_oxc_expression(&obj_prop.value, imports_map));
+                                }
+                                "exports" => {
+                                    if let Some(val) = extract_string_array(&obj_prop.value) {
+                                        meta.exports = val;
+                                    }
+                                    meta.exports_expression =
+                                        Some(convert_oxc_expression(&obj_prop.value, imports_map));
+                                }
+                                "bootstrap" => {
+                                    // Bootstrap is usually component identifiers
+                                    if let Some(val) = extract_string_array(&obj_prop.value) {
+                                        // meta.bootstrap = val; // NgModuleMeta doesn't have bootstrap field exposed publicly in struct?
+                                        // api.rs definition does NOT have bootstrap field.
+                                        // Wait, compile_ng_module needs bootstrap?
+                                        // R3NgModuleMetadata has bootstrap.
+                                        // API: declarations, imports, exports, schemas. NO bootstrap.
+                                        // TypeScript's NgModuleMeta has bootstrap field?
+                                        // I should double check api.rs.
+                                        // api.rs: declarations, imports, exports, schemas.
+                                        // OK, I'll ignore bootstrap for now or add it later if needed.
+                                    }
+                                }
+                                "schemas" => {
+                                    if let Some(val) = extract_string_array(&obj_prop.value) {
+                                        meta.schemas = val;
+                                    }
+                                }
+                                "id" => {
+                                    if let Some(val) = extract_string_value(&obj_prop.value) {
+                                        // meta.id = Some(val); // No id field in NgModuleMeta
+                                    }
+                                }
+                                "providers" => {
+                                    meta.may_declare_providers = true;
+                                    meta.providers_expression =
+                                        Some(convert_oxc_expression(&obj_prop.value, imports_map));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Some(DecoratorMetadata::NgModule(meta))
+}
+
+fn extract_string_array(expr: &Expression) -> Option<Vec<String>> {
+    if let Expression::ArrayExpression(arr) = expr {
+        let mut result = Vec::new();
+        for elem in &arr.elements {
+            if let Some(e) = elem.as_expression() {
+                match e {
+                    Expression::Identifier(id) => result.push(id.name.to_string()),
+                    // For CallExpression, we can't easily get string representation without source.
+                    // The expression field will handle it roughly.
+                    // We push "EXPRESSION" placeholder or try best effort?
+                    // If we return None, the vector is empty.
+                    // Try to get name from callee?
+                    Expression::CallExpression(call) => {
+                        if let Expression::Identifier(callee) = &call.callee {
+                            result.push(format!("{}(...)", callee.name));
+                        } else if let Expression::StaticMemberExpression(member) = &call.callee {
+                            if let Expression::Identifier(obj) = &member.object {
+                                result.push(format!("{}.{}(...)", obj.name, member.property.name));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Some(result)
+    } else {
+        None
+    }
+}
+
 /// Get all Angular decorator metadata from a program.
 /// The lifetime `'a` is tied to the OXC AST allocator.
 pub fn get_all_metadata<'a>(
@@ -1216,6 +1340,10 @@ pub fn get_all_metadata<'a>(
                 let decorators = host.get_decorators_of_declaration(decl);
 
                 for decorator in decorators {
+                    eprintln!(
+                        "[RUST_DEBUG] Found decorator in metadata extractor: '{}'",
+                        decorator.name
+                    );
                     if decorator.name == "Component" || decorator.name == "Directive" {
                         if let Some(metadata) = extract_directive_metadata(
                             class_decl,
@@ -1234,6 +1362,12 @@ pub fn get_all_metadata<'a>(
                     } else if decorator.name == "Injectable" {
                         if let Some(metadata) =
                             extract_injectable_metadata(class_decl, &decorator, path)
+                        {
+                            directives.push(metadata);
+                        }
+                    } else if decorator.name == "NgModule" {
+                        if let Some(metadata) =
+                            extract_ng_module_metadata(class_decl, &decorator, path, &imports_map)
                         {
                             directives.push(metadata);
                         }
@@ -1713,6 +1847,16 @@ pub fn convert_oxc_expression(
             type_: None,
             source_span: None,
         }),
+        oxc_ast::ast::Expression::StaticMemberExpression(member) => {
+            let lhs = convert_oxc_expression(&member.object, imports_map);
+            let name = member.property.name.as_str().to_string();
+            Expression::ReadProp(ReadPropExpr {
+                receiver: Box::new(lhs),
+                name,
+                type_: None,
+                source_span: None,
+            })
+        }
         _ => Expression::Literal(LiteralExpr {
             value: LiteralValue::Null, // Fallback for unsupported
             type_: None,

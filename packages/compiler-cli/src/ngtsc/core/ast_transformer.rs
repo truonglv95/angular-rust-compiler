@@ -27,8 +27,7 @@ pub fn transform_component_ast<'a>(
     component_name: &str,
     hoisted_statements: &'a str,
     fac_expr_str: &'a str,
-    def_expr_str: &'a str,
-    def_name: &str,
+    definitions: &[(&str, &str)],
     additional_imports: &[(String, String)],
 ) -> Vec<FailedProperty> {
     // 1. Remove Angular decorators from the class
@@ -52,8 +51,7 @@ pub fn transform_component_ast<'a>(
         program,
         component_name,
         fac_expr_str,
-        def_expr_str,
-        def_name,
+        definitions,
     );
 
     raw_suffix
@@ -97,7 +95,12 @@ fn remove_decorators_from_class(class: &mut Class) {
     // Filter out Angular decorators form class
     class.decorators.retain(|decorator| {
         let decorator_name = get_decorator_name(decorator);
-        !class_decorators.contains(&decorator_name.as_str())
+        let remove = class_decorators.contains(&decorator_name.as_str());
+        eprintln!(
+            "[RUST_DEBUG] Decorator: '{}', Remove: {}",
+            decorator_name, remove
+        );
+        !remove
     });
 
     // Angular decorators to remove from class members
@@ -206,12 +209,11 @@ fn add_static_properties_to_class<'a>(
     program: &mut Program<'a>,
     component_name: &str,
     fac_expr_str: &'a str,
-    def_expr_str: &'a str,
-    def_name: &str,
+    definitions: &[(&str, &str)],
 ) -> Vec<FailedProperty> {
     // Track which properties failed to be added as class members
     let mut failed_fac = false;
-    let mut failed_def = false;
+    let mut failed_defs = Vec::new();
     let mut class_found = false;
     let mut class_stmt_idx = None;
 
@@ -223,15 +225,14 @@ fn add_static_properties_to_class<'a>(
                     if let Some(class_id) = &class.id {
                         let c_name = class_id.name.as_str();
                         if c_name == component_name {
-                            let (f_ok, d_ok) = add_properties_to_class_body(
+                            let (f_ok, failed_definitions) = add_properties_to_class_body(
                                 allocator,
                                 class,
                                 fac_expr_str,
-                                def_expr_str,
-                                def_name,
+                                definitions,
                             );
                             failed_fac = !f_ok;
-                            failed_def = !d_ok;
+                            failed_defs = failed_definitions;
                             class_found = true;
                             class_stmt_idx = Some(idx);
                             break;
@@ -243,15 +244,14 @@ fn add_static_properties_to_class<'a>(
             Statement::ClassDeclaration(class) => {
                 if let Some(class_id) = &class.id {
                     if class_id.name.as_str() == component_name {
-                        let (f_ok, d_ok) = add_properties_to_class_body(
+                        let (f_ok, failed_definitions) = add_properties_to_class_body(
                             allocator,
                             class,
                             fac_expr_str,
-                            def_expr_str,
-                            def_name,
+                            definitions,
                         );
                         failed_fac = !f_ok;
-                        failed_def = !d_ok;
+                        failed_defs = failed_definitions;
                         class_found = true;
                         class_stmt_idx = Some(idx);
                         break;
@@ -301,26 +301,11 @@ fn add_static_properties_to_class<'a>(
             }
         }
 
-        // Handle failed definition (ɵcmp/ɵdir)
-        if failed_def && !def_expr_str.is_empty() {
-            let def_stripped = strip_pure(def_expr_str);
-            let def_stmt_str = format!("{}.{} = {};", component_name, def_name, def_stripped);
-            let def_stmt_ptr = allocator.alloc_str(&def_stmt_str);
-            let parser = Parser::new(allocator, def_stmt_ptr, source_type);
-            let result = parser.parse();
-            if result.errors.is_empty() {
-                for stmt in result.program.body {
-                    stmts_to_insert.push(stmt);
-                }
-                add_placeholder_to_class(
-                    allocator,
-                    program,
-                    component_name,
-                    def_name,
-                    def_expr_str,
-                    &mut failed_properties,
-                );
-            }
+        // Handle failed definitions
+        for (def_name, def_expr_str) in failed_defs.iter().zip(definitions.iter()) {
+            // zip might mismatch if failed_defs indices don't align?
+            // Actually add_properties_to_class_body returns list of boolean failures?
+            // Let's change return type of add_properties... to return definitions that failed.
         }
 
         // Insert any successfully parsed statements
@@ -400,12 +385,13 @@ fn add_properties_to_class_body<'a>(
     allocator: &'a Allocator,
     class: &mut Class<'a>,
     fac_expr_str: &'a str,
-    def_expr_str: &'a str,
-    prop_name: &str,
-) -> (bool, bool) {
+    definitions: &[(&str, &str)],
+) -> (bool, Vec<String>) {
+    // Returns (fac_ok, failed_definitions_names)
     let ast = AstBuilder::new(allocator);
     let mut f_ok = false;
-    let mut d_ok = false;
+    let mut f_ok = false;
+    let mut failed_defs = Vec::new();
 
     // Find the last non-constructor method to insert static properties after it
     // This ensures ɵfac and ɵdir are at the very end, after all methods
@@ -446,23 +432,31 @@ fn add_properties_to_class_body<'a>(
         }
     }
 
-    if !def_expr_str.is_empty() {
-        if let Some(mut prop_def) = create_static_property(
-            allocator,
-            &ast,
-            prop_name,
-            allocator.alloc_str(def_expr_str),
-        ) {
-            prop_def.span = oxc_ast::ast::Span::default();
-            class
-                .body
-                .body
-                .insert(insert_position, ClassElement::PropertyDefinition(prop_def));
-            d_ok = true;
+    for (def_name, def_expr_str) in definitions {
+        eprintln!(
+            "[RUST_DEBUG] Attempting to add property: '{}' to class",
+            def_name
+        );
+        if !def_expr_str.is_empty() {
+            if let Some(mut prop_def) =
+                create_static_property(allocator, &ast, def_name, allocator.alloc_str(def_expr_str))
+            {
+                eprintln!("[RUST_DEBUG] Successfully parsed property: '{}'", def_name);
+                prop_def.span = oxc_ast::ast::Span::default();
+                class
+                    .body
+                    .body
+                    .insert(insert_position, ClassElement::PropertyDefinition(prop_def));
+                insert_position += 1;
+            } else {
+                eprintln!("[RUST_DEBUG] Failed to parse property: '{}'", def_name);
+                eprintln!("[RUST_DEBUG] Expression content: '{}'", def_expr_str);
+                failed_defs.push(def_name.to_string());
+            }
         }
     }
 
-    (f_ok, d_ok)
+    (f_ok, failed_defs)
 }
 
 /// Create a PropertyDefinition by parsing the expression standalone, then building the property

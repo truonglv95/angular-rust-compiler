@@ -10,11 +10,26 @@ use angular_compiler::ml_parser::tags::TagDefinition;
 use angular_compiler::ml_parser::{
     html_tags::get_html_tag_definition, parser::Parser as HtmlParser,
 };
+use angular_compiler::output::abstract_emitter::{AbstractEmitterVisitor, EmitterVisitorContext};
+use angular_compiler::output::output_ast::ExpressionTrait;
+use angular_compiler::render3::r3_injector_compiler::{compile_injector, R3InjectorMetadata};
+use angular_compiler::render3::r3_module_compiler::{
+    compile_ng_module, R3NgModuleMetadata, R3NgModuleMetadataCommon, R3NgModuleMetadataKind,
+    R3NgModuleMetadataLocal, R3SelectorScopeMode,
+};
+use angular_compiler::render3::util::R3Reference;
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 use std::collections::HashSet;
 use std::path::PathBuf;
+
+fn expression_to_string(expr: &angular_compiler::output::output_ast::Expression) -> String {
+    let mut ctx = EmitterVisitorContext::create_root();
+    let mut visitor = AbstractEmitterVisitor::new(false);
+    expr.visit_expression(&mut visitor, &mut ctx);
+    ctx.to_source()
+}
 
 fn get_html_tag_definition_wrapper(name: &str) -> &'static dyn TagDefinition {
     get_html_tag_definition(name)
@@ -350,7 +365,133 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                         ];
                                         (results, inj.name.clone())
                                     }
-                                    DecoratorMetadata::NgModule(ngm) => (vec![], ngm.name.clone())
+                                    DecoratorMetadata::NgModule(ngm) => {
+                                        use angular_compiler::output::output_ast::{Expression, LiteralArrayExpr};
+
+                                        // Helper to create expression from string
+                                        let str_to_expr = |s: &str| Expression::External(angular_compiler::output::output_ast::ExternalExpr {
+                                            value: angular_compiler::output::output_ast::ExternalReference {
+                                                module_name: None,
+                                                name: Some(s.to_string()),
+                                                runtime: None,
+                                            },
+                                            type_: None,
+                                            source_span: None,
+                                        });
+
+                                        let type_ref = R3Reference {
+                                            value: str_to_expr(&ngm.name),
+                                            type_expr: str_to_expr(&ngm.name),
+                                        };
+
+                                        // Create NgModule Local Compilation Metadata
+                                        let common = R3NgModuleMetadataCommon {
+                                            kind: R3NgModuleMetadataKind::Local,
+                                            type_: type_ref.clone(),
+                                            selector_scope_mode: R3SelectorScopeMode::Inline, // Or SideEffect if desired? Inline is simpler for local.
+                                            schemas: if ngm.schemas.is_empty() {
+                                                None
+                                            } else {
+                                                Some(ngm.schemas.iter().map(|s| R3Reference {
+                                                    value: str_to_expr(s),
+                                                    type_expr: str_to_expr(s),
+                                                }).collect())
+                                            },
+                                            id: None,
+                                        };
+
+                                        // We use the raw_ declarations/imports/exports if available, otherwise fallback to empty lists for safety.
+                                        // But actually, for local compilation, we need the EXPRESSIONS (arrays).
+                                        // Since we don't have the original expressions easily parsed yet here,
+                                        // we'll rely on what we have. If we have raw_* strings, we can use them directly?
+                                        // Wait, R3NgModuleMetadataLocal expects Option<Expression>.
+                                        // If we have just names, we can construct an array literal.
+
+                                        // Helper: Vec<String> -> Expression::LiteralArray
+                                        // Helper: Vec<String> -> Expression::LiteralArray
+                                        let to_array_expr = |items: &[String]| -> Option<Expression> {
+                                            if items.is_empty() {
+                                                None
+                                            } else {
+                                                Some(Expression::LiteralArray(LiteralArrayExpr {
+                                                    entries: items.iter().map(|i| str_to_expr(i)).collect(),
+                                                    type_: None,
+                                                    source_span: None,
+                                                }))
+                                            }
+                                        };
+
+                                        let ng_module_meta = R3NgModuleMetadataLocal {
+                                            common,
+                                            bootstrap_expression: None, // We don't support bootstrap component yet
+                                            declarations_expression: ngm.declarations_expression.clone().or_else(|| to_array_expr(&ngm.declarations)),
+                                            imports_expression: ngm.imports_expression.clone().or_else(|| to_array_expr(&ngm.imports)),
+                                            exports_expression: ngm.exports_expression.clone().or_else(|| to_array_expr(&ngm.exports)),
+                                        };
+
+                                        let res_mod = compile_ng_module(&R3NgModuleMetadata::Local(ng_module_meta));
+
+                                        // Injector Compilation
+                                        // Extract imports Vec<Expression> from imports_expression if possible
+                                        let injector_imports: Vec<Expression> = if let Some(Expression::LiteralArray(arr)) = &ngm.imports_expression {
+                                            arr.entries.clone()
+                                        } else {
+                                            ngm.imports.iter().map(|i| str_to_expr(i)).collect()
+                                        };
+
+                                        let injector_meta = R3InjectorMetadata {
+                                            name: ngm.name.clone(),
+                                            type_: type_ref,
+                                            providers: ngm.providers_expression.clone().or_else(||
+                                                // Fallback if needed, though usually None is fine if empty
+                                                if ngm.may_declare_providers {
+                                                     Some(Expression::LiteralArray(LiteralArrayExpr {
+                                                        entries: vec![],
+                                                        type_: None,
+                                                        source_span: None,
+                                                    }))
+                                                } else {
+                                                    None
+                                                }
+                                            ),
+                                            imports: injector_imports,
+                                        };
+
+                                        let res_inj = compile_injector(&injector_meta);
+
+                                        // Combine results
+                                        let mut results = vec![];
+
+                                        // Result for ɵmod
+                                        let mod_init = expression_to_string(&res_mod.expression)
+                                            .replace("@angular/core.", "i0.");
+                                        results.push(crate::ngtsc::transform::src::api::CompileResult {
+                                            name: "ɵmod".to_string(),
+                                            initializer: Some(mod_init),
+                                            statements: vec![],
+                                            type_desc: format!("i0.ɵɵNgModuleDeclaration<{}, never, never, never>", ngm.name),
+                                            deferrable_imports: None,
+                                            diagnostics: Vec::new(),
+                                            additional_imports: Vec::new(),
+                                        });
+
+                                        // Result for ɵinj
+                                        let inj_init = expression_to_string(&res_inj.expression)
+                                            .replace("@angular/core.", "i0.");
+                                        results.push(crate::ngtsc::transform::src::api::CompileResult {
+                                            name: "ɵinj".to_string(),
+                                            initializer: Some(inj_init),
+                                            statements: vec![],
+                                            type_desc: format!("i0.ɵɵInjectorDeclaration<{}>", ngm.name),
+                                            deferrable_imports: None,
+                                            diagnostics: Vec::new(),
+                                            additional_imports: Vec::new(),
+                                        });
+
+                                        eprintln!("[RUST_DEBUG] Matched NgModule: {}, Results: {}", ngm.name, results.len());
+
+                                        (results, ngm.name.clone())
+                                    }
                                 };
 
                                 // Collect diagnostics
@@ -383,34 +524,50 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                 // Prepare expressions for transform_component_ast
                                 let fac_expr_str_default = format!("function {}_Factory(t) {{ return new (t || {})(); }}", directive_name, directive_name);
 
-                                // Finding the main initializer (cmp, pipe, prov)
-                                let main_result = compiled_results.iter().find(|r| r.name == "ɵcmp" || r.name == "ɵpipe" || r.name == "ɵprov" || r.name == "ɵdir");
-                                let main_initializer = main_result.and_then(|r| r.initializer.as_deref()).unwrap_or("null");
-                                let def_name = main_result.map(|r| r.name.clone()).unwrap_or_else(|| "ɵcmp".to_string());
-                                last_def_name = def_name.clone(); // Store for post-processing
+                                // Collect definitions (non-fac)
+                                let mut definitions_vec: Vec<(String, String)> = Vec::new();
+                                let mut additional_imports: Vec<(String, String)> = Vec::new();
+                                let mut last_def_name = "ɵcmp".to_string();
 
-                                let cmp_expr_str = format!("/*@__PURE__*/ {}", main_initializer);
+                                for res in &compiled_results {
+                                    additional_imports.extend(res.additional_imports.clone());
+                                    if res.name == "ɵfac" {
+                                        continue;
+                                    }
+                                    let init = res.initializer.as_deref().unwrap_or("null");
+                                    // Wrap in PURE annotation
+                                    let expr = format!("/*@__PURE__*/ {}", init);
+                                    definitions_vec.push((res.name.clone(), expr));
+                                    last_def_name = res.name.clone();
+                                }
+
+                                // Make additional_imports unique
+                                additional_imports.sort();
+                                additional_imports.dedup();
 
                                 let fac_initializer = compiled_results.iter().find(|r| r.name == "ɵfac").and_then(|r| r.initializer.as_deref()).unwrap_or(&fac_expr_str_default);
 
                                 let hoisted_statements_arena: &str = allocator.alloc_str(&hoisted_statements);
                                 let fac_expr_arena: &str = allocator.alloc_str(fac_initializer); // Use correct fac logic
-                                let cmp_expr_arena: &str = allocator.alloc_str(&cmp_expr_str);
 
-                                // Only transform if we have something valid
-                                if main_initializer != "null" {
-                                    // Use additional_imports from main result, or fallback to first result
-                                    let additional_imports = main_result.map(|r| r.additional_imports.as_slice()).unwrap_or_else(|| compiled_results[0].additional_imports.as_slice());
+                                // Allocate definitions strings in arena
+                                let definitions_arena: Vec<(&str, &str)> = definitions_vec.iter()
+                                    .map(|(name, expr)| (
+                                        allocator.alloc_str(name) as &str,
+                                        allocator.alloc_str(expr) as &str
+                                    ))
+                                    .collect();
 
+                                // Only transform if we have something valid (definitions or fac)
+                                if !definitions_arena.is_empty() || fac_initializer != "null" {
                                     let failed = super::ast_transformer::transform_component_ast(
                                         &allocator,
                                         &mut parse_result.program,
                                         &directive_name,
                                         hoisted_statements_arena,
                                         fac_expr_arena, // fac
-                                        cmp_expr_arena, // cmp/pipe/prov
-                                        &def_name, // Use correct field name (ɵcmp, ɵdir, ɵpipe, or ɵprov)
-                                        additional_imports,
+                                        &definitions_arena,
+                                        &additional_imports,
                                     );
 
                                     failed_properties.extend(failed);
