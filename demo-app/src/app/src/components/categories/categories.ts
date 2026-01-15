@@ -83,5 +83,10 @@ export class CategoriesComponent {
       summary: 'Tools for displaying and interacting with tabular data.',
       items: [{ name: 'Paginator', link: '/paginator' }, { name: 'Sort' }, { name: 'Table' }],
     },
+    {
+      name: 'Structural Directives',
+      summary: 'Stress tests for control flow and queries.',
+      items: [{ name: 'Complex Test', link: '/complex' }],
+    },
   ];
 }

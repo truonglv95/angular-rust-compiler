@@ -1,0 +1,79 @@
+<mat-card>
+  <mat-card-header>
+    <mat-card-title #header>{{ title }}</mat-card-title>
+    <mat-card-subtitle> Testing &#64;for, &#64;if, &#64;switch, and Queries </mat-card-subtitle>
+  </mat-card-header>
+  <mat-card-content>
+    <div class="control-panel">
+      <button mat-raised-button color="primary" (click)="addItem()">Add Item</button>
+    </div>
+
+    <mat-divider></mat-divider>
+
+    <div class="list-container">
+      @for (item of items; track item.id; let idx = $index, c = $count) {
+        <div class="item-row" #row [class.active]="item.active">
+          <div class="item-header">
+            <span class="badge">{{ idx + 1 }}/{{ c }}</span>
+            <strong>{{ item.name }}</strong>
+            <span class="type-badge" [ngClass]="'type-' + item.type">Type {{ item.type }}</span>
+            <button mat-icon-button (click)="toggleActive(item)">
+              <mat-icon>{{ item.active ? 'expand_less' : 'expand_more' }}</mat-icon>
+            </button>
+          </div>
+
+          @if (item.active) {
+            <div class="item-details">
+              <p>Status: Active</p>
+
+              @switch (item.type) {
+                @case ('A') {
+                  <div class="type-info info-a">
+                    Special Handling for Type A
+                    @if (item.details.length > 0) {
+                      <ul>
+                        @for (detail of item.details; track detail) {
+                          <li>{{ detail }}</li>
+                        }
+                      </ul>
+                    } @else {
+                      <em>No details available.</em>
+                    }
+                  </div>
+                }
+                @case ('B') {
+                  <div class="type-info info-b">
+                    Type B Configuration
+                    <div *ngIf="item.details.length > 0; else noDetails">
+                      Has {{ item.details.length }} details.
+                    </div>
+                    <ng-template #noDetails>No info.</ng-template>
+                  </div>
+                }
+                @default {
+                  <div class="type-info info-c">Standard Type {{ item.type }}</div>
+                }
+              }
+            </div>
+          } @else {
+            <div class="item-summary">
+              <em>(Collapsed)</em>
+            </div>
+          }
+        </div>
+      } @empty {
+        <div class="empty-state">No items found.</div>
+      }
+    </div>
+
+    <mat-divider></mat-divider>
+
+    <div class="projection-zone">
+      <h4>Projected Content Zone:</h4>
+      <ng-content select="h3"></ng-content>
+      <div class="projected-list">
+        <ng-content select="div"></ng-content>
+      </div>
+    </div>
+  </mat-card-content>
+</mat-card>

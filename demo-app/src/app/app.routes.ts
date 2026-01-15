@@ -193,6 +193,16 @@ export const routes: Routes = [
     component: ExpansionTestComponent,
   },
   {
+    path: 'complex',
+    loadComponent: () =>
+      import('./src/components/complex/complex').then((m) => m.ComplexPageComponent),
+  },
+  {
+    path: 'feature',
+    loadChildren: () =>
+      import('./src/components/feature/feature.module').then((m) => m.FeatureModule),
+  },
+  {
     path: '**',
     redirectTo: 'categories',
   },
