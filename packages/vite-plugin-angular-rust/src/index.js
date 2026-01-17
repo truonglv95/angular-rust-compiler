@@ -120,6 +120,7 @@ export default function angularRustPlugin(options = {}) {
                     '../../binding/index.js'
                 );
                 const bindingPath = options.bindingPath || defaultBindingPath;
+                console.log(`[Plugin Debug] Resolved binding path: ${bindingPath}`);
                 compiler = require(bindingPath);
                 compiler = new compiler.Compiler();
             }
@@ -340,23 +341,49 @@ export default function angularRustPlugin(options = {}) {
         },
 
         async transform(code, id) {
+            if (id.includes('primeng')) {
+                console.log('[Vite Debug] UNCONDITIONAL primeng transform:', id);
+            }
+
+            if (!global.transformCount) global.transformCount = 0;
+            if (global.transformCount < 100) {
+                // console.log('[Vite Transform] ID:', id);
+                global.transformCount++;
+            }
             if (id.includes('node_modules') && id.includes('@angular')) {
-                 console.log('[Vite Transform] Saw Angular file:', id);
+                 // console.log('[Vite Transform] Saw Angular file:', id);
             }
             // Link Angular libraries from node_modules
-            if (id.includes('node_modules') && id.includes('@angular') && !id.endsWith('.css') && !id.endsWith('.scss')) {
-                // console.log('[Vite Transform] Checking:', id);
-                if (id.includes('form-field')) console.log('[Vite Transform] HIT FormField:', id);
-                try {
-                    let result = compiler.linkFile(id, code);
-                    if (result.startsWith('/* Linker Error')) {
-                        return null;
+            if (id.includes('node_modules') && !id.endsWith('.css') && !id.endsWith('.scss')) {
+                if (id.includes('primeng')) {
+                     console.log('[Vite Debug] Transform processing primeng file:', id);
+                }
+
+                // Check if file contains Angular partial declaration markers
+                if (code.includes('ɵɵngDeclare')) {
+                    if (id.includes('primeng-datepicker.mjs')) {
+                        console.log('[Vite Debug] Linking DatePicker:', id);
                     }
-                    if (result !== code) {
-                        return `/* LINKED BY RUST LINKER */\n${result}`;
+                    if (id.includes('primeng-table.mjs') ) {
+                         console.log('[Vite Debug] Linking p-table:', id);
+                         console.log('[Vite Debug] Code length:', code.length);
+                         console.log('[Vite Debug] Has ɵɵngDeclareComponent:', code.includes('ɵɵngDeclareComponent'));
                     }
-                } catch (e) {
-                    // console.error(`[Linker] Error for ${id}:`, e);
+                    if (id.includes('primeng-button.mjs') || id.includes('button.mjs')) {
+                         console.log('[Vite Debug] Linking p-button:', id);
+                    }
+                    try {
+                        let result = compiler.linkFile(id, code);
+                        if (result.startsWith('/* Linker Error')) {
+                            console.error(`[Linker] Linker Error for ${id}:`, result);
+                            return null;
+                        }
+                        if (result !== code) {
+                            return `/* LINKED BY RUST LINKER */\n${result}`;
+                        }
+                    } catch (e) {
+                         console.error(`[Linker] Exception for ${id}:`, e);
+                    }
                 }
             }
             return null;
