@@ -143,15 +143,34 @@ fn process_unit(
     let mut update_list = std::mem::replace(unit.update_mut(), ir::OpList::new());
     let mut update_ops_to_remove = HashSet::new();
 
-    // Identify which XrefIds belong to templates
+    // Identify which XrefIds belong to templates and collect tag names
     let mut template_xrefs = HashSet::new();
+    let mut xref_to_tag = HashMap::new();
     let create_list = std::mem::replace(unit.create_mut(), ir::OpList::new());
 
-    // First pass: collect template xrefs
+    // First pass: collect template xrefs and tag names
     for op in create_list.iter() {
         if op.kind() == OpKind::Template {
-            if let Some(xref) = get_xref_from_create_op(op.as_ref()) {
-                template_xrefs.insert(xref);
+            if let Some(templ_op) = op.as_any().downcast_ref::<ir::ops::create::TemplateOp>() {
+                template_xrefs.insert(templ_op.base.base.xref);
+                if let Some(tag) = &templ_op.base.tag {
+                    xref_to_tag.insert(templ_op.base.base.xref, tag.clone());
+                }
+            }
+        } else if op.kind() == OpKind::Element {
+            if let Some(el_op) = op.as_any().downcast_ref::<ir::ops::create::ElementOp>() {
+                if let Some(tag) = &el_op.base.tag {
+                    xref_to_tag.insert(el_op.base.base.xref, tag.clone());
+                }
+            }
+        } else if op.kind() == OpKind::ElementStart {
+            if let Some(el_op) = op
+                .as_any()
+                .downcast_ref::<ir::ops::create::ElementStartOp>()
+            {
+                if let Some(tag) = &el_op.base.tag {
+                    xref_to_tag.insert(el_op.base.base.xref, tag.clone());
+                }
             }
         }
     }
@@ -234,7 +253,12 @@ fn process_unit(
                 } else if attr_op.name.as_ref() == "style" {
                     BindingKind::StyleProperty
                 } else if attr_op.is_structural_template_attribute {
-                    BindingKind::Template
+                    // Check if target is ng-template, if so force Property kind
+                    if xref_to_tag.get(&attr_op.target).map(|s| s.as_str()) == Some("ng-template") {
+                        BindingKind::Property
+                    } else {
+                        BindingKind::Template
+                    }
                 } else {
                     BindingKind::Attribute
                 };
@@ -394,7 +418,17 @@ fn process_unit(
             {
                 BindingKind::I18n
             } else if prop_op.is_structural_template_attribute {
-                BindingKind::Template
+                // Check if target is ng-template, if so force Property kind
+                let tag = xref_to_tag.get(&prop_op.target).map(|s| s.as_str());
+                eprintln!("[ATTR_EXTRACT] Checking Structural PropertyOp for target {:?}, resolved tag: {:?}", prop_op.target, tag);
+
+                if tag == Some("ng-template") {
+                    eprintln!("[ATTR_EXTRACT] Decision: Property (tag is ng-template)");
+                    BindingKind::Property
+                } else {
+                    eprintln!("[ATTR_EXTRACT] Decision: Template (tag is {:?})", tag);
+                    BindingKind::Template
+                }
             } else {
                 BindingKind::Property
             };

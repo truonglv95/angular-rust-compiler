@@ -9,7 +9,7 @@ use crate::output::output_ast::Expression;
 use crate::render3::r3_identifiers::Identifiers as R3;
 use crate::render3::util::R3CompiledExpression;
 use crate::render3::view::api::{R3ComponentMetadata, R3TemplateDependencyMetadata};
-use crate::render3::view::compiler::compile_styles;
+use crate::render3::view::compiler::{compile_styles, create_host_directives_feature_arg};
 use crate::render3::view::util::{
     conditionally_create_directive_binding_literal, InputBindingValue,
 };
@@ -335,6 +335,20 @@ pub fn emit_component(
         }));
     }
 
+    // Host Directives feature
+    if let Some(ref host_directives) = metadata.directive.host_directives {
+        if !host_directives.is_empty() {
+            let arg = create_host_directives_feature_arg(host_directives);
+            features.push(o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                fn_: o::import_ref(R3::host_directives_feature()),
+                args: vec![arg],
+                type_: None,
+                source_span: None,
+                pure: false,
+            }));
+        }
+    }
+
     // InheritDefinitionFeature - added when component uses inheritance
     if metadata.directive.uses_inheritance {
         features.push(*o::import_ref(R3::inherit_definition_feature()));
@@ -564,7 +578,23 @@ pub fn emit_component(
     if !metadata.declarations.is_empty() {
         let mut dep_exprs: Vec<o::Expression> = vec![];
 
+        eprintln!("[EMIT] Declarations count: {}", metadata.declarations.len());
+        eprintln!("[EMIT] Used dependencies: {:?}", job.used_dependencies);
+
         for (i, decl) in metadata.declarations.iter().enumerate() {
+            if let R3TemplateDependencyMetadata::Directive(d) = decl {
+                eprintln!(
+                    "[EMIT] Decl {}: {} (selector: {})",
+                    i,
+                    if d.is_component {
+                        "Component"
+                    } else {
+                        "Directive"
+                    },
+                    d.selector
+                );
+            }
+
             let is_used = job.used_dependencies.contains(&i);
             let is_module = matches!(decl, R3TemplateDependencyMetadata::NgModule(_));
 

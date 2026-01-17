@@ -226,7 +226,7 @@ fn reify_create_operations(
                             template_op.base.base.start_source_span.clone(),
                         )
                     } else {
-                        let tag = template_op.base.tag.clone().filter(|t| t != "ng-template");
+                        let tag = template_op.base.tag.clone();
                         ng::template(
                             slot,
                             *o::variable(fn_name),

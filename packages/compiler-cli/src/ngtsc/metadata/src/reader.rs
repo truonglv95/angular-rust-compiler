@@ -130,6 +130,62 @@ impl ModuleMetadataReader {
             }
         }
 
+        // Heuristic for non-scoped packages (e.g. primeng/datepicker)
+        // matches pkg/entry or pkg
+        if !module_name.starts_with("@") {
+            let parts: Vec<&str> = module_name.split('/').collect();
+
+            if parts.len() == 2 {
+                // pkg/entry -> pkg/fesm2022/pkg-entry.mjs
+                let pkg = parts[0];
+                let entry = parts[1];
+                let entry_name = format!("{}-{}", pkg, entry);
+
+                let fesm_path = self
+                    .node_modules_path
+                    .join(pkg)
+                    .join("fesm2022")
+                    .join(format!("{}.mjs", entry_name));
+
+                if fesm_path.exists() {
+                    eprintln!(
+                        "DEBUG: [fesm_reader] Found non-scoped FESM2022: {}",
+                        fesm_path.display()
+                    );
+                    return Some(fesm_path);
+                }
+
+                let fesm_2020_path = self
+                    .node_modules_path
+                    .join(pkg)
+                    .join("fesm2020")
+                    .join(format!("{}.mjs", entry_name));
+
+                if fesm_2020_path.exists() {
+                    eprintln!(
+                        "DEBUG: [fesm_reader] Found non-scoped FESM2020: {}",
+                        fesm_2020_path.display()
+                    );
+                    return Some(fesm_2020_path);
+                }
+            } else if parts.len() == 1 {
+                // pkg -> pkg/fesm2022/pkg.mjs
+                let pkg = parts[0];
+                let fesm_path = self
+                    .node_modules_path
+                    .join(pkg)
+                    .join("fesm2022")
+                    .join(format!("{}.mjs", pkg));
+                if fesm_path.exists() {
+                    eprintln!(
+                        "DEBUG: [fesm_reader] Found non-scoped FESM2022: {}",
+                        fesm_path.display()
+                    );
+                    return Some(fesm_path);
+                }
+            }
+        }
+
         // Fallback: Try traversing node_modules directly (simplified)
         let direct_path = self.node_modules_path.join(module_name);
         if direct_path.exists() {
@@ -246,7 +302,52 @@ impl ModuleMetadataReader {
                                 if prop.r#static {
                                     if let Some(key_name) = prop.key.name() {
                                         if let Some(value) = &prop.value {
-                                            if let OxcExpression::CallExpression(call) = value {
+                                            // Handle IIFE wrapper: static ɵcmp = (() => { ... return i0.ɵɵdefineComponent(...) })();
+                                            let mut expr_to_check = value;
+                                            if let OxcExpression::CallExpression(iife_call) = value
+                                            {
+                                                if let OxcExpression::ArrowFunctionExpression(arrow) = &iife_call.callee {
+                                                    // Find return statement in arrow body
+                                                    if let Some(ret_stmt) = arrow.body.statements.iter().find_map(|s| {
+                                                        if let Statement::ReturnStatement(r) = s {
+                                                            r.argument.as_ref()
+                                                        } else {
+                                                            None
+                                                        }
+                                                    }) {
+                                                        expr_to_check = ret_stmt;
+                                                    }
+                                                } else if let OxcExpression::FunctionExpression(func) = &iife_call.callee {
+                                                    if let Some(body) = &func.body {
+                                                        if let Some(ret_stmt) = body.statements.iter().find_map(|s| {
+                                                            if let Statement::ReturnStatement(r) = s {
+                                                                r.argument.as_ref()
+                                                            } else {
+                                                                None
+                                                            }
+                                                        }) {
+                                                            expr_to_check = ret_stmt;
+                                                        }
+                                                    }
+                                                } else if let OxcExpression::ParenthesizedExpression(paren) = &iife_call.callee {
+                                                    // handle ((() => { ... }))() ?
+                                                    if let OxcExpression::ArrowFunctionExpression(arrow) = &paren.expression {
+                                                         if let Some(ret_stmt) = arrow.body.statements.iter().find_map(|s| {
+                                                            if let Statement::ReturnStatement(r) = s {
+                                                                r.argument.as_ref()
+                                                            } else {
+                                                                None
+                                                            }
+                                                        }) {
+                                                            expr_to_check = ret_stmt;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            if let OxcExpression::CallExpression(call) =
+                                                expr_to_check
+                                            {
                                                 let property_name_opt =
                                                     if let OxcExpression::StaticMemberExpression(
                                                         callee,

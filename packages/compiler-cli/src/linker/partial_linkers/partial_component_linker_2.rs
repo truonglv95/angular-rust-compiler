@@ -1,4 +1,4 @@
-use crate::linker::ast::AstNode;
+use crate::linker::ast::{AstHost, AstNode};
 use crate::linker::ast_value::{AstObject, AstValue};
 use crate::linker::metadata_extractor;
 use crate::linker::partial_linker::PartialLinker;
@@ -9,9 +9,10 @@ use angular_compiler::parse_util::ParseSourceSpan;
 use angular_compiler::render3::util::R3Reference;
 use angular_compiler::render3::view::api::{
     ChangeDetectionOrExpression, DeclarationListEmitMode, R3ComponentDeferMetadata,
-    R3ComponentTemplate, R3DirectiveDependencyMetadata, R3DirectiveMetadata, R3HostMetadata,
-    R3InputMetadata, R3LifecycleMetadata, R3PipeDependencyMetadata, R3QueryMetadata,
-    R3TemplateDependencyKind, R3TemplateDependencyMetadata,
+    R3ComponentTemplate, R3DirectiveDependencyMetadata, R3DirectiveMetadata,
+    R3HostDirectiveMetadata, R3HostMetadata, R3InputMetadata, R3LifecycleMetadata,
+    R3PipeDependencyMetadata, R3QueryMetadata, R3TemplateDependencyKind,
+    R3TemplateDependencyMetadata,
 };
 use angular_compiler::render3::view::compiler::compile_component_from_metadata;
 use angular_compiler::render3::view::R3ComponentMetadata;
@@ -671,9 +672,45 @@ impl PartialComponentLinker2 {
         };
 
         // Dependencies (Directives/Pipes)
+        // Dependencies (Directives/Pipes)
         let mut declarations = Vec::new();
         if meta_obj.has("dependencies") {
-            if let Ok(deps_arr) = meta_obj.get_array("dependencies") {
+            let deps_opt = if let Ok(arr) = meta_obj.get_array("dependencies") {
+                Some(arr)
+            } else if let Ok(val) = meta_obj.get_value("dependencies") {
+                // Handle dependencies: () => [...]
+                if val.host.is_function_expression(&val.node) {
+                    if let Ok(ret_val) = val.host.parse_return_value(&val.node) {
+                        eprintln!("[Linker Debug] Unwrapped dependencies function");
+                        if val.host.is_array_literal(&ret_val) {
+                            if let Ok(items) = val.host.parse_array_literal(&ret_val) {
+                                Some(
+                                    items
+                                        .into_iter()
+                                        .map(|n| AstValue::new(n, val.host))
+                                        .collect::<Vec<AstValue<'_, TExpression>>>(),
+                                )
+                            } else {
+                                None
+                            }
+                        } else {
+                            eprintln!("[Linker Debug] Dependencies function did not return array");
+                            None
+                        }
+                    } else {
+                        eprintln!(
+                            "[Linker Debug] Failed to parse return value of dependencies function"
+                        );
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some(deps_arr) = deps_opt {
                 for dep in deps_arr {
                     if let Ok(dep_obj) = dep.get_object() {
                         let kind_str = dep_obj
@@ -765,16 +802,8 @@ impl PartialComponentLinker2 {
 
                         let selector = dep_obj.get_string("selector").unwrap_or_default();
                         let type_node = dep_obj.get_value("type")?;
-                        let type_str = meta_obj.host.print_node(&type_node.node);
-                        eprintln!(
-                            "[Linker Debug] Dependency type for selector '{}': {}",
-                            selector, type_str
-                        );
-                        let type_expr = o::Expression::ReadVar(o::ReadVarExpr {
-                            name: type_str,
-                            type_: None,
-                            source_span: None,
-                        });
+                        let type_expr =
+                            convert_dependency_expression(meta_obj.host, &type_node.node);
 
                         let mut inputs = Vec::new();
                         if let Ok(inputs_arr) = dep_obj.get_array("inputs") {
@@ -784,6 +813,10 @@ impl PartialComponentLinker2 {
                                 }
                             }
                         }
+                        eprintln!(
+                            "[Linker Debug] Parsed inputs for selector '{}': {:?}",
+                            selector, inputs
+                        );
 
                         let mut outputs = Vec::new();
                         if let Ok(outputs_arr) = dep_obj.get_array("outputs") {
@@ -834,6 +867,147 @@ impl PartialComponentLinker2 {
                 }
             }
         }
+
+        // Parse hostDirectives
+        let host_directives = if meta_obj.has("hostDirectives") {
+            eprintln!(
+                "[Linker Debug] Found hostDirectives in component: {}",
+                type_name_str
+            );
+            if let Ok(directives_arr) = meta_obj.get_array("hostDirectives") {
+                eprintln!(
+                    "[Linker Debug] hostDirectives array length: {}",
+                    directives_arr.len()
+                );
+                let directives_vec = directives_arr
+                    .iter()
+                    .map(|d| {
+                        let directive_ref;
+                        let mut inputs = None;
+                        let mut outputs = None;
+                        let mut is_forward_reference = false;
+
+                        if let Ok(d_obj) = d.get_object() {
+                            eprintln!("[Linker Debug] Processing hostDirective object");
+                            // Object format: { directive: Type, inputs: [], outputs: [] }
+                            let dir_node = d_obj.get_value("directive")?;
+                            let dir_str = meta_obj.host.print_node(&dir_node.node);
+                            eprintln!("[Linker Debug] Directive type string: {}", dir_str);
+
+                            let wrapped_dir = if let Some((alias, name)) = dir_str.split_once('.') {
+                                o::Expression::ReadProp(o::ReadPropExpr {
+                                    receiver: Box::new(o::Expression::ReadVar(o::ReadVarExpr {
+                                        name: alias.to_string(),
+                                        type_: None,
+                                        source_span: None,
+                                    })),
+                                    name: name.to_string(),
+                                    type_: None,
+                                    source_span: None,
+                                })
+                            } else {
+                                o::Expression::ReadVar(o::ReadVarExpr {
+                                    name: dir_str.clone(),
+                                    type_: None,
+                                    source_span: None,
+                                })
+                            };
+
+                            directive_ref = R3Reference {
+                                value: wrapped_dir.clone(),
+                                type_expr: wrapped_dir,
+                            };
+
+                            // Parse inputs if present
+                            if d_obj.has("inputs") {
+                                if let Ok(inputs_arr) = d_obj.get_array("inputs") {
+                                    let mut inputs_map = HashMap::new();
+                                    for input in inputs_arr {
+                                        if let Ok(s) = input.get_string() {
+                                            // Format: "publicName: alias" or just "publicName"
+                                            if let Some((public, alias)) = s.split_once(':') {
+                                                inputs_map.insert(
+                                                    public.trim().to_string(),
+                                                    alias.trim().to_string(),
+                                                );
+                                            } else {
+                                                inputs_map.insert(s.clone(), s);
+                                            }
+                                        }
+                                    }
+                                    inputs = Some(inputs_map);
+                                }
+                            }
+
+                            // Parse outputs if present
+                            if d_obj.has("outputs") {
+                                if let Ok(outputs_arr) = d_obj.get_array("outputs") {
+                                    let mut outputs_map = HashMap::new();
+                                    for output in outputs_arr {
+                                        if let Ok(s) = output.get_string() {
+                                            if let Some((public, alias)) = s.split_once(':') {
+                                                outputs_map.insert(
+                                                    public.trim().to_string(),
+                                                    alias.trim().to_string(),
+                                                );
+                                            } else {
+                                                outputs_map.insert(s.clone(), s);
+                                            }
+                                        }
+                                    }
+                                    outputs = Some(outputs_map);
+                                }
+                            }
+                        } else {
+                            // Simple format: Type
+                            let dir_str = meta_obj.host.print_node(&d.node);
+                            eprintln!(
+                                "[Linker Debug] Processing hostDirective simple type: {}",
+                                dir_str
+                            );
+                            let wrapped_dir = if let Some((alias, name)) = dir_str.split_once('.') {
+                                o::Expression::ReadProp(o::ReadPropExpr {
+                                    receiver: Box::new(o::Expression::ReadVar(o::ReadVarExpr {
+                                        name: alias.to_string(),
+                                        type_: None,
+                                        source_span: None,
+                                    })),
+                                    name: name.to_string(),
+                                    type_: None,
+                                    source_span: None,
+                                })
+                            } else {
+                                o::Expression::ReadVar(o::ReadVarExpr {
+                                    name: dir_str.clone(),
+                                    type_: None,
+                                    source_span: None,
+                                })
+                            };
+
+                            directive_ref = R3Reference {
+                                value: wrapped_dir.clone(),
+                                type_expr: wrapped_dir,
+                            };
+                        }
+
+                        Ok(R3HostDirectiveMetadata {
+                            directive: directive_ref,
+                            is_forward_reference,
+                            inputs,
+                            outputs,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+
+                Some(directives_vec)
+            } else {
+                eprintln!("[Linker Debug] hostDirectives is not an array");
+                None
+            }
+        } else {
+            // eprintln!("[Linker Debug] No hostDirectives found for: {}", type_name_str);
+            None
+        };
 
         // Parse exportAs
         let export_as = if meta_obj.has("exportAs") {
@@ -894,7 +1068,7 @@ impl PartialComponentLinker2 {
             providers,
             is_standalone: meta_obj.get_bool("isStandalone").unwrap_or(false),
             is_signal: meta_obj.get_bool("isSignal").unwrap_or(false),
-            host_directives: None,
+            host_directives,
         };
 
         // Create a dummy Parser and SchemaRegistry for BindingParser
@@ -1140,5 +1314,110 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialComponentLinker
                 })
             }
         }
+    }
+}
+
+fn convert_dependency_expression<TExpression: AstNode>(
+    host: &dyn AstHost<TExpression>,
+    node: &TExpression,
+) -> o::Expression {
+    if host.is_call_expression(node) {
+        if let Ok(callee_node) = host.parse_callee(node) {
+            let callee_str = host.print_node(&callee_node);
+
+            // Unconditional Debug Log
+            eprintln!(
+                "[Linker Debug] convert_dependency_expression callee: {}",
+                callee_str
+            );
+
+            if callee_str.ends_with("forwardRef") {
+                eprintln!("[Linker Debug] Found forwardRef call: {}", callee_str);
+
+                if let Ok(args) = host.parse_arguments(node) {
+                    if let Some(arg) = args.first() {
+                        eprintln!("[Linker Debug] forwardRef has argument");
+                        if host.is_function_expression(arg) {
+                            eprintln!("[Linker Debug] Argument is function expression");
+                            match host.parse_return_value(arg) {
+                                Ok(ret_val) => {
+                                    let ret_str = host.print_node(&ret_val);
+                                    eprintln!("[Linker Debug] Parsed return value: {}", ret_str);
+                                    return convert_dependency_expression(host, &ret_val);
+                                }
+                                Err(e) => {
+                                    eprintln!("[Linker Debug] Failed to parse return value: {}", e);
+                                }
+                            }
+                        } else {
+                            eprintln!("[Linker Debug] Argument is NOT function expression");
+                        }
+                    } else {
+                        eprintln!("[Linker Debug] No arguments");
+                    }
+                } else {
+                    eprintln!("[Linker Debug] Failed to parse arguments");
+                }
+            }
+
+            let callee = convert_dependency_expression(host, &callee_node);
+            // ...
+            let mut args = Vec::new();
+            if let Ok(arg_nodes) = host.parse_arguments(node) {
+                for arg in arg_nodes {
+                    args.push(convert_dependency_expression(host, &arg));
+                }
+            }
+
+            return o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                fn_: Box::new(callee),
+                args,
+                type_: None,
+                source_span: None,
+                pure: false,
+            });
+        }
+    }
+    // ...
+
+    if host.is_function_expression(node) {
+        if let Ok(ret_val) = host.parse_return_value(node) {
+            let return_expr = convert_dependency_expression(host, &ret_val);
+            return o::Expression::Fn(o::FunctionExpr {
+                params: vec![],
+                statements: vec![o::Statement::Return(o::ReturnStatement {
+                    value: Box::new(return_expr),
+                    source_span: None,
+                })],
+                type_: None,
+                source_span: None,
+                name: None,
+            });
+        }
+    }
+
+    let type_str = host.print_node(node);
+    eprintln!(
+        "[Linker Debug] Converting dependency expression: {}",
+        type_str
+    );
+
+    if let Some((lhs, rhs)) = type_str.split_once('.') {
+        o::Expression::ReadProp(o::ReadPropExpr {
+            receiver: Box::new(o::Expression::ReadVar(o::ReadVarExpr {
+                name: lhs.to_string(),
+                type_: None,
+                source_span: None,
+            })),
+            name: rhs.to_string(),
+            type_: None,
+            source_span: None,
+        })
+    } else {
+        o::Expression::ReadVar(o::ReadVarExpr {
+            name: type_str,
+            type_: None,
+            source_span: None,
+        })
     }
 }

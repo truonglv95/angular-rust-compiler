@@ -308,11 +308,18 @@ impl<T: Clone> SelectorMatcher<T> {
     where
         F: FnMut(&CssSelector, &T),
     {
+        // Debug log (filtered to avoid noise, only log if it has attributes or is ng-template)
+        if css_selector.element.as_deref() == Some("ng-template") || !css_selector.attrs.is_empty()
+        {
+            eprintln!("[MATCHER] Matching against selector: {}", css_selector);
+        }
+
         let mut matched = false;
         let mut matched_ids = std::collections::HashSet::new();
 
         self.match_selector_visit(css_selector, |sel, data, id| {
             if matched_ids.insert(id) {
+                eprintln!("[MATCHER] Matched directive index {}!", id);
                 callback(sel, data);
                 matched = true;
             }

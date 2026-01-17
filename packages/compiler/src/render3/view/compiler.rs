@@ -423,7 +423,7 @@ fn add_features(
     }
 }
 
-fn create_host_directives_feature_arg(
+pub fn create_host_directives_feature_arg(
     host_directives: &[super::api::R3HostDirectiveMetadata],
 ) -> Expression {
     let mut expressions: Vec<Expression> = vec![];

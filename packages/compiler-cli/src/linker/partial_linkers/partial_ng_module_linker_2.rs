@@ -94,7 +94,7 @@ impl PartialNgModuleLinker2 {
             common: R3NgModuleMetadataCommon {
                 kind: R3NgModuleMetadataKind::Global,
                 type_: type_ref,
-                selector_scope_mode: R3SelectorScopeMode::Inline, // Assuming Inline for linked code
+                selector_scope_mode: R3SelectorScopeMode::SideEffect,
                 schemas,
                 id,
             },

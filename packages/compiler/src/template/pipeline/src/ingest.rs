@@ -377,6 +377,22 @@ fn maybe_record_directive_usage(
     outputs: &[t::BoundEvent],
     template_attrs: &[t::TemplateAttr],
 ) -> bool {
+    // Debug log
+    if tag_name == "ng-template" || !inputs.is_empty() {
+        let input_names: Vec<&str> = inputs.iter().map(|i| i.name.as_ref()).collect();
+        let tmpl_attr_names: Vec<String> = template_attrs
+            .iter()
+            .map(|a| match a {
+                t::TemplateAttr::Text(ta) => format!("text:{}", ta.name),
+                t::TemplateAttr::Bound(ba) => format!("bound:{}", ba.name),
+            })
+            .collect();
+        eprintln!(
+            "[INGEST] maybe_record_directive_usage: tag={}, inputs={:?}, template_attrs={:?}",
+            tag_name, input_names, tmpl_attr_names
+        );
+    }
+
     // Reset and populate temp_selector
     job.temp_selector.reset();
     job.temp_selector.set_element(tag_name);
@@ -570,6 +586,59 @@ fn ingest_template(
     } else {
         ir::TemplateKind::Structural
     };
+
+    // Propagate ng-template tag for structural directives
+    let mut tag_name_without_namespace = tag_name_without_namespace;
+
+    // Debug: Log structural template info unconditionally
+    if template_kind == ir::TemplateKind::Structural {
+        eprintln!(
+            "[INGEST] Structural template tag: {:?}, children count: {}",
+            tag_name_without_namespace,
+            tmpl.children.len()
+        );
+    }
+
+    if tag_name_without_namespace.is_none() {
+        // Debug: Log children of structural template
+        let children_debug: Vec<String> = tmpl
+            .children
+            .iter()
+            .map(|n| match n {
+                t::R3Node::Element(e) => format!("Element({})", e.name),
+                t::R3Node::Template(t) => format!("Template({:?})", t.tag_name),
+                t::R3Node::Text(t) => format!("Text({:?})", t.value),
+                t::R3Node::Comment(_) => "Comment".to_string(),
+                _ => "Other".to_string(),
+            })
+            .collect();
+        eprintln!(
+            "[INGEST] Structural template children detail: {:?}",
+            children_debug
+        );
+
+        // Filter out comments and whitespace-only text to find the single logical child
+        let relevant_children: Vec<&t::R3Node> = tmpl
+            .children
+            .iter()
+            .filter(|n| match n {
+                t::R3Node::Comment(_) => false,
+                t::R3Node::Text(text_node) => !text_node.value.trim().is_empty(),
+                _ => true,
+            })
+            .collect();
+
+        if relevant_children.len() == 1 {
+            if let t::R3Node::Template(inner_tmpl) = relevant_children[0] {
+                // Debug: Log inner template tag
+                eprintln!("[INGEST] Inner template tag: {:?}", inner_tmpl.tag_name);
+                if inner_tmpl.tag_name.as_deref() == Some("ng-template") {
+                    tag_name_without_namespace = Some("ng-template".to_string());
+                    eprintln!("[INGEST] Propagated 'ng-template' tag to structural wrapper for correct binding extraction.");
+                }
+            }
+        }
+    }
     // Record directive usage for templates (structural directives)
     let has_directives = maybe_record_directive_usage(
         job,
@@ -1869,9 +1938,10 @@ fn ingest_control_flow_insertion_point_from_children(
                 let tag_name = el.name.clone();
 
                 // Don't pass along `ng-template` tag name since it enables directive matching.
-                if &*tag_name == NG_TEMPLATE_TAG_NAME {
-                    return None;
-                }
+                // FIX: Actually we WANT directive matching for structural wrappers on ng-template.
+                // if &*tag_name == NG_TEMPLATE_TAG_NAME {
+                //    return None;
+                // }
                 return Some(tag_name.to_string());
             }
             t::R3Node::Template(tmpl) => {
@@ -1936,9 +2006,10 @@ fn ingest_control_flow_insertion_point_from_children(
                 }
 
                 if let Some(tag_name) = &tmpl.tag_name {
-                    if tag_name.as_ref() == NG_TEMPLATE_TAG_NAME {
-                        return None;
-                    }
+                    // FIX: Allow ng-template propagation
+                    // if tag_name.as_ref() == NG_TEMPLATE_TAG_NAME {
+                    //    return None;
+                    // }
                     return Some(tag_name.to_string());
                 }
             }
@@ -2198,7 +2269,9 @@ fn is_plain_template(tmpl: &t::Template) -> bool {
             Ok((_, name)) => name == NG_TEMPLATE_TAG_NAME,
             Err(_) => tag_name.as_ref() == NG_TEMPLATE_TAG_NAME,
         };
-        is_ng_template
+        // A plain template must be an <ng-template> AND have no structural attributes (template_attrs).
+        // If it has template_attrs, it's a structural wrapper (e.g. <ng-template *ngIf>).
+        is_ng_template && tmpl.template_attrs.is_empty()
     } else {
         // Templates without tagName (e.g., from control flow blocks) are not plain templates
         false
@@ -3081,9 +3154,52 @@ fn ingest_template_bindings(
                 // We emit an ExtractedAttributeOp with an empty value to ensure it's collected.
                 if template_kind == ir::TemplateKind::Structural {
                     use crate::template::pipeline::ir::ops::create::create_extracted_attribute_op;
+
+                    // For structural directives on <ng-template> (e.g. <ng-template *ngIf>),
+                    // we must emit bindings as Property (3) instead of Template (4) for correct matching.
+                    // For implicit templates (implicit wrapper), we use Template (4).
+                    // Check if this is a structural wrapper for an ng-template
+                    let is_ng_template_wrapper = tmpl.tag_name.as_deref() == Some("ng-template")
+                        || {
+                            let is_empty_text = |node: &t::R3Node| {
+                                if let t::R3Node::Text(text) = node {
+                                    text.value.trim().is_empty()
+                                } else {
+                                    false
+                                }
+                            };
+
+                            // Refined check: iterate and count non-empty text/nodes
+                            let non_empty_children: Vec<&t::R3Node> =
+                                tmpl.children.iter().filter(|c| !is_empty_text(c)).collect();
+
+                            if non_empty_children.len() == 1 {
+                                match non_empty_children[0] {
+                                    t::R3Node::Element(e) => &e.name[..] == "ng-template",
+                                    t::R3Node::Template(t) => {
+                                        t.tag_name.as_deref() == Some("ng-template")
+                                    }
+                                    _ => false,
+                                }
+                            } else {
+                                false
+                            }
+                        };
+
+                    let const_collection_kind = if is_ng_template_wrapper {
+                        eprintln!("[INGEST] Using Property for structural directive on ng-template (wrapper detected): {}", bound_attr.name);
+                        ir::BindingKind::Property
+                    } else {
+                        eprintln!(
+                            "[INGEST] Using Template for structural directive on {:?}: {}",
+                            tmpl.tag_name, bound_attr.name
+                        );
+                        ir::BindingKind::Template
+                    };
+
                     let extracted_op = create_extracted_attribute_op(
                         template_xref,
-                        ir::BindingKind::Template,
+                        const_collection_kind,
                         None, // namespace
                         bound_attr.name.clone(),
                         Some(crate::output::output_ast::Expression::Literal(

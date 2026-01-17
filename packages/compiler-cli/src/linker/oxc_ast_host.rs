@@ -237,26 +237,58 @@ impl<'a> AstHost<OxcNode<'a>> for OxcAstHost<'a> {
     }
 
     fn parse_return_value(&self, node: &OxcNode<'a>) -> Result<OxcNode<'a>, String> {
-        // We only implement for ArrowFunctionExpression with expression body for now, as that's what FileLinker uses.
-        // Or if needed FunctionExpression.
-
-        // Helper to extract body from ArrowFunctionExpression
-        let (body, is_expr) = match node {
-            OxcNode::Expression(Expression::ArrowFunctionExpression(a)) => (&a.body, a.expression),
+        // Handle ArrowFunctionExpression
+        if let Some((body, is_expr)) = match node {
+            OxcNode::Expression(Expression::ArrowFunctionExpression(a)) => {
+                Some((&a.body, a.expression))
+            }
             OxcNode::ArrayElement(ArrayExpressionElement::ArrowFunctionExpression(a)) => {
-                (&a.body, a.expression)
+                Some((&a.body, a.expression))
             }
-            OxcNode::Argument(Argument::ArrowFunctionExpression(a)) => (&a.body, a.expression),
-            _ => return Err("Not an arrow function expression".to_string()),
-        };
-
-        if is_expr {
-            if let Some(Statement::ExpressionStatement(stmt)) = body.statements.first() {
-                return Ok(OxcNode::Expression(&stmt.expression));
+            OxcNode::Argument(Argument::ArrowFunctionExpression(a)) => {
+                Some((&a.body, a.expression))
             }
+            _ => None,
+        } {
+            if is_expr {
+                if let Some(Statement::ExpressionStatement(stmt)) = body.statements.first() {
+                    return Ok(OxcNode::Expression(&stmt.expression));
+                }
+                return Err("Expression body not found in arrow function".to_string());
+            }
+            // Block body arrow function - fall through to generic block handling?
+            // Oxc's ArrowFunctionExpression body IS a FunctionBody, same as FunctionExpression.
+            // But for expression body, Oxc wraps it in a FunctionBody with one expression statement?
+            // Actually Oxc AST: `body: FunctionBody`. `expression: bool`.
+            // If `expression` is true, body has 1 statement which is ExpressionStatement.
+            // If `expression` is false, it's a block.
         }
 
-        Err("Block body parsing for arrow function not fully implemented".to_string())
+        // Handle FunctionExpression and Block-body ArrowFunctionExpression
+        let body_opt = match node {
+            OxcNode::Expression(Expression::FunctionExpression(f)) => f.body.as_ref(),
+            OxcNode::ArrayElement(ArrayExpressionElement::FunctionExpression(f)) => f.body.as_ref(),
+            OxcNode::Argument(Argument::FunctionExpression(f)) => f.body.as_ref(),
+            OxcNode::Expression(Expression::ArrowFunctionExpression(a)) => Some(&a.body),
+            OxcNode::ArrayElement(ArrayExpressionElement::ArrowFunctionExpression(a)) => {
+                Some(&a.body)
+            }
+            OxcNode::Argument(Argument::ArrowFunctionExpression(a)) => Some(&a.body),
+            _ => return Err("Not a function expression".to_string()),
+        };
+
+        if let Some(body) = body_opt {
+            for stmt in &body.statements {
+                if let Statement::ReturnStatement(ret) = stmt {
+                    if let Some(arg) = &ret.argument {
+                        return Ok(OxcNode::Expression(arg));
+                    }
+                }
+            }
+            Err("No return statement found in function body".to_string())
+        } else {
+            Err("Function has no body".to_string())
+        }
     }
 
     fn parse_parameters(&self, _fn_node: &OxcNode<'a>) -> Result<Vec<OxcNode<'a>>, String> {
