@@ -4,11 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
-const angularPackages = Object.keys(packageJson.dependencies || {}).filter((pkg) =>
-  pkg.startsWith('@angular/'),
+const optimizeDepsInclude = ['rxjs', 'tslib', 'zone.js', 'rxjs/operators'];
+const dependencies = Object.keys(packageJson.dependencies || {});
+const angularPackages = dependencies.filter(
+  (pkg) => !optimizeDepsInclude.some((include) => pkg === include || pkg.startsWith(include + '/')),
 );
 
-console.log('[vite.config.mjs] Angular packages to exclude:', angularPackages);
+console.log('[vite.config.mjs] Packages to exclude from optimization:', angularPackages);
 console.log('[vite.config.mjs] CWD:', process.cwd());
 
 // Plugin to output stats similar to Angular CLI
@@ -90,6 +92,6 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: angularPackages,
-    include: ['zone.js', 'rxjs', 'rxjs/operators'],
+    include: optimizeDepsInclude,
   },
 });

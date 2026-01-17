@@ -1,4 +1,6 @@
 import { Routes } from '@angular/router';
+import { TemplateOutletTestComponent } from './template-outlet-test';
+
 import { ButtonTestComponent } from './src/components/materials/button/button';
 import { AutocompleteTestComponent } from './src/components/materials/autocomplete/autocomplete';
 import { InputTestComponent } from './src/components/materials/input/input';
@@ -15,6 +17,10 @@ export const routes: Routes = [
   {
     path: 'categories',
     component: CategoriesComponent,
+  },
+  {
+    path: 'test-outlet',
+    component: TemplateOutletTestComponent,
   },
   {
     path: 'form-field',
@@ -140,6 +146,10 @@ export const routes: Routes = [
     path: 'sort',
     loadComponent: () =>
       import('./src/components/materials/sort/sort').then((m) => m.SortTestComponent),
+  },
+  {
+    path: 'primeng',
+    loadComponent: () => import('./primeng/primeng').then((m) => m.PrimengTestComponent),
   },
   {
     path: 'stepper',

@@ -7,9 +7,14 @@ import angularRust from '../packages/vite-plugin-angular-rust/src/index.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
-const angularPackages = Object.keys(packageJson.dependencies || {}).filter((pkg) =>
-  pkg.startsWith('@angular/'),
+const optimizeDepsInclude = ['rxjs', 'tslib', 'zone.js', 'rxjs/operators'];
+const dependencies = Object.keys(packageJson.dependencies || {});
+const angularPackages = dependencies.filter(
+  (pkg) => !optimizeDepsInclude.some((include) => pkg === include || pkg.startsWith(include + '/')),
 );
+
+console.log('[serve.mjs] Angular packages excluded from optimization:', angularPackages);
+fs.writeFileSync('/tmp/excludes.json', JSON.stringify(angularPackages, null, 2));
 
 // Stats plugin (inline for now, or move to separate file/package)
 function angularStatsPlugin() {
@@ -38,7 +43,7 @@ async function startServer() {
       },
       optimizeDeps: {
         exclude: angularPackages,
-        include: ['zone.js', 'rxjs', 'rxjs/operators'],
+        include: optimizeDepsInclude,
       },
       plugins: [
         // Map root to configured index.html and inject main script

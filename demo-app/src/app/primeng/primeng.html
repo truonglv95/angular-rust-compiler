@@ -1,0 +1,177 @@
+<div class="p-4 flex flex-col gap-4">
+  <div class="text-3xl font-bold mb-4">PrimeNG Components Test</div>
+
+  <!-- Inputs -->
+  <p-panel header="Inputs">
+    <div class="flex flex-wrap gap-4 items-center">
+      <div class="flex flex-col gap-2">
+        <label>InputText</label>
+        <input pInputText [(ngModel)]="text" placeholder="Basic Input" />
+      </div>
+      <div class="flex flex-col gap-2">
+        <label>InputNumber</label>
+        <p-inputnumber [(ngModel)]="numberVal" showButtons mode="decimal"></p-inputnumber>
+      </div>
+      <div class="flex flex-col gap-2">
+        <label>Checkbox</label>
+        <p-checkbox [(ngModel)]="checked" [binary]="true" label="Check me"></p-checkbox>
+      </div>
+      <div class="flex flex-col gap-2">
+        <label>RadioButton</label>
+        <div class="flex gap-2">
+          <p-radiobutton name="val" value="A" [(ngModel)]="selectedRadio" label="A"></p-radiobutton>
+          <p-radiobutton name="val" value="B" [(ngModel)]="selectedRadio" label="B"></p-radiobutton>
+        </div>
+      </div>
+      <div class="flex flex-col gap-2">
+        <label>Select (Dropdown)</label>
+        <p-select
+          [options]="items"
+          [(ngModel)]="selectedItem"
+          optionLabel="label"
+          placeholder="Select a City"
+        ></p-select>
+      </div>
+      <div class="flex flex-col gap-2">
+        <label>MultiSelect</label>
+        <p-multiselect
+          [options]="items"
+          [(ngModel)]="selectedItems"
+          optionLabel="label"
+          placeholder="Select Cities"
+        ></p-multiselect>
+      </div>
+      <div class="flex flex-col gap-2">
+        <label>ToggleSwitch</label>
+        <p-toggleswitch [(ngModel)]="switchVal"></p-toggleswitch>
+      </div>
+      <div class="flex flex-col gap-2">
+        <label>DatePicker</label>
+        <p-datepicker [(ngModel)]="date" [showIcon]="true" [showTime]="true"></p-datepicker>
+      </div>
+      <div class="flex flex-col gap-2">
+        <label>Rating</label>
+        <p-rating [(ngModel)]="ratingVal"></p-rating>
+      </div>
+      <div class="flex flex-col gap-2">
+        <label>Slider</label>
+        <p-slider [(ngModel)]="sliderVal" class="w-56"></p-slider>
+      </div>
+      <div class="flex flex-col gap-2">
+        <label>Knob</label>
+        <p-knob [(ngModel)]="knobVal"></p-knob>
+      </div>
+      <div class="flex flex-col gap-2">
+        <label>ColorPicker</label>
+        <p-colorpicker [(ngModel)]="color"></p-colorpicker>
+      </div>
+    </div>
+  </p-panel>
+
+  <!-- Buttons -->
+  <p-panel header="Buttons">
+    <div class="flex flex-wrap gap-2">
+      <p-button label="Primary"></p-button>
+      <p-button label="Secondary" severity="secondary"></p-button>
+      <p-button label="Success" severity="success"></p-button>
+      <p-button label="Info" severity="info"></p-button>
+      <p-button label="Warn" severity="warn"></p-button>
+      <p-button label="Help" severity="help"></p-button>
+      <p-button label="Danger" severity="danger"></p-button>
+      <p-button icon="pi pi-check" rounded></p-button>
+      <p-button label="Outlined" outlined></p-button>
+      <p-button label="Raised" raised></p-button>
+    </div>
+  </p-panel>
+
+  <!-- Data -->
+  <p-panel header="Data Table">
+    <p-table [value]="tableData" [tableStyle]="{ 'min-width': '50rem' }">
+      <ng-template pTemplate="header">
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Price</th>
+        </tr>
+      </ng-template>
+      <ng-template pTemplate="body" let-product>
+        <tr>
+          <td>{{ product.id }}</td>
+          <td>{{ product.name }}</td>
+          <td>{{ product.price }}</td>
+        </tr>
+      </ng-template>
+    </p-table>
+  </p-panel>
+
+  <!-- Tabs & Accordion -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <p-panel header="Tabs">
+      <p-tabs value="0">
+        <p-tablist>
+          <p-tab value="0">Header I</p-tab>
+          <p-tab value="1">Header II</p-tab>
+          <p-tab value="2">Header III</p-tab>
+        </p-tablist>
+        <p-tabpanels>
+          <p-tabpanel value="0">
+            <p class="m-0">Content I</p>
+          </p-tabpanel>
+          <p-tabpanel value="1">
+            <p class="m-0">Content II</p>
+          </p-tabpanel>
+          <p-tabpanel value="2">
+            <p class="m-0">Content III</p>
+          </p-tabpanel>
+        </p-tabpanels>
+      </p-tabs>
+    </p-panel>
+
+    <p-panel header="Accordion">
+      <p-accordion value="0">
+        <p-accordion-panel value="0">
+          <p-accordion-header>Header I</p-accordion-header>
+          <p-accordion-content>
+            <p class="m-0">Content I</p>
+          </p-accordion-content>
+        </p-accordion-panel>
+        <p-accordion-panel value="1">
+          <p-accordion-header>Header II</p-accordion-header>
+          <p-accordion-content>
+            <p class="m-0">Content II</p>
+          </p-accordion-content>
+        </p-accordion-panel>
+      </p-accordion>
+    </p-panel>
+  </div>
+
+  <!-- Messages & Misc -->
+  <p-panel header="Misc">
+    <div class="flex flex-wrap gap-4 items-center">
+      <p-tag value="New" severity="success"></p-tag>
+      <p-tag value="Warning" severity="warn"></p-tag>
+      <p-badge value="2"></p-badge>
+      <p-chip label="Chip"></p-chip>
+      <p-avatar
+        label="P"
+        size="large"
+        shape="circle"
+        styleClass="bg-blue-500 text-white"
+      ></p-avatar>
+    </div>
+    <div class="mt-4">
+      <p-progressbar [value]="50"></p-progressbar>
+    </div>
+    <div class="mt-4">
+      <p-progress-spinner ariaLabel="loading" styleClass="w-12 h-12"></p-progress-spinner>
+    </div>
+  </p-panel>
+
+  <!-- Dialog -->
+  <p-panel header="Overlays">
+    <p-button (onClick)="dialogVisible = true" label="Show Dialog"></p-button>
+    <p-dialog header="Test Dialog" [(visible)]="dialogVisible" [style]="{ width: '50vw' }">
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    </p-dialog>
+  </p-panel>
+</div>
