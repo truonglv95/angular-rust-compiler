@@ -288,7 +288,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`);
 }
 
-const { Compiler, linkFile } = nativeBinding;
+const { linkFile, Compiler } = nativeBinding;
 
-module.exports.Compiler = Compiler;
 module.exports.linkFile = linkFile;
+module.exports.Compiler = Compiler;
