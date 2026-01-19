@@ -120,7 +120,7 @@ export default function angularRustPlugin(options = {}) {
                     '../../binding/index.js'
                 );
                 const bindingPath = options.bindingPath || defaultBindingPath;
-                console.log(`[Plugin Debug] Resolved binding path: ${bindingPath}`);
+                // console.log(`[Plugin Debug] Resolved binding path: ${bindingPath}`);
                 compiler = require(bindingPath);
                 compiler = new compiler.Compiler();
             }
@@ -131,13 +131,15 @@ export default function angularRustPlugin(options = {}) {
             }
             projectRoot = path.dirname(configFile);
 
-            console.log(`[rustBundlePlugin] Compiling project...`);
+            // console.log(`[rustBundlePlugin] Compiling project...`);
             const startTime = Date.now();
             const result = compiler.bundle(configFile);
 
             const files = result.files || {};
             const fileCount = Object.keys(files).length;
-            console.log(`[rustBundlePlugin] Compiled ${fileCount} files in ${Date.now() - startTime}ms`);
+            const duration = ((Date.now() - startTime) / 1000).toFixed(3);
+            const timestamp = new Date().toISOString();
+            console.log(`Application bundle generation complete. [${duration} seconds] - ${timestamp}`);
 
             if (fileCount === 0) {
                 const bundle = result.bundleJs || result.bundle_js || '';
@@ -305,7 +307,7 @@ export default function angularRustPlugin(options = {}) {
                      const sourcePath = path.resolve(projectRoot, sourceRelPath);
 
                      if (fs.existsSync(sourcePath)) {
-                         console.log(`[rustBundlePlugin] Lazy compiling new file: ${sourcePath} -> ${jsKey}`);
+                         // console.log(`[rustBundlePlugin] Lazy compiling new file: ${sourcePath} -> ${jsKey}`);
                          try {
                              const content = fs.readFileSync(sourcePath, 'utf8');
                              const result = compiler.compile(sourcePath, content);
@@ -341,9 +343,9 @@ export default function angularRustPlugin(options = {}) {
         },
 
         async transform(code, id) {
-            if (id.includes('primeng')) {
-                console.log('[Vite Debug] UNCONDITIONAL primeng transform:', id);
-            }
+            // if (id.includes('primeng')) {
+            //     console.log('[Vite Debug] UNCONDITIONAL primeng transform:', id);
+            // }
 
             if (!global.transformCount) global.transformCount = 0;
             if (global.transformCount < 100) {
@@ -355,24 +357,30 @@ export default function angularRustPlugin(options = {}) {
             }
             // Link Angular libraries from node_modules
             if (id.includes('node_modules') && !id.endsWith('.css') && !id.endsWith('.scss')) {
-                if (id.includes('primeng')) {
-                     console.log('[Vite Debug] Transform processing primeng file:', id);
-                }
+                // if (id.includes('primeng')) {
+                //      console.log('[Vite Debug] Transform processing primeng file:', id);
+                // }
 
                 // Check if file contains Angular partial declaration markers
                 if (code.includes('ɵɵngDeclare')) {
-                    if (id.includes('primeng-datepicker.mjs')) {
-                        console.log('[Vite Debug] Linking DatePicker:', id);
-                    }
-                    if (id.includes('primeng-table.mjs') ) {
-                         console.log('[Vite Debug] Linking p-table:', id);
-                         console.log('[Vite Debug] Code length:', code.length);
-                         console.log('[Vite Debug] Has ɵɵngDeclareComponent:', code.includes('ɵɵngDeclareComponent'));
-                    }
-                    if (id.includes('primeng-button.mjs') || id.includes('button.mjs')) {
-                         console.log('[Vite Debug] Linking p-button:', id);
-                    }
-                    try {
+                    // if (id.includes('primeng-datepicker.mjs')) {
+                    //     console.log('[Vite Debug] Linking DatePicker:', id);
+                    // }
+                    // if (id.includes('primeng-table.mjs') ) {
+                    //      console.log('[Vite Debug] Linking p-table:', id);
+                    //      console.log('[Vite Debug] Code length:', code.length);
+                    //      console.log('[Vite Debug] Has ɵɵngDeclareComponent:', code.includes('ɵɵngDeclareComponent'));
+                    // }
+                    // if (id.includes('primeng-button.mjs') || id.includes('button.mjs')) {
+                    //      console.log('[Vite Debug] Linking p-button:', id);
+                    // }
+                    //  if (id.includes('ngx-toastr')) {
+                    //      console.log('[Vite Debug] Linking ngx-toastr:', id);
+                    //  }
+                    //  if (id.includes('ngx-charts')) {
+                    //      console.log('[Vite Debug] Linking ngx-charts:', id);
+                    //  }
+                     try {
                         let result = compiler.linkFile(id, code);
                         if (result.startsWith('/* Linker Error')) {
                             console.error(`[Linker] Linker Error for ${id}:`, result);
@@ -397,18 +405,18 @@ export default function angularRustPlugin(options = {}) {
                 const relPath = path.relative(projectRoot, id);
                 const jsKey = 'dist/' + relPath.replace(/\.ts$/, '.js');
                 
-                console.log(`[rustBundlePlugin] Load .ts: ${id}`);
-                console.log(`[rustBundlePlugin]   relPath: ${relPath}, jsKey: ${jsKey}`);
-                console.log(`[rustBundlePlugin]   Found in cache: ${!!bundleCache?.files?.[jsKey]}`);
+                // console.log(`[rustBundlePlugin] Load .ts: ${id}`);
+                // console.log(`[rustBundlePlugin]   relPath: ${relPath}, jsKey: ${jsKey}`);
+                // console.log(`[rustBundlePlugin]   Found in cache: ${!!bundleCache?.files?.[jsKey]}`);
                 
                 if (!bundleCache?.files?.[jsKey]) {
                     // Log available keys for debugging
                     const availableKeys = Object.keys(bundleCache?.files || {}).filter(k => k.includes('input'));
-                    console.log(`[rustBundlePlugin]   Available 'input' keys:`, availableKeys);
+                    // console.log(`[rustBundlePlugin]   Available 'input' keys:`, availableKeys);
                 }
                 
                 if (bundleCache?.files?.[jsKey]) {
-                    console.log(`[rustBundlePlugin] Serving compiled: ${id} -> ${jsKey}`);
+                    // console.log(`[rustBundlePlugin] Serving compiled: ${id} -> ${jsKey}`);
                     let code = bundleCache.files[jsKey];
                     
                     // For main.js, inject styles and HMR bootstrap
