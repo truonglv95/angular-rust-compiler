@@ -1,2 +1,12 @@
 /* You can add global styles to this file, and also import other style files */
+@import 'ngx-toastr/toastr';
+/* AgGrid */
+@import 'ag-grid-community/styles/ag-grid.css';
+@import 'ag-grid-community/styles/ag-theme-quartz.css';
+/* PrimeNG Imports Removed - v21 uses different theming */
+/* @import "primeng/resources/themes/lara-light-blue/theme.css"; */
+/* @import "primeng/resources/primeng.css"; */
 @import 'primeicons/primeicons.css';
+
+/* Noto Sans Font */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,100..900;1,100..900&display=swap');

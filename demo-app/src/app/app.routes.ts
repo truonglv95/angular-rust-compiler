@@ -213,6 +213,11 @@ export const routes: Routes = [
       import('./src/components/feature/feature.module').then((m) => m.FeatureModule),
   },
   {
+    path: 'libs',
+    loadComponent: () =>
+      import('./external-libs/external-libs').then((c) => c.ExternalLibsComponent),
+  },
+  {
     path: '**',
     redirectTo: 'categories',
   },
