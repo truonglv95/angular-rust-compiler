@@ -101,14 +101,14 @@ fn process_unit(unit: &mut crate::template::pipeline::src::compilation::ViewComp
                 // If so, generate an `ir.AdvanceOp` to advance the counter.
                 let mut delta = slot as i64 - slot_context as i64;
 
-                eprintln!(
-                    "[GEN_ADVANCE] Unit OpIndex={} Slot={} Context={} Delta={} Kind={:?}",
-                    index,
-                    slot,
-                    slot_context,
-                    delta,
-                    op.kind()
-                );
+                // eprintln!(
+                //     "[GEN_ADVANCE] Unit OpIndex={} Slot={} Context={} Delta={} Kind={:?}",
+                //     index,
+                //     slot,
+                //     slot_context,
+                //     delta,
+                //     op.kind()
+                // );
                 if delta < 0 {
                     // Slot counter moving backwards can happen with complex template structures
                     // Reset context to current slot and continue

@@ -9,8 +9,8 @@ use angular_compiler::render3::view::api::{
 };
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    CallExpression, Declaration, Expression as OxcExpression, ObjectPropertyKind, PropertyKey,
-    Statement,
+    AssignmentTarget, CallExpression, Declaration, Expression as OxcExpression, ObjectPropertyKind,
+    PropertyKey, SimpleAssignmentTarget, Statement,
 };
 use oxc_parser::Parser;
 use oxc_span::SourceType;
@@ -61,10 +61,10 @@ impl ModuleMetadataReader {
                     .join("fesm2022")
                     .join(format!("{}.mjs", entry));
                 if fesm_path.exists() {
-                    eprintln!(
-                        "DEBUG: [fesm_reader] Found FESM2022: {}",
-                        fesm_path.display()
-                    );
+                    // eprintln!(
+                    //     "DEBUG: [fesm_reader] Found FESM2022: {}",
+                    //     fesm_path.display()
+                    // );
                     return Some(fesm_path);
                 }
 
@@ -76,17 +76,17 @@ impl ModuleMetadataReader {
                     .join("fesm2020")
                     .join(format!("{}.mjs", entry));
 
-                eprintln!(
-                    "DEBUG: [fesm_reader] Checking path for {}: {}",
-                    module_name,
-                    fesm_2020_path.display()
-                );
+                // eprintln!(
+                //     "DEBUG: [fesm_reader] Checking path for {}: {}",
+                //     module_name,
+                //     fesm_2020_path.display()
+                // );
 
                 if fesm_2020_path.exists() {
-                    eprintln!(
-                        "DEBUG: [fesm_reader] Found FESM2020: {}",
-                        fesm_2020_path.display()
-                    );
+                    // eprintln!(
+                    //     "DEBUG: [fesm_reader] Found FESM2020: {}",
+                    //     fesm_2020_path.display()
+                    // );
                     return Some(fesm_2020_path);
                 }
             } else if parts.len() == 2 {
@@ -120,12 +120,26 @@ impl ModuleMetadataReader {
                     .join(format!("{}.mjs", pkg));
 
                 if fesm_2020_path.exists() {
-                    // eprintln!(
-                    //     "DEBUG: [fesm_reader] Found FESM2020 for {}: {}",
-                    //     module_name,
-                    //     fesm_2020_path.display()
-                    // );
                     return Some(fesm_2020_path);
+                }
+
+                // Try scope-pkg.mjs (flattened name) convention (e.g. @swimlane/ngx-charts -> swimlane-ngx-charts.mjs)
+                let flattened_name = format!("{}-{}", scope.trim_start_matches('@'), pkg);
+                let flattened_fesm_path = self
+                    .node_modules_path
+                    .join(scope)
+                    .join(pkg)
+                    .join("fesm2022")
+                    .join(format!("{}.mjs", flattened_name));
+
+                if flattened_fesm_path.exists() {
+                    //  eprintln!(
+                    //     "DEBUG: [reader] Found flattened FESM2022: {}",
+                    //     flattened_fesm_path.display()
+                    // );
+                    return Some(flattened_fesm_path);
+                } else {
+                    //  eprintln!("DEBUG: [reader] Flattened path checked but not found: {}", flattened_fesm_path.display());
                 }
             }
         }
@@ -148,10 +162,10 @@ impl ModuleMetadataReader {
                     .join(format!("{}.mjs", entry_name));
 
                 if fesm_path.exists() {
-                    eprintln!(
-                        "DEBUG: [fesm_reader] Found non-scoped FESM2022: {}",
-                        fesm_path.display()
-                    );
+                    // eprintln!(
+                    //     "DEBUG: [fesm_reader] Found non-scoped FESM2022: {}",
+                    //     fesm_path.display()
+                    // );
                     return Some(fesm_path);
                 }
 
@@ -162,10 +176,10 @@ impl ModuleMetadataReader {
                     .join(format!("{}.mjs", entry_name));
 
                 if fesm_2020_path.exists() {
-                    eprintln!(
-                        "DEBUG: [fesm_reader] Found non-scoped FESM2020: {}",
-                        fesm_2020_path.display()
-                    );
+                    // eprintln!(
+                    //     "DEBUG: [fesm_reader] Found non-scoped FESM2020: {}",
+                    //     fesm_2020_path.display()
+                    // );
                     return Some(fesm_2020_path);
                 }
             } else if parts.len() == 1 {
@@ -177,10 +191,10 @@ impl ModuleMetadataReader {
                     .join("fesm2022")
                     .join(format!("{}.mjs", pkg));
                 if fesm_path.exists() {
-                    eprintln!(
-                        "DEBUG: [fesm_reader] Found non-scoped FESM2022: {}",
-                        fesm_path.display()
-                    );
+                    // eprintln!(
+                    //     "DEBUG: [fesm_reader] Found non-scoped FESM2022: {}",
+                    //     fesm_path.display()
+                    // );
                     return Some(fesm_path);
                 }
             }
@@ -302,134 +316,35 @@ impl ModuleMetadataReader {
                                 if prop.r#static {
                                     if let Some(key_name) = prop.key.name() {
                                         if let Some(value) = &prop.value {
-                                            // Handle IIFE wrapper: static ɵcmp = (() => { ... return i0.ɵɵdefineComponent(...) })();
-                                            let mut expr_to_check = value;
-                                            if let OxcExpression::CallExpression(iife_call) = value
-                                            {
-                                                if let OxcExpression::ArrowFunctionExpression(arrow) = &iife_call.callee {
-                                                    // Find return statement in arrow body
-                                                    if let Some(ret_stmt) = arrow.body.statements.iter().find_map(|s| {
-                                                        if let Statement::ReturnStatement(r) = s {
-                                                            r.argument.as_ref()
-                                                        } else {
-                                                            None
-                                                        }
-                                                    }) {
-                                                        expr_to_check = ret_stmt;
-                                                    }
-                                                } else if let OxcExpression::FunctionExpression(func) = &iife_call.callee {
-                                                    if let Some(body) = &func.body {
-                                                        if let Some(ret_stmt) = body.statements.iter().find_map(|s| {
-                                                            if let Statement::ReturnStatement(r) = s {
-                                                                r.argument.as_ref()
-                                                            } else {
-                                                                None
-                                                            }
-                                                        }) {
-                                                            expr_to_check = ret_stmt;
-                                                        }
-                                                    }
-                                                } else if let OxcExpression::ParenthesizedExpression(paren) = &iife_call.callee {
-                                                    // handle ((() => { ... }))() ?
-                                                    if let OxcExpression::ArrowFunctionExpression(arrow) = &paren.expression {
-                                                         if let Some(ret_stmt) = arrow.body.statements.iter().find_map(|s| {
-                                                            if let Statement::ReturnStatement(r) = s {
-                                                                r.argument.as_ref()
-                                                            } else {
-                                                                None
-                                                            }
-                                                        }) {
-                                                            expr_to_check = ret_stmt;
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            if let OxcExpression::CallExpression(call) =
-                                                expr_to_check
-                                            {
-                                                let property_name_opt =
-                                                    if let OxcExpression::StaticMemberExpression(
-                                                        callee,
-                                                    ) = &call.callee
-                                                    {
-                                                        Some(callee.property.name.as_str())
-                                                    } else {
-                                                        None
-                                                    };
-
-                                                if let Some(property_name) = property_name_opt {
-                                                    match key_name.as_ref() {
-                                                        "ɵmod"
-                                                            if property_name
-                                                                == "ɵɵdefineNgModule"
-                                                                || property_name
-                                                                    == "ɵɵngDeclareNgModule" =>
-                                                        {
-                                                            if let Some(args) =
-                                                                call.arguments.first()
-                                                            {
-                                                                if let Some(expr) =
-                                                                    args.as_expression()
-                                                                {
-                                                                    // ONLY extract exports for NgModules in the entry file or its direct chunks?
-                                                                    // For simplicity, we accumulate them but we'll attribute them correctly.
-                                                                    self.extract_exports(
-                                                                        expr,
-                                                                        &mut all_exported_classes,
-                                                                    );
-                                                                }
-                                                            }
-                                                        }
-                                                        "ɵcmp" | "ɵdir" => {
-                                                            if property_name == "ɵɵdefineComponent"
-                                                                || property_name
-                                                                    == "ɵɵdefineDirective"
-                                                                || property_name
-                                                                    == "ɵɵngDeclareComponent"
-                                                                || property_name
-                                                                    == "ɵɵngDeclareDirective"
-                                                            {
-                                                                if let Some(args) =
-                                                                    call.arguments.first()
-                                                                {
-                                                                    if let Some(expr) =
-                                                                        args.as_expression()
-                                                                    {
-                                                                        if let Some(meta) = self
-                                                                            .parse_directive_meta(
-                                                                                expr,
-                                                                                key_name.as_ref()
-                                                                                    == "ɵcmp",
-                                                                            )
-                                                                        {
-                                                                            all_definitions.insert(class_name.to_string(), (meta.0, meta.1, meta.2, meta.3, meta.4, R3TemplateDependencyKind::Directive, current_module.clone()));
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                        "ɵpipe"
-                                                            if property_name == "ɵɵdefinePipe"
-                                                                || property_name
-                                                                    == "ɵɵngDeclarePipe" =>
-                                                        {
-                                                            if let Some(args) =
-                                                                call.arguments.first()
-                                                            {
-                                                                if let Some(expr) =
-                                                                    args.as_expression()
-                                                                {
-                                                                    if let Some(name) =
-                                                                        self.parse_pipe_meta(expr)
-                                                                    {
-                                                                        all_definitions.insert(class_name.to_string(), (name, vec![], vec![], None, false, R3TemplateDependencyKind::Pipe, current_module.clone()));
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                        _ => {}
-                                                    }
+                                            self.process_definition(
+                                                value,
+                                                &key_name,
+                                                class_name,
+                                                &current_module,
+                                                &mut all_definitions,
+                                                &mut all_exported_classes,
+                                            );
+                                        }
+                                    }
+                                }
+                            } else if let oxc_ast::ast::ClassElement::StaticBlock(block) = member {
+                                for stmt in &block.body {
+                                    if let Statement::ExpressionStatement(expr_stmt) = stmt {
+                                        if let OxcExpression::AssignmentExpression(assign) =
+                                            &expr_stmt.expression
+                                        {
+                                            // Check for `this.prop = ...`
+                                            if let oxc_ast::ast::AssignmentTarget::StaticMemberExpression(member_expr) = &assign.left {
+                                                if let OxcExpression::ThisExpression(_) = &member_expr.object {
+                                                    let name = member_expr.property.name.as_str();
+                                                    self.process_definition(
+                                                        &assign.right,
+                                                        name,
+                                                        class_name,
+                                                        &current_module,
+                                                        &mut all_definitions,
+                                                        &mut all_exported_classes,
+                                                    );
                                                 }
                                             }
                                         }
@@ -445,12 +360,15 @@ impl ModuleMetadataReader {
         let mut results = Vec::new();
 
         let classes_to_export = if all_exported_classes.is_empty() {
+            //  eprintln!("DEBUG: [reader] No exports found for module {}, using all {} definitions.", module_name, all_definitions.len());
             all_definitions.keys().cloned().collect::<Vec<_>>()
         } else {
+            // eprintln!("DEBUG: [reader] Module {} exports {} classes: {:?}", module_name, all_exported_classes.len(), all_exported_classes);
             all_exported_classes
         };
 
         for export_name in classes_to_export {
+            // eprintln!("DEBUG: [reader] Processing export: {}", export_name);
             if let Some((
                 selector_or_name,
                 inputs,
@@ -461,6 +379,7 @@ impl ModuleMetadataReader {
                 actual_module,
             )) = all_definitions.get(&export_name)
             {
+                // eprintln!("DEBUG: [reader] Resolved dependency: {} ({:?})", export_name, kind);
                 let expression = Expression::External(ExternalExpr {
                     value: ExternalReference {
                         module_name: Some(actual_module.clone()),
@@ -504,10 +423,155 @@ impl ModuleMetadataReader {
                 };
 
                 results.push(meta);
+            } else {
+                // eprintln!("DEBUG: [reader] Export {} not found in definitions!", export_name);
             }
         }
 
         Some(results)
+    }
+
+    fn process_definition(
+        &self,
+        value: &OxcExpression,
+        key_name: &str,
+        class_name: &str,
+        current_module: &String,
+        all_definitions: &mut HashMap<
+            String,
+            (
+                String,
+                Vec<String>,
+                Vec<String>,
+                Option<String>,
+                bool,
+                R3TemplateDependencyKind,
+                String,
+            ),
+        >,
+        all_exported_classes: &mut Vec<String>,
+    ) {
+        // Handle IIFE wrapper: static ɵcmp = (() => { ... return i0.ɵɵdefineComponent(...) })();
+        let mut expr_to_check = value;
+        if let OxcExpression::CallExpression(iife_call) = value {
+            if let OxcExpression::ArrowFunctionExpression(arrow) = &iife_call.callee {
+                // Find return statement in arrow body
+                if let Some(ret_stmt) = arrow.body.statements.iter().find_map(|s| {
+                    if let Statement::ReturnStatement(r) = s {
+                        r.argument.as_ref()
+                    } else {
+                        None
+                    }
+                }) {
+                    expr_to_check = ret_stmt;
+                }
+            } else if let OxcExpression::FunctionExpression(func) = &iife_call.callee {
+                if let Some(body) = &func.body {
+                    if let Some(ret_stmt) = body.statements.iter().find_map(|s| {
+                        if let Statement::ReturnStatement(r) = s {
+                            r.argument.as_ref()
+                        } else {
+                            None
+                        }
+                    }) {
+                        expr_to_check = ret_stmt;
+                    }
+                }
+            } else if let OxcExpression::ParenthesizedExpression(paren) = &iife_call.callee {
+                // handle ((() => { ... }))() ?
+                if let OxcExpression::ArrowFunctionExpression(arrow) = &paren.expression {
+                    if let Some(ret_stmt) = arrow.body.statements.iter().find_map(|s| {
+                        if let Statement::ReturnStatement(r) = s {
+                            r.argument.as_ref()
+                        } else {
+                            None
+                        }
+                    }) {
+                        expr_to_check = ret_stmt;
+                    }
+                }
+            }
+        }
+
+        if let OxcExpression::CallExpression(call) = expr_to_check {
+            let property_name_opt =
+                if let OxcExpression::StaticMemberExpression(callee) = &call.callee {
+                    Some(callee.property.name.as_str())
+                } else {
+                    None
+                };
+
+            if let Some(property_name) = property_name_opt {
+                match key_name {
+                    "ɵmod"
+                        if property_name == "ɵɵdefineNgModule"
+                            || property_name == "ɵɵngDeclareNgModule" =>
+                    {
+                        if let Some(args) = call.arguments.first() {
+                            if let Some(expr) = args.as_expression() {
+                                // ONLY extract exports for NgModules in the entry file or its direct chunks?
+                                // For simplicity, we accumulate them but we'll attribute them correctly.
+                                self.extract_exports(expr, all_exported_classes);
+                            }
+                        }
+                    }
+                    "ɵcmp" | "ɵdir" => {
+                        if property_name == "ɵɵdefineComponent"
+                            || property_name == "ɵɵdefineDirective"
+                            || property_name == "ɵɵngDeclareComponent"
+                            || property_name == "ɵɵngDeclareDirective"
+                        {
+                            if let Some(args) = call.arguments.first() {
+                                if let Some(expr) = args.as_expression() {
+                                    if let Some(meta) =
+                                        self.parse_directive_meta(expr, key_name == "ɵcmp")
+                                    {
+                                        // eprintln!("DEBUG: [reader] Found definition: {} (Selector: {})", class_name, meta.0);
+                                        all_definitions.insert(
+                                            class_name.to_string(),
+                                            (
+                                                meta.0,
+                                                meta.1,
+                                                meta.2,
+                                                meta.3,
+                                                meta.4,
+                                                R3TemplateDependencyKind::Directive,
+                                                current_module.clone(),
+                                            ),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "ɵpipe"
+                        if property_name == "ɵɵdefinePipe"
+                            || property_name == "ɵɵngDeclarePipe" =>
+                    {
+                        if let Some(args) = call.arguments.first() {
+                            if let Some(expr) = args.as_expression() {
+                                if let Some(name) = self.parse_pipe_meta(expr) {
+                                    // eprintln!("DEBUG: [reader] Found pipe definition: {}", class_name);
+                                    all_definitions.insert(
+                                        class_name.to_string(),
+                                        (
+                                            name,
+                                            vec![],
+                                            vec![],
+                                            None,
+                                            false,
+                                            R3TemplateDependencyKind::Pipe,
+                                            current_module.clone(),
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 
     fn extract_exports(&self, expr: &OxcExpression, exports: &mut Vec<String>) {
@@ -520,6 +584,7 @@ impl ModuleMetadataReader {
                                 for elem in &arr.elements {
                                     if let Some(e) = elem.as_expression() {
                                         if let OxcExpression::Identifier(id) = e {
+                                            // eprintln!("DEBUG: [reader] Found export: {}", id.name);
                                             exports.push(id.name.to_string());
                                         }
                                     }

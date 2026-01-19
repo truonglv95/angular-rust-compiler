@@ -161,10 +161,10 @@ fn process_unit(
             let item_name = repeater.var_names.dollar_implicit.clone();
             let index_names = repeater.var_names.dollar_index.clone();
 
-            println!(
-                "[TRACK_OPT] Processing repeater. Item: {:?}, Indices: {:?}. Expr: {:?}",
-                item_name, index_names, track_expr
-            );
+            // println!(
+            //     "[TRACK_OPT] Processing repeater. Item: {:?}, Indices: {:?}. Expr: {:?}",
+            //     item_name, index_names, track_expr
+            // );
 
             // Find xref for the item variable if possible
             let mut item_xref = None;
@@ -180,7 +180,7 @@ fn process_unit(
                              if let ir::SemanticVariable::Identifier(ident) = &var_op.variable {
                                  if ident.identifier == item_name {
                                      item_xref = Some(var_op.xref);
-                                     println!("[TRACK_OPT] Found item variable xref: {:?}", item_xref);
+                                     // println!("[TRACK_OPT] Found item variable xref: {:?}", item_xref);
                                      break;
                                  }
                              }

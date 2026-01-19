@@ -1303,10 +1303,10 @@ impl ConsumesSlotOpTrait for ProjectionOp {
 
     fn num_slots_used(&self) -> usize {
         let slots = if self.fallback_view.is_some() { 2 } else { 1 };
-        eprintln!(
-            "DEBUG: ProjectionOp xref={:?} fallback={:?} slots={}",
-            self.xref, self.fallback_view, slots
-        );
+        // eprintln!(
+        //     "DEBUG: ProjectionOp xref={:?} fallback={:?} slots={}",
+        //     self.xref, self.fallback_view, slots
+        // );
         slots
     }
 

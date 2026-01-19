@@ -488,7 +488,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                             additional_imports: Vec::new(),
                                         });
 
-                                        eprintln!("[RUST_DEBUG] Matched NgModule: {}, Results: {}", ngm.name, results.len());
+                                        // eprintln!("[RUST_DEBUG] Matched NgModule: {}, Results: {}", ngm.name, results.len());
 
                                         (results, ngm.name.clone())
                                     }

@@ -20,7 +20,7 @@ use oxc_span::SourceType;
 
 #[napi]
 pub fn link_file(source_code: String, filename: String) -> Result<String> {
-    eprintln!("[Linker NAPI Debug] link_file: {}", filename);
+    // eprintln!("[Linker NAPI Debug] link_file: {}", filename);
     let allocator = Allocator::default();
     let clean_filename = filename.split('?').next().unwrap_or(&filename);
     let source_type = SourceType::from_path(clean_filename).unwrap_or_default();
@@ -29,18 +29,18 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
     let ret = parser.parse();
 
     if !ret.errors.is_empty() {
-        let mut log_file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("/tmp/linker.log")
-            .unwrap();
-        writeln!(
-            log_file,
-            "Parse error in {}: {:?}",
-            filename,
-            ret.errors.first().unwrap()
-        )
-        .unwrap();
+        // let mut log_file = std::fs::OpenOptions::new()
+        //     .create(true)
+        //     .append(true)
+        //     .open("/tmp/linker.log")
+        //     .unwrap();
+        // writeln!(
+        //     log_file,
+        //     "Parse error in {}: {:?}",
+        //     filename,
+        //     ret.errors.first().unwrap()
+        // )
+        // .unwrap();
         return Err(Error::new(
             Status::GenericFailure,
             format!("Parse error: {:?}", ret.errors.first().unwrap()),
@@ -64,7 +64,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                             let alias = ns.local.name.as_str();
                             imports.insert(module.to_string(), alias.to_string());
                             alias_imports.insert(alias.to_string(), module.to_string());
-                            eprintln!("[Linker Debug] Namespace Import: {} -> {}", module, alias);
+                            // eprintln!("[Linker Debug] Namespace Import: {} -> {}", module, alias);
                         }
                         ast::ImportDeclarationSpecifier::ImportSpecifier(s) => {
                             let module = decl.source.value.as_str();
@@ -78,10 +78,10 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                 (module.to_string(), imported.to_string()),
                                 local.to_string(),
                             );
-                            eprintln!(
-                                "[Linker Debug] Named Import: {}::{} -> {}",
-                                module, imported, local
-                            );
+                            // eprintln!(
+                            //     "[Linker Debug] Named Import: {}::{} -> {}",
+                            //     module, imported, local
+                            // );
                         }
                         _ => {}
                     }
@@ -282,7 +282,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                             // differs from the import specifier (e.g. package name).
                             for ((_mod, export_name), local) in &self.named_imports {
                                 if export_name == prop {
-                                    eprintln!("[Linker Debug] Fuzzy match for External: {}::{} -> local {}", module, prop, local);
+                                    // eprintln!("[Linker Debug] Fuzzy match for External: {}::{} -> local {}", module, prop, local);
                                     return o::Expression::ReadVar(o::ReadVarExpr {
                                         name: local.clone(),
                                         type_: None,
@@ -585,6 +585,11 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                     self.visit_expression(val);
                                 }
                             }
+                            ast::ClassElement::StaticBlock(b) => {
+                                for st in &b.body {
+                                    self.visit_statement(st);
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -610,6 +615,11 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                 ast::ClassElement::PropertyDefinition(p) => {
                                     if let Some(val) = &p.value {
                                         self.visit_expression(val);
+                                    }
+                                }
+                                ast::ClassElement::StaticBlock(b) => {
+                                    for st in &b.body {
+                                        self.visit_statement(st);
                                     }
                                 }
                                 _ => {}
@@ -655,6 +665,11 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                         ast::ClassElement::PropertyDefinition(p) => {
                                             if let Some(val) = &p.value {
                                                 self.visit_expression(val);
+                                            }
+                                        }
+                                        ast::ClassElement::StaticBlock(b) => {
+                                            for st in &b.body {
+                                                self.visit_statement(st);
                                             }
                                         }
                                         _ => {}
@@ -743,12 +758,12 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
             if let Some(n) = name {
                 {
                     use std::io::Write;
-                    let mut f = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open("/tmp/linker.log")
-                        .unwrap();
-                    writeln!(f, "[DEBUG] Visiting Call: {}", n).unwrap();
+                    // let mut f = std::fs::OpenOptions::new()
+                    //     .create(true)
+                    //     .append(true)
+                    //     .open("/tmp/linker.log")
+                    //     .unwrap();
+                    // writeln!(f, "[DEBUG] Visiting Call: {}", n).unwrap();
                 }
                 // Handle __decorate calls (JIT/Decorator transformation)
                 if n == "__decorate" || n == "_ts_decorate" {
@@ -869,7 +884,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
 
                                                                 // Generate ɵfac for Component
                                                                 if d_name == "Component" {
-                                                                    println!("LOG: Visiting Component decorator");
+                                                                    // println!("LOG: Visiting Component decorator");
                                                                     let fac_code = format!("; {}.ɵfac = function(t) {{ return new (t || {})({}); }};", target_name, target_name, "");
                                                                     assignment.push_str(&fac_code);
 
@@ -881,7 +896,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                                                         "void 0".to_string(),
                                                                     ));
                                                                 }
-                                                                println!("[Rust Linker] Linked Decorator {} on '{}' -> {}", d_name, target_name, field_name);
+                                                                // println!("[Rust Linker] Linked Decorator {} on '{}' -> {}", d_name, target_name, field_name);
 
                                                                 // Append after __decorate call
                                                                 let span = expr.span;
@@ -910,9 +925,17 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                     }
                 }
 
-                // Handle existing ɵɵngDeclare* calls (Partial Compilation)
                 if n.starts_with("ɵɵngDeclare") && self.selector.supports_declaration(n) {
                     // It's a target!
+                    {
+                        use std::io::Write;
+                        let mut f = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open("/tmp/linker.log")
+                            .unwrap();
+                        writeln!(f, "[DEBUG] Processing {}", n).unwrap();
+                    }
 
                     // Args
                     if expr.arguments.len() > 0 {
@@ -977,7 +1000,7 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                                             stmts_code, expr_code
                                         )
                                     };
-                                    println!("[Rust Linker] Linked Partial Declaration {} -> {:.2000}...", n, js_code);
+                                    // println!("[Rust Linker] Linked Partial Declaration {} -> {:.2000}...", n, js_code);
 
                                     let span = expr.span;
                                     let span = expr.span;

@@ -183,26 +183,26 @@ pub fn extract_metadata_from_linked(
         {
             // Only log relevant Angular Material modules to avoid noise
             if module_path.contains("@angular/material") {
-                eprintln!("[Rust] Processed module: {}", module_path);
+                // eprintln!("[Rust] Processed module: {}", module_path);
                 for m in &modules {
-                    eprintln!("[Rust]   Extracted NgModule: {}", m.name);
+                    // eprintln!("[Rust]   Extracted NgModule: {}", m.name);
                     for e in &m.exports {
-                        eprintln!(
-                            "[Rust]     Export: {} (Source: {:?})",
-                            e.exported_name, e.source_path
-                        );
+                        // eprintln!(
+                        //     "[Rust]     Export: {} (Source: {:?})",
+                        //     e.exported_name, e.source_path
+                        // );
                     }
                 }
                 for d in &directives {
-                    eprintln!(
-                        "[Rust]   Extracted Directive: {} (Selector: {})",
-                        d.name, d.selector
-                    );
+                    // eprintln!(
+                    //     "[Rust]   Extracted Directive: {} (Selector: {})",
+                    //     d.name, d.selector
+                    // );
                 }
 
                 // Log if we found MatLabel
                 if directives.iter().any(|d| d.selector == "mat-label") {
-                    eprintln!("[Rust]   !!! FOUND MatLabel DIRECTIVE !!!");
+                    // eprintln!("[Rust]   !!! FOUND MatLabel DIRECTIVE !!!");
                 }
             }
         }
@@ -235,7 +235,7 @@ fn process_class_declaration(
     if let Some(ident) = &class_decl.id {
         let class_name = ident.name.to_string();
         // Log ALL classes to see what we are visiting
-        eprintln!("[Metadata] DEBUG: Process Class: {}", class_name);
+        // eprintln!("[Metadata] DEBUG: Process Class: {}", class_name);
 
         for elem in &class_decl.body.body {
             if let oxc_ast::ast::ClassElement::PropertyDefinition(prop) = elem {
@@ -357,10 +357,10 @@ fn extract_directive_metadata(
     expr: &Expression,
 ) -> Option<(String, Option<String>, Vec<String>)> {
     // Returns (selector, export_as, host_attrs)
-    eprintln!(
-        "[Metadata]   Extracting metadata from expression for class {}: {:?}",
-        class_name, expr
-    );
+    // eprintln!(
+    //     "[Metadata]   Extracting metadata from expression for class {}: {:?}",
+    //     class_name, expr
+    // );
 
     let mut selector = String::new();
     let mut export_as = None;
@@ -392,10 +392,10 @@ fn extract_directive_metadata(
                             } else if key.name == "exportAs" {
                                 if let Expression::StringLiteral(lit) = &p.value {
                                     export_as = Some(lit.value.to_string());
-                                    eprintln!(
-                                        "[Metadata]         Matched exportAs: {:?}",
-                                        export_as
-                                    );
+                                    // eprintln!(
+                                    //     "[Metadata]         Matched exportAs: {:?}",
+                                    //     export_as
+                                    // );
                                 } else if let Expression::ArrayExpression(arr) = &p.value {
                                     let mut names = Vec::new();
                                     for elem in &arr.elements {
@@ -407,10 +407,10 @@ fn extract_directive_metadata(
                                     }
                                     if !names.is_empty() {
                                         export_as = Some(names.join(","));
-                                        eprintln!(
-                                            "[Metadata]         Matched exportAs (array): {:?}",
-                                            export_as
-                                        );
+                                        // eprintln!(
+                                        //     "[Metadata]         Matched exportAs (array): {:?}",
+                                        //     export_as
+                                        // );
                                     }
                                 }
                             } else if key.name == "hostAttrs" {
@@ -434,10 +434,10 @@ fn extract_directive_metadata(
 
 fn parse_selectors_array_ast(arr: &oxc_ast::ast::ArrayExpression) -> String {
     let mut parts = Vec::new();
-    eprintln!(
-        "[Metadata]   Parsing selectors array. Elements: {}",
-        arr.elements.len()
-    );
+    // eprintln!(
+    //     "[Metadata]   Parsing selectors array. Elements: {}",
+    //     arr.elements.len()
+    // );
     for elem in &arr.elements {
         if let Some(expr) = elem.as_expression() {
             if let oxc_ast::ast::Expression::ArrayExpression(inner_arr) = expr {
@@ -449,7 +449,7 @@ fn parse_selectors_array_ast(arr: &oxc_ast::ast::ArrayExpression) -> String {
         }
     }
     let res = parts.join(", ");
-    eprintln!("[Metadata]   Parsed selectors: {}", res);
+    // eprintln!("[Metadata]   Parsed selectors: {}", res);
     res
 }
 

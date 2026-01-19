@@ -238,7 +238,7 @@ fn scan_dynamic_imports_in_expr(
 fn resolve_import(specifier: &str, file_dir: &Path, root_dir: &Path) -> Option<PathBuf> {
     // Only handle relative imports (starting with . or ..)
     if !specifier.starts_with('.') {
-        eprintln!("ANTIGRAVITY_DEBUG: Ignored external import: {}", specifier);
+        // eprintln!("ANTIGRAVITY_DEBUG: Ignored external import: {}", specifier);
         return None; // External/node_modules import
     }
 
@@ -351,16 +351,16 @@ pub fn bundle_project(project_path: &Path) -> Result<BundleResult> {
         return Err(anyhow::anyhow!("Entry file not found: {:?}", main_file));
     }
 
-    eprintln!("Building from entry: {:?}", main_file);
+    // eprintln!("Building from entry: {:?}", main_file);
 
     // 3. Build import graph
     let (static_files, dynamic_files) = build_import_graph(&main_file, root_dir)?;
 
-    eprintln!(
-        "Static files: {}, Dynamic (lazy) files: {}",
-        static_files.len(),
-        dynamic_files.len()
-    );
+    // eprintln!(
+    //     "Static files: {}, Dynamic (lazy) files: {}",
+    //     static_files.len(),
+    //     dynamic_files.len()
+    // );
 
     // 4. Compile static files
     let static_files_vec: Vec<PathBuf> = static_files.into_iter().collect();

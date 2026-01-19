@@ -214,7 +214,7 @@ pub fn collect_element_consts(job: &mut dyn CompilationJob) {
                     extracted_attr.trusted_value_fn.clone(),
                     extracted_attr.source_span().cloned(),
                 );
-                eprintln!("[CONST_COLLECTION] Processed ExtractedAttributeOp for xref {:?}: kind={:?}, name={:?}", extracted_attr.target, extracted_attr.binding_kind, extracted_attr.name);
+                // eprintln!("[CONST_COLLECTION] Processed ExtractedAttributeOp for xref {:?}: kind={:?}, name={:?}", extracted_attr.target, extracted_attr.binding_kind, extracted_attr.name);
 
                 indices_to_remove.push(index);
             }
@@ -226,10 +226,10 @@ pub fn collect_element_consts(job: &mut dyn CompilationJob) {
                 if let Expression::Literal(lit) = attr {
                     if let LiteralValue::String(s) = &lit.value {
                         if s == "matTreeNodeOutlet" {
-                            eprintln!(
-                                "DEBUG: [const_collection] Found matTreeNodeOutlet for xref {:?}",
-                                xref
-                            );
+                            // eprintln!(
+                            //     "DEBUG: [const_collection] Found matTreeNodeOutlet for xref {:?}",
+                            //     xref
+                            // );
                         }
                     }
                 }

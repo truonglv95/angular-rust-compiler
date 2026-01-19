@@ -96,10 +96,10 @@ fn remove_decorators_from_class(class: &mut Class) {
     class.decorators.retain(|decorator| {
         let decorator_name = get_decorator_name(decorator);
         let remove = class_decorators.contains(&decorator_name.as_str());
-        eprintln!(
-            "[RUST_DEBUG] Decorator: '{}', Remove: {}",
-            decorator_name, remove
-        );
+        // eprintln!(
+        //     "[RUST_DEBUG] Decorator: '{}', Remove: {}",
+        //     decorator_name, remove
+        // );
         !remove
     });
 
@@ -433,15 +433,15 @@ fn add_properties_to_class_body<'a>(
     }
 
     for (def_name, def_expr_str) in definitions {
-        eprintln!(
-            "[RUST_DEBUG] Attempting to add property: '{}' to class",
-            def_name
-        );
+        // eprintln!(
+        //     "[RUST_DEBUG] Attempting to add property: '{}' to class",
+        //     def_name
+        // );
         if !def_expr_str.is_empty() {
             if let Some(mut prop_def) =
                 create_static_property(allocator, &ast, def_name, allocator.alloc_str(def_expr_str))
             {
-                eprintln!("[RUST_DEBUG] Successfully parsed property: '{}'", def_name);
+                // eprintln!("[RUST_DEBUG] Successfully parsed property: '{}'", def_name);
                 prop_def.span = oxc_ast::ast::Span::default();
                 class
                     .body
@@ -449,8 +449,8 @@ fn add_properties_to_class_body<'a>(
                     .insert(insert_position, ClassElement::PropertyDefinition(prop_def));
                 insert_position += 1;
             } else {
-                eprintln!("[RUST_DEBUG] Failed to parse property: '{}'", def_name);
-                eprintln!("[RUST_DEBUG] Expression content: '{}'", def_expr_str);
+                // eprintln!("[RUST_DEBUG] Failed to parse property: '{}'", def_name);
+                // eprintln!("[RUST_DEBUG] Expression content: '{}'", def_expr_str);
                 failed_defs.push(def_name.to_string());
             }
         }

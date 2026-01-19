@@ -294,10 +294,10 @@ impl Compiler {
         let compiler_cache_dir = get_cache_dir(COMPILER_CACHE_SUBDIR);
         let linker_cache_dir = get_cache_dir(LINKER_CACHE_SUBDIR);
 
-        eprintln!(
-            "[Rust NGC] Cache dir: {}",
-            compiler_cache_dir.parent().unwrap().display()
-        );
+        // eprintln!(
+        //     "[Rust NGC] Cache dir: {}",
+        //     compiler_cache_dir.parent().unwrap().display()
+        // );
 
         Compiler {
             compiler_cache_dir,

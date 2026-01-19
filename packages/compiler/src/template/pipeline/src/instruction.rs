@@ -235,7 +235,18 @@ pub fn listener(
 ) -> o::Statement {
     let mut args = vec![*o::literal(name), handler_fn];
     if let Some(target) = event_target {
-        args.push(*o::literal(target));
+        if target == "window" {
+            args.push(*o::literal(false));
+            args.push(*o::import_ref(Identifiers::resolve_window()));
+        } else if target == "document" {
+            args.push(*o::literal(false));
+            args.push(*o::import_ref(Identifiers::resolve_document()));
+        } else if target == "body" {
+            args.push(*o::literal(false));
+            args.push(*o::import_ref(Identifiers::resolve_body()));
+        } else {
+            args.push(*o::literal(target));
+        }
     }
     call(Identifiers::listener(), args, source_span)
 }

@@ -25,7 +25,7 @@ use crate::template::pipeline::src::compilation::{
 pub fn phase(job: &mut dyn CompilationJob) {
     let job_kind = job.kind();
     let job_kind = job.kind();
-    eprintln!("[RESOLVE_CTX] ENTERING PHASE. Job kind: {:?}", job_kind);
+    // eprintln!("[RESOLVE_CTX] ENTERING PHASE. Job kind: {:?}", job_kind);
 
     use crate::template::pipeline::src::compilation::HostBindingCompilationJob;
 
@@ -69,12 +69,12 @@ fn process_lexical_scope(unit: &mut dyn CompilationUnit, root_xref: ir::XrefId) 
         std::collections::HashMap::new();
 
     let unit_xref = unit.xref();
-    eprintln!(
-        "[RESOLVE_CTX] Processing view {:?} create: {} update: {}",
-        unit_xref,
-        unit.create().len(),
-        unit.update().len()
-    );
+    // eprintln!(
+    //     "[RESOLVE_CTX] Processing view {:?} create: {} update: {}",
+    //     unit_xref,
+    //     unit.create().len(),
+    //     unit.update().len()
+    // );
     let unit_xref = unit.xref();
 
     // The current view's context is accessible via the `ctx` parameter.

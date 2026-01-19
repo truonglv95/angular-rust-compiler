@@ -439,7 +439,7 @@ pub fn extract_directive_metadata<'a>(
                                 }
 
                                 if let Some(sel) = selector {
-                                    eprintln!("DEBUG: Found signal query: prop={}, selector={}, is_signal=true, is_required={}", prop_name, sel, is_required);
+                                    // eprintln!("DEBUG: Found signal query: prop={}, selector={}, is_signal=true, is_required={}", prop_name, sel, is_required);
                                     let query_meta = super::api::QueryMetadata {
                                         property_name: prop_name.to_string(),
                                         selector: sel,
@@ -1340,10 +1340,10 @@ pub fn get_all_metadata<'a>(
                 let decorators = host.get_decorators_of_declaration(decl);
 
                 for decorator in decorators {
-                    eprintln!(
-                        "[RUST_DEBUG] Found decorator in metadata extractor: '{}'",
-                        decorator.name
-                    );
+                    // eprintln!(
+                    //     "[RUST_DEBUG] Found decorator in metadata extractor: '{}'",
+                    //     decorator.name
+                    // );
                     if decorator.name == "Component" || decorator.name == "Directive" {
                         if let Some(metadata) = extract_directive_metadata(
                             class_decl,

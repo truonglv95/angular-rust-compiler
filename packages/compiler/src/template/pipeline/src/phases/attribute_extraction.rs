@@ -420,13 +420,14 @@ fn process_unit(
             } else if prop_op.is_structural_template_attribute {
                 // Check if target is ng-template, if so force Property kind
                 let tag = xref_to_tag.get(&prop_op.target).map(|s| s.as_str());
-                eprintln!("[ATTR_EXTRACT] Checking Structural PropertyOp for target {:?}, resolved tag: {:?}", prop_op.target, tag);
+                // eprintln!("[ATTR_EXTRACT] Checking Structural PropertyOp for target {:?}, resolved tag: {:?}", prop_op.target, tag);
+                // eprintln!("[ATTR_EXTRACT] Checking Structural PropertyOp for target {:?}, resolved tag: {:?}", prop_op.target, tag);
 
                 if tag == Some("ng-template") {
-                    eprintln!("[ATTR_EXTRACT] Decision: Property (tag is ng-template)");
+                    // eprintln!("[ATTR_EXTRACT] Decision: Property (tag is ng-template)");
                     BindingKind::Property
                 } else {
-                    eprintln!("[ATTR_EXTRACT] Decision: Template (tag is {:?})", tag);
+                    // eprintln!("[ATTR_EXTRACT] Decision: Template (tag is {:?})", tag);
                     BindingKind::Template
                 }
             } else {

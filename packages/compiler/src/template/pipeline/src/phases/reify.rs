@@ -61,7 +61,7 @@ fn reify_create_operations(
             ir::OpKind::Projection => {
                 if let Some(proj_op) = op.as_any().downcast_ref::<ir::ops::create::ProjectionOp>() {
                     let slot_idx = proj_op.projection_slot_index;
-                    println!("[REIFY_DEBUG] Projection slot_idx={}", slot_idx);
+                    // println!("[REIFY_DEBUG] Projection slot_idx={}", slot_idx);
 
                     let stmt_or_none = if let Some(fallback_xref) = proj_op.fallback_view {
                         if false {
@@ -246,7 +246,7 @@ fn reify_create_operations(
                 }
             }
             ir::OpKind::RepeaterCreate => {
-                println!("[REIFY] Handling RepeaterCreate");
+                // println!("[REIFY] Handling RepeaterCreate");
                 if let Some(rep_op) = op
                     .as_any()
                     .downcast_ref::<ir::ops::create::RepeaterCreateOp>()
@@ -264,10 +264,10 @@ fn reify_create_operations(
 
                     // Handle track function
                     let track_fn = if let Some(track_ir) = &rep_op.track_by_fn {
-                        println!("[REIFY] TrackFn is Some");
+                        // println!("[REIFY] TrackFn is Some");
                         reify_ir_expression(*track_ir.clone(), ir::VisitorContextFlag::NONE)
                     } else {
-                        println!("[REIFY] TrackFn is None");
+                        // println!("[REIFY] TrackFn is None");
                         *o::literal(o::LiteralValue::Null)
                     };
 
@@ -406,7 +406,7 @@ fn reify_create_operations(
                             .local_refs_index
                             .map(|idx| idx.as_usize() as i32);
                         let tag = el_op.base.tag.clone().unwrap_or_default();
-                        println!("[REIFY_DEBUG] ElementStart tag={} slot={}", tag, slot);
+                        // println!("[REIFY_DEBUG] ElementStart tag={} slot={}", tag, slot);
                         // Use domElementStart in DomOnly mode (no directive dependencies)
                         let stmt = if mode == TemplateCompilationMode::DomOnly {
                             ng::dom_element_start(

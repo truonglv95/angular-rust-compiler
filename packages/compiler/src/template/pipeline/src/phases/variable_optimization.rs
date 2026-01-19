@@ -472,11 +472,11 @@ fn optimize_variables_in_op_list_impl_create(
                     .as_any()
                     .downcast_ref::<VariableOp<Box<dyn ir::CreateOp + Send + Sync>>>()
                 {
-                    eprintln!(
-                        "[VAR_OPT] Declared variable {:#?} (xref: {})",
-                        var_op.variable,
-                        var_op.xref.as_usize()
-                    );
+                    // eprintln!(
+                    //     "[VAR_OPT] Declared variable {:#?} (xref: {})",
+                    //     var_op.variable,
+                    //     var_op.xref.as_usize()
+                    // );
                     if var_decls.contains_key(&var_op.xref) || var_usages.contains_key(&var_op.xref)
                     {
                         panic!(
@@ -535,11 +535,11 @@ fn optimize_variables_in_op_list_impl_create(
                         if (context_is_used && op_info.fences.contains(Fence::VIEW_CONTEXT_WRITE))
                             || op_info.fences.contains(Fence::SIDE_EFFECTFUL)
                         {
-                            eprintln!("[VAR_OPT] Converting unused var {:?} (xref: {}) to statement. ContextUsed: {}, Fences: {:?}", var_op.variable, var_op.xref.as_usize(), context_is_used, op_info.fences);
+                            // eprintln!("[VAR_OPT] Converting unused var {:?} (xref: {}) to statement. ContextUsed: {}, Fences: {:?}", var_op.variable, var_op.xref.as_usize(), context_is_used, op_info.fences);
                             let stmt = (*var_op.initializer).clone().to_stmt();
                             indices_to_replace.push((index, stmt));
                         } else {
-                            eprintln!("[VAR_OPT] Removing unused variable {:#?} (xref: {}). Is remote: {}. ContextUsed: {}, Fences: {:?}", var_op.variable, var_op.xref.as_usize(), is_remote, context_is_used, op_info.fences);
+                            // eprintln!("[VAR_OPT] Removing unused variable {:#?} (xref: {}). Is remote: {}. ContextUsed: {}, Fences: {:?}", var_op.variable, var_op.xref.as_usize(), is_remote, context_is_used, op_info.fences);
                             indices_to_remove.push(index);
                             uncount_variable_usages(op.as_ref(), &mut var_usages);
                             op_map.swap_remove(&index);
@@ -767,10 +767,10 @@ fn optimize_variables_in_op_list_impl_update(
 
                         if keep_for_side_effects {
                             let stmt = (*var_op.initializer).clone().to_stmt();
-                            eprintln!("[VAR_OPT_UPDATE] Converting unused variable {:?} (xref: {}) to statement due to side effects. ContextUsed: {}, WritesCtx: {}, SideEffect: {}", var_op.variable, var_op.xref.as_usize(), context_is_used, op_info.fences.contains(Fence::VIEW_CONTEXT_WRITE), op_info.fences.contains(Fence::SIDE_EFFECTFUL));
+                            // eprintln!("[VAR_OPT_UPDATE] Converting unused variable {:?} (xref: {}) to statement due to side effects. ContextUsed: {}, WritesCtx: {}, SideEffect: {}", var_op.variable, var_op.xref.as_usize(), context_is_used, op_info.fences.contains(Fence::VIEW_CONTEXT_WRITE), op_info.fences.contains(Fence::SIDE_EFFECTFUL));
                             indices_to_replace.push((index, stmt));
                         } else {
-                            eprintln!("[VAR_OPT] Removing unused variable {:#?} (xref: {}). Is remote: {}", var_op.variable, var_op.xref.as_usize(), !var_remote_usages.contains(&var_op.xref));
+                            // eprintln!("[VAR_OPT] Removing unused variable {:#?} (xref: {}). Is remote: {}", var_op.variable, var_op.xref.as_usize(), !var_remote_usages.contains(&var_op.xref));
                             indices_to_remove.push(index);
                             uncount_variable_usages(op.as_ref(), &mut var_usages);
                             op_map.swap_remove(&index);
@@ -1468,11 +1468,11 @@ fn count_variable_usages(
             // 1. Handle regular ReadVariable usage
             // 1. Handle regular ReadVariable usage
             if let Expression::ReadVariable(read_var) = expr {
-                eprintln!(
-                    "[VAR_USAGE] Usage: xref {} in op {:?}",
-                    read_var.xref.as_usize(),
-                    op.kind()
-                );
+                // eprintln!(
+                //     "[VAR_USAGE] Usage: xref {} in op {:?}",
+                //     read_var.xref.as_usize(),
+                //     op.kind()
+                // );
                 *var_usages.entry(read_var.xref).or_insert(0) += 1;
 
                 // If we are in a child operation (like a listener) or if is_remote_context is set,
@@ -1488,11 +1488,11 @@ fn count_variable_usages(
                     match ir_expr {
                         ir::IRExpression::ReadVariable(read_var) => {
                             if let Some(count) = var_usages.get_mut(&read_var.xref) {
-                                eprintln!(
-                                    "[VAR_USAGE] Usage (IR): xref {} in op {:?}",
-                                    read_var.xref.as_usize(),
-                                    op.kind()
-                                );
+                                // eprintln!(
+                                //     "[VAR_USAGE] Usage (IR): xref {} in op {:?}",
+                                //     read_var.xref.as_usize(),
+                                //     op.kind()
+                                // );
                                 *count += 1;
                             }
 

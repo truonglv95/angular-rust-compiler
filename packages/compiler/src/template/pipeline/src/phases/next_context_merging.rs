@@ -25,17 +25,17 @@ use crate::template::pipeline::src::compilation::{
 };
 
 pub fn merge_next_context_expressions(job: &mut dyn CompilationJob) {
-    eprintln!(
-        "[MERGE_CTX_ENTRY] merge_next_context_expressions called, job kind: {:?}",
-        job.kind()
-    );
+    // eprintln!(
+    //     "[MERGE_CTX_ENTRY] merge_next_context_expressions called, job kind: {:?}",
+    //     job.kind()
+    // );
     if let Some(component_job) = unsafe {
         let job_ptr = job as *mut dyn CompilationJob;
         if job.kind() == crate::template::pipeline::src::compilation::CompilationJobKind::Tmpl {
-            eprintln!("[MERGE_CTX_ENTRY] Job is Tmpl, processing component");
+            // eprintln!("[MERGE_CTX_ENTRY] Job is Tmpl, processing component");
             Some(&mut *(job_ptr as *mut ComponentCompilationJob))
         } else {
-            eprintln!("[MERGE_CTX_ENTRY] Job is NOT Tmpl, skipping");
+            // eprintln!("[MERGE_CTX_ENTRY] Job is NOT Tmpl, skipping");
             None
         }
     } {
@@ -97,15 +97,15 @@ pub fn merge_next_context_expressions(job: &mut dyn CompilationJob) {
         // Process update operations in root
         merge_next_contexts_in_ops(component_job.root.update_mut());
 
-        eprintln!("[MERGE_CTX] Views count: {}", component_job.views.len());
+        // eprintln!("[MERGE_CTX] Views count: {}", component_job.views.len());
 
         // Process update operations in embedded views
         for (view_xref, view) in component_job.views.iter_mut() {
-            eprintln!(
-                "[MERGE_CTX] Processing View {:?} with {} ops",
-                view_xref,
-                view.update().len()
-            );
+            // eprintln!(
+            //     "[MERGE_CTX] Processing View {:?} with {} ops",
+            //     view_xref,
+            //     view.update().len()
+            // );
             merge_next_contexts_in_ops(view.update_mut());
         }
     }
@@ -115,14 +115,14 @@ fn merge_next_contexts_in_ops(ops: &mut ir::OpList<Box<dyn ir::UpdateOp + Send +
     let mut indices_to_remove = Vec::new();
     let mut candidate_info = Vec::new();
 
-    eprintln!(
-        "[MERGE_CTX] Starting merge_next_contexts_in_ops with {} ops",
-        ops.len()
-    );
+    // eprintln!(
+    //     "[MERGE_CTX] Starting merge_next_contexts_in_ops with {} ops",
+    //     ops.len()
+    // );
 
     // First pass: collect candidate operations (StatementOp with NextContextExpr)
     for (idx, op) in ops.iter().enumerate() {
-        eprintln!("[MERGE_CTX] Checking op {} kind: {:?}", idx, op.kind());
+        // eprintln!("[MERGE_CTX] Checking op {} kind: {:?}", idx, op.kind());
 
         unsafe {
             let op_ptr = op.as_ref() as *const dyn ir::Op;
@@ -135,10 +135,10 @@ fn merge_next_contexts_in_ops(ops: &mut ir::OpList<Box<dyn ir::UpdateOp + Send +
                 if let Statement::Expression(ref expr_stmt) = *stmt_op.statement {
                     if let Some(ir_expr) = as_ir_expression(&expr_stmt.expr) {
                         if let ir::IRExpression::NextContext(ref next_ctx) = ir_expr {
-                            eprintln!(
-                                "[MERGE_CTX] Found NextContext (Statement) at idx {} steps: {}",
-                                idx, next_ctx.steps
-                            );
+                            // eprintln!(
+                            //     "[MERGE_CTX] Found NextContext (Statement) at idx {} steps: {}",
+                            //     idx, next_ctx.steps
+                            // );
                             candidate_info.push((idx, next_ctx.steps));
                         }
                     }
@@ -152,21 +152,21 @@ fn merge_next_contexts_in_ops(ops: &mut ir::OpList<Box<dyn ir::UpdateOp + Send +
                 if let Some(ir_expr) = as_ir_expression(&var_op.initializer) {
                     match ir_expr {
                         ir::IRExpression::NextContext(ref next_ctx) => {
-                            eprintln!(
-                                "[MERGE_CTX] Found NextContext (Variable) at idx {} steps: {}",
-                                idx, next_ctx.steps
-                            );
+                            // eprintln!(
+                            //     "[MERGE_CTX] Found NextContext (Variable) at idx {} steps: {}",
+                            //     idx, next_ctx.steps
+                            // );
                             candidate_info.push((idx, next_ctx.steps));
                         }
                         _ => {
-                            eprintln!("[MERGE_CTX] Variable op idx {} has IR expr but not NextContext: {:?}", idx, ir_expr);
+                            // eprintln!("[MERGE_CTX] Variable op idx {} has IR expr but not NextContext: {:?}", idx, ir_expr);
                         }
                     }
                 } else {
-                    eprintln!(
-                        "[MERGE_CTX] Variable op idx {} initializer is NOT an IR expr. It is: {:?}",
-                        idx, var_op.initializer
-                    );
+                    // eprintln!(
+                    //     "[MERGE_CTX] Variable op idx {} initializer is NOT an IR expr. It is: {:?}",
+                    //     idx, var_op.initializer
+                    // );
                 }
             }
         }

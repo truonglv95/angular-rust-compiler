@@ -208,10 +208,10 @@ impl ComponentDecoratorHandler {
                 }
             }
         };
-        eprintln!(
-            "DEBUG: [handler] Project root for ModuleMetadataReader: {}",
-            project_root.display()
-        );
+        // eprintln!(
+        //     "DEBUG: [handler] Project root for ModuleMetadataReader: {}",
+        //     project_root.display()
+        // );
         let metadata_reader = ModuleMetadataReader::new(&project_root);
 
         let (nodes, ng_content_selectors, preserve_whitespaces, styles) = if let Some(ast) =
@@ -331,14 +331,14 @@ impl ComponentDecoratorHandler {
                 // 3. If no module_path (local), use ReadVar expression directly
 
                 if let Some(path) = &module_path {
-                    eprintln!("DEBUG: [handler] checking module path: {}", path);
+                    // eprintln!("DEBUG: [handler] checking module path: {}", path);
                     // External module - try dynamic loading first
                     if let Some(dynamic_deps) = metadata_reader.read_metadata(path) {
-                        eprintln!(
-                            "DEBUG: [handler] read_metadata success for {}. Found {} deps",
-                            path,
-                            dynamic_deps.len()
-                        );
+                        // eprintln!(
+                        //     "DEBUG: [handler] read_metadata success for {}. Found {} deps",
+                        //     path,
+                        //     dynamic_deps.len()
+                        // );
                         let mut matched_specific_symbol = false;
                         let mut matched_symbol_is_module = false;
 
@@ -346,18 +346,18 @@ impl ComponentDecoratorHandler {
                             // Check if this metadata corresponds to the imported symbol
                             let meta_name = match &meta {
                                 R3TemplateDependencyMetadata::Directive(d) => {
-                                    eprintln!(
-                                        "DEBUG: [handler] Found Directive in metadata: selector={}",
-                                        d.selector
-                                    );
+                                    // eprintln!(
+                                    //     "DEBUG: [handler] Found Directive in metadata: selector={}",
+                                    //     d.selector
+                                    // );
                                     Some(&d.type_)
                                 }
                                 R3TemplateDependencyMetadata::Pipe(p) => Some(&p.type_),
                                 R3TemplateDependencyMetadata::NgModule(m) => {
-                                    eprintln!(
-                                        "DEBUG: [handler] Found NgModule in metadata: {:?}",
-                                        m.type_
-                                    );
+                                    // eprintln!(
+                                    //     "DEBUG: [handler] Found NgModule in metadata: {:?}",
+                                    //     m.type_
+                                    // );
                                     Some(&m.type_)
                                 }
                             }

@@ -160,11 +160,11 @@ pub fn emit_component(
     }
 
     // Emit root template as inline FunctionExpr
-    eprintln!(
-        "[EMIT_DEBUG] emit_component: job.root create ops: {}, update ops: {}",
-        job.root.create().len(),
-        job.root.update().len()
-    );
+    // eprintln!(
+    //     "[EMIT_DEBUG] emit_component: job.root create ops: {}, update ops: {}",
+    //     job.root.create().len(),
+    //     job.root.update().len()
+    // );
     let template_fn = emit_view(job, &job.root);
 
     // Construct data for defineComponent
@@ -392,11 +392,11 @@ pub fn emit_component(
 
     // contentQueries function for @ContentChild/@ContentChildren
     if !metadata.directive.queries.is_empty() {
-        eprintln!(
-            "[EMIT] Generating content queries for component: {} ({} queries)",
-            metadata.directive.name,
-            metadata.directive.queries.len()
-        );
+        // eprintln!(
+        //     "[EMIT] Generating content queries for component: {} ({} queries)",
+        //     metadata.directive.name,
+        //     metadata.directive.queries.len()
+        // );
 
         let mut constant_pool = crate::constant_pool::ConstantPool::new(false);
         let content_queries_fn =
@@ -578,21 +578,21 @@ pub fn emit_component(
     if !metadata.declarations.is_empty() {
         let mut dep_exprs: Vec<o::Expression> = vec![];
 
-        eprintln!("[EMIT] Declarations count: {}", metadata.declarations.len());
-        eprintln!("[EMIT] Used dependencies: {:?}", job.used_dependencies);
+        // eprintln!("[EMIT] Declarations count: {}", metadata.declarations.len());
+        // eprintln!("[EMIT] Used dependencies: {:?}", job.used_dependencies);
 
         for (i, decl) in metadata.declarations.iter().enumerate() {
             if let R3TemplateDependencyMetadata::Directive(d) = decl {
-                eprintln!(
-                    "[EMIT] Decl {}: {} (selector: {})",
-                    i,
-                    if d.is_component {
-                        "Component"
-                    } else {
-                        "Directive"
-                    },
-                    d.selector
-                );
+                // eprintln!(
+                //     "[EMIT] Decl {}: {} (selector: {})",
+                //     i,
+                //     if d.is_component {
+                //         "Component"
+                //     } else {
+                //         "Directive"
+                //     },
+                //     d.selector
+                // );
             }
 
             let is_used = job.used_dependencies.contains(&i);
@@ -601,10 +601,10 @@ pub fn emit_component(
             if is_used || is_module {
                 let expr = match decl {
                     R3TemplateDependencyMetadata::Directive(dir) => {
-                        eprintln!(
-                            "[EMIT] Adding used directive {} to dependencies: {}",
-                            i, dir.selector
-                        );
+                        // eprintln!(
+                        //     "[EMIT] Adding used directive {} to dependencies: {}",
+                        //     i, dir.selector
+                        // );
                         dir.type_.clone()
                     }
                     R3TemplateDependencyMetadata::Pipe(pipe) => pipe.type_.clone(),
@@ -670,7 +670,7 @@ pub fn emit_ops(
     let mut stmts = vec![];
 
     for op in ops {
-        eprintln!("[EMIT_DEBUG_OP] OpKind: {:?}", op.kind());
+        // eprintln!("[EMIT_DEBUG_OP] OpKind: {:?}", op.kind());
         match op.kind() {
             ir::OpKind::ElementStart => {
                 if let Some(element_op) = op
@@ -680,13 +680,13 @@ pub fn emit_ops(
                     let index = element_op.base.base.handle.get_slot().unwrap();
                     // Handle tag which might be Option<String>
                     let mut tag = element_op.base.tag.clone().unwrap_or("div".to_string());
-                    println!(
-                        "[EMIT_DEBUG_OP] OpKind: ElementStart tag={} index={}",
-                        tag, index
-                    );
+                    // println!(
+                    //     "[EMIT_DEBUG_OP] OpKind: ElementStart tag={} index={}",
+                    //     tag, index
+                    // );
 
                     if tag == "mat-label" {
-                        eprintln!("[EMIT] mat-label index={}", index);
+                        // eprintln!("[EMIT] mat-label index={}", index);
                     }
                     // eprintln!("[EMIT_ALL] tag={} index={}", tag, index);
 
@@ -776,14 +776,14 @@ pub fn emit_ops(
 
             // Handle empty container (OpKind::Container)
             ir::OpKind::Container => {
-                eprintln!("[EMIT_DEBUG] OpKind::Container found. Debug: {:?}", op);
+                // eprintln!("[EMIT_DEBUG] OpKind::Container found. Debug: {:?}", op);
                 if let Some(container_op) =
                     op.as_any().downcast_ref::<ir::ops::create::ContainerOp>()
                 {
-                    eprintln!(
-                        "[EMIT] Handling Container op for slot {}",
-                        container_op.base.handle.get_slot().unwrap()
-                    );
+                    // eprintln!(
+                    //     "[EMIT] Handling Container op for slot {}",
+                    //     container_op.base.handle.get_slot().unwrap()
+                    // );
                     let index = container_op.base.handle.get_slot().unwrap();
                     let mut args = vec![*o::literal(index as f64)];
 
@@ -820,10 +820,10 @@ pub fn emit_ops(
                     .as_any()
                     .downcast_ref::<ir::ops::create::ContainerStartOp>()
                 {
-                    eprintln!(
-                        "[EMIT] Handling ContainerStart op for slot {}",
-                        container_op.base.handle.get_slot().unwrap()
-                    );
+                    // eprintln!(
+                    //     "[EMIT] Handling ContainerStart op for slot {}",
+                    //     container_op.base.handle.get_slot().unwrap()
+                    // );
                     let index = container_op.base.handle.get_slot().unwrap();
                     let mut args = vec![*o::literal(index as f64)];
 
@@ -1409,7 +1409,14 @@ pub fn emit_ops(
 
                     // Add event target if present (e.g., "document:click")
                     if let Some(ref event_target) = listener_op.event_target {
-                        args.push(*o::literal(event_target.to_string()));
+                        let target_expr = match event_target.as_str() {
+                            "window" => *o::import_ref(R3::resolve_window()),
+                            "document" => *o::import_ref(R3::resolve_document()),
+                            "body" => *o::import_ref(R3::resolve_body()),
+                            _ => *o::literal(event_target.to_string()),
+                        };
+                        args.push(*o::literal(false)); // useCapture = false
+                        args.push(target_expr);
                     }
 
                     stmts.push(o::Statement::Expression(o::ExpressionStatement {
@@ -1729,7 +1736,28 @@ pub fn emit_host_binding_function(job: &HostBindingCompilationJob) -> Option<o::
                 let mut args = vec![*o::literal(event_name.to_string()), handler_fn];
 
                 if let Some(ref event_target) = listener_op.event_target {
-                    args.push(*o::literal(event_target.to_string()));
+                    {
+                        use std::io::Write;
+                        let mut f = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open("/tmp/linker.log")
+                            .unwrap();
+                        writeln!(
+                            f,
+                            "[DEBUG] emit_host_binding_function: event_target={}",
+                            event_target
+                        )
+                        .unwrap();
+                    }
+                    let target_expr = match event_target.as_str() {
+                        "window" => *o::import_ref(R3::resolve_window()),
+                        "document" => *o::import_ref(R3::resolve_document()),
+                        "body" => *o::import_ref(R3::resolve_body()),
+                        _ => *o::literal(event_target.to_string()),
+                    };
+                    args.push(*o::literal(false)); // useCapture = false
+                    args.push(target_expr);
                 }
 
                 create_stmts.push(o::Statement::Expression(o::ExpressionStatement {

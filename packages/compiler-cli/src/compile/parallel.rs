@@ -11,10 +11,10 @@ pub fn parallel_compile(
     project_path: &Path,
 ) -> anyhow::Result<Vec<(PathBuf, String)>> {
     let start = Instant::now();
-    println!(
-        "Compiling {} files in parallel (via NgCompiler)...",
-        files.len()
-    );
+    // println!(
+    //     "Compiling {} files in parallel (via NgCompiler)...",
+    //     files.len()
+    // );
 
     let root_names: Vec<String> = files
         .iter()
@@ -34,16 +34,16 @@ pub fn parallel_compile(
     let mut program = NgtscProgram::new(root_names, options, &capturing_fs);
 
     // Initial analysis
-    eprintln!("Analyzing structure... Files: {}", files.len());
+    // eprintln!("Analyzing structure... Files: {}", files.len());
     if !files.is_empty() {
-        eprintln!("First file: {:?}", files[0]);
+        // eprintln!("First file: {:?}", files[0]);
     }
     program
         .load_ng_structure(project_path)
         .map_err(|e| anyhow::anyhow!(e))?;
 
     // Emit (compilation)
-    eprintln!("Emitting code...");
+    // eprintln!("Emitting code...");
 
     let diagnostics = program.emit().map_err(|e| anyhow::anyhow!(e))?;
 
@@ -53,7 +53,7 @@ pub fn parallel_compile(
         }
     }
 
-    eprintln!("Compilation finished in {:?}", start.elapsed());
+    // eprintln!("Compilation finished in {:?}", start.elapsed());
 
     // Collect outputs from capturing_fs
     let mut results = Vec::new();

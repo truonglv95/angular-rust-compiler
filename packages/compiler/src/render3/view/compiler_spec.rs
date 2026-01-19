@@ -247,7 +247,7 @@ fn should_emit_inherit_definition_feature_and_host_attrs_for_directive() {
             assert!(host_attrs.is_some(), "Should have hostAttrs property");
 
             if let Some(host_attrs_entry) = host_attrs {
-                println!("Directive hostAttrs: {:?}", host_attrs_entry.value);
+                // println!("Directive hostAttrs: {:?}", host_attrs_entry.value);
                 // Verify exact content of hostAttrs to match MatButton expectation
                 if let Expression::LiteralArray(arr) = &*host_attrs_entry.value {
                     // Expect ["matButton", "", 1, "mdc-button"]
@@ -258,7 +258,7 @@ fn should_emit_inherit_definition_feature_and_host_attrs_for_directive() {
             let host_vars = map.entries.iter().find(|e| e.key == "hostVars");
             // With [disabled] binding, we expect hostVars to be present
             if let Some(host_vars_entry) = host_vars {
-                println!("Directive hostVars: {:?}", host_vars_entry.value);
+                // println!("Directive hostVars: {:?}", host_vars_entry.value);
                 if let Expression::Literal(lit) = &*host_vars_entry.value {
                     if let crate::output::output_ast::LiteralValue::Number(n) = lit.value {
                         assert_eq!(n, 1.0, "Expected hostVars to be 1");
@@ -332,7 +332,7 @@ fn should_emit_constant_host_class_binding_as_host_attr() {
             let host_bindings = map.entries.iter().find(|e| e.key == "hostBindings");
 
             if let Some(host_bindings_entry) = host_bindings {
-                println!("Directive hostBindings: {:?}", host_bindings_entry.value);
+                // println!("Directive hostBindings: {:?}", host_bindings_entry.value);
                 // hostBindings should be a function
                 if let Expression::Fn(func) = &*host_bindings_entry.value {
                     // Verify statements in hostBindings contains classMap
@@ -504,7 +504,7 @@ fn should_compile_host_bindings_for_mat_divider() {
             // Check hostBindings
             let host_bindings = map.entries.iter().find(|e| e.key == "hostBindings");
             if let Some(host_bindings_entry) = host_bindings {
-                println!("hostBindings: {:?}", host_bindings_entry.value);
+                // println!("hostBindings: {:?}", host_bindings_entry.value);
                 // Should be a function
                 assert!(matches!(&*host_bindings_entry.value, Expression::Fn(_)));
             } else {
@@ -514,7 +514,7 @@ fn should_compile_host_bindings_for_mat_divider() {
             // Check hostVars
             let host_vars = map.entries.iter().find(|e| e.key == "hostVars");
             if let Some(host_vars_entry) = host_vars {
-                println!("hostVars: {:?}", host_vars_entry.value);
+                // println!("hostVars: {:?}", host_vars_entry.value);
                 if let Expression::Literal(lit) = &*host_vars_entry.value {
                     if let crate::output::output_ast::LiteralValue::Number(n) = lit.value {
                         // Expect 7 vars (1 for attr, 2 for each class binding? No.

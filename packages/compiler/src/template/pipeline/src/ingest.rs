@@ -387,10 +387,10 @@ fn maybe_record_directive_usage(
                 t::TemplateAttr::Bound(ba) => format!("bound:{}", ba.name),
             })
             .collect();
-        eprintln!(
-            "[INGEST] maybe_record_directive_usage: tag={}, inputs={:?}, template_attrs={:?}",
-            tag_name, input_names, tmpl_attr_names
-        );
+        // eprintln!(
+        //     "[INGEST] maybe_record_directive_usage: tag={}, inputs={:?}, template_attrs={:?}",
+        //     tag_name, input_names, tmpl_attr_names
+        // );
     }
 
     // Reset and populate temp_selector
@@ -541,9 +541,9 @@ fn ingest_template(
 ) {
     // DEBUG: Print tag_name
     if let Some(tag_name) = &tmpl.tag_name {
-        eprintln!("DEBUG: ingest_template tag_name: {}", tag_name);
+        // eprintln!("DEBUG: ingest_template tag_name: {}", tag_name);
     } else {
-        eprintln!("DEBUG: ingest_template tag_name: None");
+        // eprintln!("DEBUG: ingest_template tag_name: None");
     }
 
     // Check i18n metadata
@@ -592,11 +592,11 @@ fn ingest_template(
 
     // Debug: Log structural template info unconditionally
     if template_kind == ir::TemplateKind::Structural {
-        eprintln!(
-            "[INGEST] Structural template tag: {:?}, children count: {}",
-            tag_name_without_namespace,
-            tmpl.children.len()
-        );
+        // eprintln!(
+        //     "[INGEST] Structural template tag: {:?}, children count: {}",
+        //     tag_name_without_namespace,
+        //     tmpl.children.len()
+        // );
     }
 
     if tag_name_without_namespace.is_none() {
@@ -612,10 +612,10 @@ fn ingest_template(
                 _ => "Other".to_string(),
             })
             .collect();
-        eprintln!(
-            "[INGEST] Structural template children detail: {:?}",
-            children_debug
-        );
+        // eprintln!(
+        //     "[INGEST] Structural template children detail: {:?}",
+        //     children_debug
+        // );
 
         // Filter out comments and whitespace-only text to find the single logical child
         let relevant_children: Vec<&t::R3Node> = tmpl
@@ -631,10 +631,10 @@ fn ingest_template(
         if relevant_children.len() == 1 {
             if let t::R3Node::Template(inner_tmpl) = relevant_children[0] {
                 // Debug: Log inner template tag
-                eprintln!("[INGEST] Inner template tag: {:?}", inner_tmpl.tag_name);
+                // eprintln!("[INGEST] Inner template tag: {:?}", inner_tmpl.tag_name);
                 if inner_tmpl.tag_name.as_deref() == Some("ng-template") {
                     tag_name_without_namespace = Some("ng-template".to_string());
-                    eprintln!("[INGEST] Propagated 'ng-template' tag to structural wrapper for correct binding extraction.");
+                    // eprintln!("[INGEST] Propagated 'ng-template' tag to structural wrapper for correct binding extraction.");
                 }
             }
         }
@@ -661,10 +661,10 @@ fn ingest_template(
     );
     template_op_struct.base.has_directives = has_directives;
     if template_kind == ir::TemplateKind::NgTemplate && has_directives {
-        eprintln!(
-            "[INGEST_TMPL] Created NgTemplate OP with has_directives=true for xref {:?}",
-            child_view_xref
-        );
+        // eprintln!(
+        //     "[INGEST_TMPL] Created NgTemplate OP with has_directives=true for xref {:?}",
+        //     child_view_xref
+        // );
     }
 
     // Get handle from struct before boxing based on trait
@@ -2077,7 +2077,7 @@ fn ingest_for_block(
         }
 
         // Always add special internal variables for index/count to ensure aliases works
-        eprintln!("[RUST_DEBUG] Adding implicit context variables for repeater view {}: {} -> $index, {} -> $count", repeater_view_xref.as_usize(), index_name, count_name);
+        // eprintln!("[RUST_DEBUG] Adding implicit context variables for repeater view {}: {} -> $index, {} -> $count", repeater_view_xref.as_usize(), index_name, count_name);
         repeater_view
             .context_variables
             .insert(index_name.clone(), "$index".to_string());
@@ -3187,13 +3187,13 @@ fn ingest_template_bindings(
                         };
 
                     let const_collection_kind = if is_ng_template_wrapper {
-                        eprintln!("[INGEST] Using Property for structural directive on ng-template (wrapper detected): {}", bound_attr.name);
+                        // eprintln!("[INGEST] Using Property for structural directive on ng-template (wrapper detected): {}", bound_attr.name);
                         ir::BindingKind::Property
                     } else {
-                        eprintln!(
-                            "[INGEST] Using Template for structural directive on {:?}: {}",
-                            tmpl.tag_name, bound_attr.name
-                        );
+                        // eprintln!(
+                        //     "[INGEST] Using Template for structural directive on {:?}: {}",
+                        //     tmpl.tag_name, bound_attr.name
+                        // );
                         ir::BindingKind::Template
                     };
 

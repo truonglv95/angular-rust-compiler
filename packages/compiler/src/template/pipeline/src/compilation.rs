@@ -172,25 +172,25 @@ impl ComponentCompilationJob {
     }
 
     fn create_selector_matcher(deps: &Vec<R3TemplateDependencyMetadata>) -> SelectorMatcher<usize> {
-        eprintln!(
-            "[MATCHER] create_selector_matcher called with {} dependencies",
-            deps.len()
-        );
+        // eprintln!(
+        //     "[MATCHER] create_selector_matcher called with {} dependencies",
+        //     deps.len()
+        // );
         let mut matcher = SelectorMatcher::new();
         for (i, dep) in deps.iter().enumerate() {
             if let R3TemplateDependencyMetadata::Directive(dir) = dep {
                 match CssSelector::parse(&dir.selector) {
                     Ok(selectors) => {
                         for selector in selectors {
-                            eprintln!(
-                                "[MATCHER] Registering directive: {} with selector: {}",
-                                i, dir.selector
-                            );
+                            // eprintln!(
+                            //     "[MATCHER] Registering directive: {} with selector: {}",
+                            //     i, dir.selector
+                            // );
                             matcher.add_selectable(selector, i);
                         }
                     }
                     Err(_) => {
-                        eprintln!("[MATCHER] Error parsing selector: {}", dir.selector);
+                        // eprintln!("[MATCHER] Error parsing selector: {}", dir.selector);
                     }
                 }
             }

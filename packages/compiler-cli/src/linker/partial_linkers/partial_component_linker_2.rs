@@ -65,9 +65,9 @@ impl PartialComponentLinker2 {
         let selector = meta_obj.get_string("selector").ok();
         let mut template_str = meta_obj.get_string("template").unwrap_or_default();
 
-        eprintln!("[Linker2] Processing component: {}", type_name_str);
+        // eprintln!("[Linker2] Processing component: {}", type_name_str);
         if type_name_str.contains("MatTree") {
-            eprintln!("[Linker2] MatTree template: {}", template_str);
+            // eprintln!("[Linker2] MatTree template: {}", template_str);
         }
 
         if template_str.is_empty() {}
@@ -208,10 +208,10 @@ impl PartialComponentLinker2 {
         );
 
         if type_name_str.contains("MatTree") {
-            eprintln!(
-                "[Linker2] Parsed MatTree template. Nodes: {}",
-                parsed_template.nodes.len()
-            );
+            // eprintln!(
+            //     "[Linker2] Parsed MatTree template. Nodes: {}",
+            //     parsed_template.nodes.len()
+            // );
         }
 
         // Inputs
@@ -404,7 +404,7 @@ impl PartialComponentLinker2 {
                     let q_obj = q.get_object()?;
                     let property_name = q_obj.get_string("propertyName")?;
                     let is_signal = q_obj.get_bool("isSignal").unwrap_or(false);
-                    eprintln!("[Linker Debug] Query {} isSignal: {}", property_name, is_signal);
+                    // eprintln!("[Linker Debug] Query {} isSignal: {}", property_name, is_signal);
                     let first = q_obj.get_bool("first").unwrap_or(false);
                     let predicate = if q_obj.has("predicate") {
                         let p = q_obj.get_value("predicate")?;
@@ -681,7 +681,7 @@ impl PartialComponentLinker2 {
                 // Handle dependencies: () => [...]
                 if val.host.is_function_expression(&val.node) {
                     if let Ok(ret_val) = val.host.parse_return_value(&val.node) {
-                        eprintln!("[Linker Debug] Unwrapped dependencies function");
+                        // eprintln!("[Linker Debug] Unwrapped dependencies function");
                         if val.host.is_array_literal(&ret_val) {
                             if let Ok(items) = val.host.parse_array_literal(&ret_val) {
                                 Some(
@@ -694,13 +694,13 @@ impl PartialComponentLinker2 {
                                 None
                             }
                         } else {
-                            eprintln!("[Linker Debug] Dependencies function did not return array");
+                            // eprintln!("[Linker Debug] Dependencies function did not return array");
                             None
                         }
                     } else {
-                        eprintln!(
-                            "[Linker Debug] Failed to parse return value of dependencies function"
-                        );
+                        // eprintln!(
+                        //     "[Linker Debug] Failed to parse return value of dependencies function"
+                        // );
                         None
                     }
                 } else {
@@ -813,10 +813,10 @@ impl PartialComponentLinker2 {
                                 }
                             }
                         }
-                        eprintln!(
-                            "[Linker Debug] Parsed inputs for selector '{}': {:?}",
-                            selector, inputs
-                        );
+                        // eprintln!(
+                        //     "[Linker Debug] Parsed inputs for selector '{}': {:?}",
+                        //     selector, inputs
+                        // );
 
                         let mut outputs = Vec::new();
                         if let Ok(outputs_arr) = dep_obj.get_array("outputs") {
@@ -870,15 +870,15 @@ impl PartialComponentLinker2 {
 
         // Parse hostDirectives
         let host_directives = if meta_obj.has("hostDirectives") {
-            eprintln!(
-                "[Linker Debug] Found hostDirectives in component: {}",
-                type_name_str
-            );
+            // eprintln!(
+            //     "[Linker Debug] Found hostDirectives in component: {}",
+            //     type_name_str
+            // );
             if let Ok(directives_arr) = meta_obj.get_array("hostDirectives") {
-                eprintln!(
-                    "[Linker Debug] hostDirectives array length: {}",
-                    directives_arr.len()
-                );
+                // eprintln!(
+                //     "[Linker Debug] hostDirectives array length: {}",
+                //     directives_arr.len()
+                // );
                 let directives_vec = directives_arr
                     .iter()
                     .map(|d| {
@@ -888,11 +888,11 @@ impl PartialComponentLinker2 {
                         let mut is_forward_reference = false;
 
                         if let Ok(d_obj) = d.get_object() {
-                            eprintln!("[Linker Debug] Processing hostDirective object");
+                            // eprintln!("[Linker Debug] Processing hostDirective object");
                             // Object format: { directive: Type, inputs: [], outputs: [] }
                             let dir_node = d_obj.get_value("directive")?;
                             let dir_str = meta_obj.host.print_node(&dir_node.node);
-                            eprintln!("[Linker Debug] Directive type string: {}", dir_str);
+                            // eprintln!("[Linker Debug] Directive type string: {}", dir_str);
 
                             let wrapped_dir = if let Some((alias, name)) = dir_str.split_once('.') {
                                 o::Expression::ReadProp(o::ReadPropExpr {
@@ -1001,7 +1001,7 @@ impl PartialComponentLinker2 {
 
                 Some(directives_vec)
             } else {
-                eprintln!("[Linker Debug] hostDirectives is not an array");
+                // eprintln!("[Linker Debug] hostDirectives is not an array");
                 None
             }
         } else {
@@ -1270,7 +1270,7 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialComponentLinker
                         vec![],
                     );
 
-                eprintln!("[Linker CHECKPOINT] About to call compile_component_from_metadata. Queries count: {}", meta.directive.queries.len());
+                // eprintln!("[Linker CHECKPOINT] About to call compile_component_from_metadata. Queries count: {}", meta.directive.queries.len());
                 let res =
                     compile_component_from_metadata(&meta, constant_pool, &mut binding_parser);
 
@@ -1326,37 +1326,37 @@ fn convert_dependency_expression<TExpression: AstNode>(
             let callee_str = host.print_node(&callee_node);
 
             // Unconditional Debug Log
-            eprintln!(
-                "[Linker Debug] convert_dependency_expression callee: {}",
-                callee_str
-            );
+            // eprintln!(
+            //     "[Linker Debug] convert_dependency_expression callee: {}",
+            //     callee_str
+            // );
 
             if callee_str.ends_with("forwardRef") {
-                eprintln!("[Linker Debug] Found forwardRef call: {}", callee_str);
+                // eprintln!("[Linker Debug] Found forwardRef call: {}", callee_str);
 
                 if let Ok(args) = host.parse_arguments(node) {
                     if let Some(arg) = args.first() {
-                        eprintln!("[Linker Debug] forwardRef has argument");
+                        // eprintln!("[Linker Debug] forwardRef has argument");
                         if host.is_function_expression(arg) {
-                            eprintln!("[Linker Debug] Argument is function expression");
+                            // eprintln!("[Linker Debug] Argument is function expression");
                             match host.parse_return_value(arg) {
                                 Ok(ret_val) => {
                                     let ret_str = host.print_node(&ret_val);
-                                    eprintln!("[Linker Debug] Parsed return value: {}", ret_str);
+                                    // eprintln!("[Linker Debug] Parsed return value: {}", ret_str);
                                     return convert_dependency_expression(host, &ret_val);
                                 }
                                 Err(e) => {
-                                    eprintln!("[Linker Debug] Failed to parse return value: {}", e);
+                                    // eprintln!("[Linker Debug] Failed to parse return value: {}", e);
                                 }
                             }
                         } else {
-                            eprintln!("[Linker Debug] Argument is NOT function expression");
+                            // eprintln!("[Linker Debug] Argument is NOT function expression");
                         }
                     } else {
-                        eprintln!("[Linker Debug] No arguments");
+                        // eprintln!("[Linker Debug] No arguments");
                     }
                 } else {
-                    eprintln!("[Linker Debug] Failed to parse arguments");
+                    // eprintln!("[Linker Debug] Failed to parse arguments");
                 }
             }
 
@@ -1397,10 +1397,10 @@ fn convert_dependency_expression<TExpression: AstNode>(
     }
 
     let type_str = host.print_node(node);
-    eprintln!(
-        "[Linker Debug] Converting dependency expression: {}",
-        type_str
-    );
+    // eprintln!(
+    //     "[Linker Debug] Converting dependency expression: {}",
+    //     type_str
+    // );
 
     if let Some((lhs, rhs)) = type_str.split_once('.') {
         o::Expression::ReadProp(o::ReadPropExpr {
