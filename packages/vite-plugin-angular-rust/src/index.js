@@ -135,11 +135,12 @@ export default function angularRustPlugin(options = {}) {
             const startTime = Date.now();
             const result = compiler.bundle(configFile);
 
+            // Stats Output
+            // Stats Output
+            printBuildStats(result, Date.now() - startTime);
+
             const files = result.files || {};
             const fileCount = Object.keys(files).length;
-            const duration = ((Date.now() - startTime) / 1000).toFixed(3);
-            const timestamp = new Date().toISOString();
-            console.log(`Application bundle generation complete. [${duration} seconds] - ${timestamp}`);
 
             if (fileCount === 0) {
                 const bundle = result.bundleJs || result.bundle_js || '';
@@ -307,7 +308,8 @@ export default function angularRustPlugin(options = {}) {
                      const sourcePath = path.resolve(projectRoot, sourceRelPath);
 
                      if (fs.existsSync(sourcePath)) {
-                         // console.log(`[rustBundlePlugin] Lazy compiling new file: ${sourcePath} -> ${jsKey}`);
+                         // Lazy Compile Instrumentation
+                         const lazyStartTime = Date.now();
                          try {
                              const content = fs.readFileSync(sourcePath, 'utf8');
                              const result = compiler.compile(sourcePath, content);
@@ -315,6 +317,22 @@ export default function angularRustPlugin(options = {}) {
                                  if (bundleCache.files) {
                                      bundleCache.files[jsKey] = result.code;
                                  }
+
+                                 // Log Lazy Compile Stats
+                                 const durationMs = Date.now() - lazyStartTime;
+                                 const durationSeconds = (durationMs / 1000).toFixed(3);
+                                 const size = Buffer.byteLength(result.code, 'utf8');
+                                 const formattedSize = formatSize(size);
+                                 const timestamp = new Date().toISOString();
+                                 
+                                 // ANSI Colors (reusing logic if possible, or re-defining for safety in this scope)
+                                 const env = process.env;
+                                 const isColorSupported = !env.NO_COLOR && (env.FORCE_COLOR || (process.stdout.isTTY && env.TERM !== 'dumb'));
+                                 const cyan = (s) => isColorSupported ? `\x1b[36m${s}\x1b[39m` : s;
+                                 const dim = (s) => isColorSupported ? `\x1b[2m${s}\x1b[22m` : s;
+                                 const green = (s) => isColorSupported ? `\x1b[32m${s}\x1b[39m` : s;
+
+                                 console.log(`\nLazy chunk compiled: ${green(path.basename(jsKey))} | ${dim(formattedSize)} | [${cyan(durationSeconds + ' s')}] - ${timestamp}`);
                              }
                          } catch (e) {
                              console.error(`[rustBundlePlugin] Lazy compile failed for ${sourceRelPath}:`, e);
@@ -339,15 +357,19 @@ export default function angularRustPlugin(options = {}) {
                 if (bundleCache.files[key + '.js']) return '\0' + key + '.js';
             }
 
+            // Try match in chunks (for lazy loaded modules)
+            if (bundleCache?.chunks) {
+                // key might be "chunk-name.js" or "dist/chunk-name.js"
+                const chunkKey = key.replace(/^dist\//, '');
+                if (bundleCache.chunks[chunkKey]) return '\0Chunk:' + chunkKey;
+            }
+
             return null;
         },
 
         async transform(code, id) {
-            // if (id.includes('primeng')) {
-            //     console.log('[Vite Debug] UNCONDITIONAL primeng transform:', id);
-            // }
-
-            if (!global.transformCount) global.transformCount = 0;
+             // ... existing transform logic ... (omitted for brevity in replacement if unchanged)
+             if (!global.transformCount) global.transformCount = 0;
             if (global.transformCount < 100) {
                 // console.log('[Vite Transform] ID:', id);
                 global.transformCount++;
@@ -357,29 +379,7 @@ export default function angularRustPlugin(options = {}) {
             }
             // Link Angular libraries from node_modules
             if (id.includes('node_modules') && !id.endsWith('.css') && !id.endsWith('.scss')) {
-                // if (id.includes('primeng')) {
-                //      console.log('[Vite Debug] Transform processing primeng file:', id);
-                // }
-
-                // Check if file contains Angular partial declaration markers
-                if (code.includes('ɵɵngDeclare')) {
-                    // if (id.includes('primeng-datepicker.mjs')) {
-                    //     console.log('[Vite Debug] Linking DatePicker:', id);
-                    // }
-                    // if (id.includes('primeng-table.mjs') ) {
-                    //      console.log('[Vite Debug] Linking p-table:', id);
-                    //      console.log('[Vite Debug] Code length:', code.length);
-                    //      console.log('[Vite Debug] Has ɵɵngDeclareComponent:', code.includes('ɵɵngDeclareComponent'));
-                    // }
-                    // if (id.includes('primeng-button.mjs') || id.includes('button.mjs')) {
-                    //      console.log('[Vite Debug] Linking p-button:', id);
-                    // }
-                    //  if (id.includes('ngx-toastr')) {
-                    //      console.log('[Vite Debug] Linking ngx-toastr:', id);
-                    //  }
-                    //  if (id.includes('ngx-charts')) {
-                    //      console.log('[Vite Debug] Linking ngx-charts:', id);
-                    //  }
+                 if (code.includes('ɵɵngDeclare')) {
                      try {
                         let result = compiler.linkFile(id, code);
                         if (result.startsWith('/* Linker Error')) {
@@ -387,6 +387,10 @@ export default function angularRustPlugin(options = {}) {
                             return null;
                         }
                         if (result !== code) {
+                            if (id.includes('template-outlet-test.component.ts')) {
+                                console.log('[Debugging ReferenceError] Transformed code for:', id);
+                                console.log(result);
+                            }
                             return `/* LINKED BY RUST LINKER */\n${result}`;
                         }
                     } catch (e) {
@@ -402,33 +406,45 @@ export default function angularRustPlugin(options = {}) {
 
             // Handle absolute path .ts files - intercept before Vite's native transform
             if (id.endsWith('.ts') && !id.includes('node_modules') && fs.existsSync(id)) {
+                // ... same as before
                 const relPath = path.relative(projectRoot, id);
                 const jsKey = 'dist/' + relPath.replace(/\.ts$/, '.js');
                 
-                // console.log(`[rustBundlePlugin] Load .ts: ${id}`);
-                // console.log(`[rustBundlePlugin]   relPath: ${relPath}, jsKey: ${jsKey}`);
-                // console.log(`[rustBundlePlugin]   Found in cache: ${!!bundleCache?.files?.[jsKey]}`);
-                
-                if (!bundleCache?.files?.[jsKey]) {
-                    // Log available keys for debugging
-                    const availableKeys = Object.keys(bundleCache?.files || {}).filter(k => k.includes('input'));
-                    // console.log(`[rustBundlePlugin]   Available 'input' keys:`, availableKeys);
-                }
-                
                 if (bundleCache?.files?.[jsKey]) {
-                    // console.log(`[rustBundlePlugin] Serving compiled: ${id} -> ${jsKey}`);
                     let code = bundleCache.files[jsKey];
-                    
                     // For main.js, inject styles and HMR bootstrap
                     if (jsKey.endsWith('main.js')) {
                         code = injectMainPreamble(code, projectRoot, globalStyles);
                     }
-                    
                     return { code, map: null };
                 }
             }
 
             if (id.startsWith('\0')) {
+                // Check if it's a chunk
+                if (id.startsWith('\0Chunk:')) {
+                    const chunkKey = id.slice(7); // Remove '\0Chunk:'
+                    if (bundleCache?.chunks?.[chunkKey]) {
+                         // ANSI Colors
+                         const env = process.env;
+                         const isColorSupported = !env.NO_COLOR && (env.FORCE_COLOR || (process.stdout.isTTY && env.TERM !== 'dumb'));
+                         const cyan = (s) => isColorSupported ? `\x1b[36m${s}\x1b[39m` : s;
+                         const dim = (s) => isColorSupported ? `\x1b[2m${s}\x1b[22m` : s;
+                         const green = (s) => isColorSupported ? `\x1b[32m${s}\x1b[39m` : s;
+                        
+                         // Fake duration for served chunks (since they are pre-compiled)
+                         // We just log that it's "compiled" (served)
+                         const timestamp = new Date().toISOString();
+                         const size = Buffer.byteLength(bundleCache.chunks[chunkKey], 'utf8');
+                         const formattedSize = formatSize(size);
+                         
+                         // We mock a small "compile" time to indicate it's served instantly
+                         console.log(`\nLazy chunk compiled: ${green(chunkKey)} | ${dim(formattedSize)} | [${cyan('0.001 s')}] - ${timestamp}`);
+
+                         return bundleCache.chunks[chunkKey];
+                    }
+                }
+
                 const key = id.slice(1);
                 
                 if (bundleCache?.files?.[key]) {
@@ -547,4 +563,64 @@ if (import.meta.hot) {
             return html;
         },
     };
+}
+function formatSize(bytes) {
+  if (bytes === 0) return "0 B";
+  const k = 1000; // Angular CLI uses 1000, not 1024
+  const sizes = ["B", "kB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+function printBuildStats(result, durationMs) {
+  // ANSI Color Codes
+  const env = process.env;
+  const isColorSupported = !env.NO_COLOR && (env.FORCE_COLOR || (process.stdout.isTTY && env.TERM !== 'dumb'));
+  
+  const bold = (s) => isColorSupported ? `\x1b[1m${s}\x1b[22m` : s;
+  const green = (s) => isColorSupported ? `\x1b[32m${s}\x1b[39m` : s;
+  const cyan = (s) => isColorSupported ? `\x1b[36m${s}\x1b[39m` : s;
+  const dim = (s) => isColorSupported ? `\x1b[2m${s}\x1b[22m` : s;
+
+  const tableHeader = `
+${bold('Initial chunk files')} | ${bold('Names')}            |  ${bold('Raw size')}
+----------------------------------------------------------------`;
+
+  let output = '\n' + tableHeader + '\n';
+  let totalSize = 0;
+
+  const stylesText = result.stylesCss || result.styles_css || '';
+  const stylesSize = stylesText ? Buffer.byteLength(stylesText, "utf8") : 0;
+  if (stylesSize > 0) {
+    output += `${green('styles.css')}${' '.repeat(10)} | ${dim('styles')}           | ${dim(formatSize(stylesSize).padStart(9))} |\n`;
+    totalSize += stylesSize;
+  }
+
+  const mainText = result.bundleJs || result.bundle_js || '';
+  const mainSize = Buffer.byteLength(mainText, "utf8");
+  output += `${green('main.js')}${' '.repeat(13)} | ${dim('main')}             | ${dim(formatSize(mainSize).padStart(9))} |\n`;
+  totalSize += mainSize;
+
+  output += `\n                    | ${bold('Initial total')}    | ${bold(formatSize(totalSize).padStart(9))}\n\n`;
+
+  output += `${bold('Lazy chunk files')}    | ${bold('Names')}            |  ${bold('Raw size')}\n`;
+  const chunks = result.chunks || {};
+  const chunkKeys = Object.keys(chunks);
+
+  if (chunkKeys.length > 0) {
+    for (const chunkName of chunkKeys) {
+      const size = Buffer.byteLength(chunks[chunkName], "utf8");
+      let shortName = chunkName.replace(/^chunk-/, "").replace(/\.js$/, "");
+      if (shortName.length > 16) shortName = shortName.substring(0, 13) + "...";
+
+      output += `${chunkName.padEnd(19)} | ${dim(shortName.padEnd(16))} | ${dim(formatSize(size).padStart(9))} |\n`;
+    }
+  }
+
+  const durationSeconds = (durationMs / 1000).toFixed(3);
+  const timestamp = new Date().toISOString();
+
+  output += `\nApplication bundle generation complete. [${cyan(durationSeconds + ' seconds')}] - ${timestamp}\n`;
+
+  console.log(output);
 }
