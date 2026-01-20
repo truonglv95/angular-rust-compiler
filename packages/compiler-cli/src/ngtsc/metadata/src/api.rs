@@ -222,6 +222,8 @@ pub struct DirectiveMeta<'a> {
     pub file_imports: Option<HashMap<String, String>>,
     /// Providers expression extracted from the decorator.
     pub providers: Option<angular_compiler::output::output_ast::Expression>,
+    /// Span of the class declaration for debug info.
+    pub decl_span: Option<oxc_span::Span>,
 }
 
 /// Constructor parameter metadata.
@@ -334,6 +336,7 @@ impl<'a> Default for DirectiveMeta<'a> {
 
             file_imports: None,
             providers: None,
+            decl_span: None,
         }
     }
 }
@@ -372,6 +375,7 @@ impl<'a> Clone for DirectiveMeta<'a> {
             lifecycle: self.lifecycle.clone(),
             file_imports: self.file_imports.clone(),
             providers: self.providers.clone(),
+            decl_span: self.decl_span.clone(),
         }
     }
 }

@@ -51,6 +51,7 @@ pub fn extract_directive_metadata<'a>(
         // Store the OXC decorator reference directly
         decorator: Some(decorator.node),
         file_imports: Some(imports_map.clone()),
+        decl_span: Some(class_decl.span.clone()),
         ..Default::default()
     };
 

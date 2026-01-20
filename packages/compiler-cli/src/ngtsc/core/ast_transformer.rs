@@ -26,6 +26,7 @@ pub fn transform_component_ast<'a>(
     program: &mut Program<'a>,
     component_name: &str,
     hoisted_statements: &'a str,
+    trailing_statements: &'a str,
     fac_expr_str: &'a str,
     definitions: &[(&str, &str)],
     additional_imports: &[(String, String)],
@@ -54,7 +55,61 @@ pub fn transform_component_ast<'a>(
         definitions,
     );
 
+    // 5. Add trailing statements (after class)
+    add_trailing_statements(allocator, program, component_name, trailing_statements);
+
     raw_suffix
+}
+
+/// Add statements after the class definition
+fn add_trailing_statements<'a>(
+    allocator: &'a Allocator,
+    program: &mut Program<'a>,
+    component_name: &str,
+    trailing_statements: &'a str,
+) {
+    if trailing_statements.trim().is_empty() {
+        return;
+    }
+
+    use oxc_parser::Parser;
+    use oxc_span::SourceType;
+
+    let source_type = SourceType::mjs();
+    let parser = Parser::new(allocator, trailing_statements, source_type);
+    let parse_result = parser.parse();
+
+    if !parse_result.errors.is_empty() {
+        return;
+    }
+
+    // Find class index
+    let mut class_idx = None;
+    for (idx, stmt) in program.body.iter().enumerate() {
+        match stmt {
+            Statement::ExportNamedDeclaration(export_decl) => {
+                if let Some(Declaration::ClassDeclaration(class)) = &export_decl.declaration {
+                    if class.id.as_ref().map(|id| id.name.as_str()) == Some(component_name) {
+                        class_idx = Some(idx);
+                        break;
+                    }
+                }
+            }
+            Statement::ClassDeclaration(class) => {
+                if class.id.as_ref().map(|id| id.name.as_str()) == Some(component_name) {
+                    class_idx = Some(idx);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(idx) = class_idx {
+        for (i, stmt) in parse_result.program.body.into_iter().enumerate() {
+            program.body.insert(idx + 1 + i, stmt);
+        }
+    }
 }
 
 /// Remove Angular decorators (@Component, @Directive, etc.) from class declarations

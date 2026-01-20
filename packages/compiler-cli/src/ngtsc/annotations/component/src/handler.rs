@@ -657,7 +657,18 @@ impl ComponentDecoratorHandler {
             }),
             animations: None,
             view_providers: None,
-            relative_context_file_path: "".to_string(),
+            relative_context_file_path: {
+                // Compute relative path from project root
+                if let Some(source_path) = &dir.source_file {
+                    source_path
+                        .strip_prefix(&project_root)
+                        .unwrap_or(source_path)
+                        .to_string_lossy()
+                        .to_string()
+                } else {
+                    "".to_string()
+                }
+            },
             i18n_use_external_ids: false,
             raw_imports: None,
             external_styles: None,
@@ -667,6 +678,64 @@ impl ComponentDecoratorHandler {
             relative_template_path: None,
             has_directive_dependencies: false,
         };
+
+        // Fix up line number in type_source_span if we have decl_span and can read the file
+        if let Some(span) = dir.decl_span {
+            if let Some(source_file) = &dir.source_file {
+                if let Ok(content) = std::fs::read_to_string(source_file) {
+                    // Calculate line number (0-indexed)
+                    let start_offset = span.start as usize;
+                    if start_offset <= content.len() {
+                        let line_num = content[..start_offset].lines().count();
+                        // Update type_source_span start line. convert to u32 for ParseLocation
+                        // The structure is deeply nested, so we construct a new one.
+                        // But we can just create a minimal valid Span with correct line info since that's what emit.rs uses.
+
+                        let fake_file = angular_compiler::parse_util::ParseSourceFile::new(
+                            "".to_string(),
+                            "".to_string(),
+                        );
+                        let fake_file_rc = std::sync::Arc::new(fake_file);
+
+                        // Note: ParseLocation uses 0-indexed line numbers.
+                        // emit.rs adds 1 to it.
+                        // lines().count() returns number of lines. If offset is at start of line 1 (index 0), count is 0?
+                        // "a".lines().count() -> 1.
+                        // "".lines().count() -> 0.
+                        // "a\nb".lines().count() -> 2.
+                        // If we are on line 5, we have 4 newlines before us.
+                        // content[..offset].lines().count() usually gives 1-based line number of the *previous* line if it ended with newline?
+                        // Actually:
+                        // content[..offset].lines().count() is basically the 1-based line number of the line containing offset,
+                        // assuming standard line endings and offset isn't exactly at a newline char?
+                        // Let's rely on standard crate `byte_unit` or similar if available, but manual is fine.
+                        // A more robust way: content[..offset].chars().filter(|c| *c == '\n').count().
+                        // This gives 0-based line index.
+
+                        let line_index = content[..start_offset]
+                            .chars()
+                            .filter(|&c| c == '\n')
+                            .count();
+
+                        r3_metadata.directive.type_source_span =
+                            angular_compiler::parse_util::ParseSourceSpan::new(
+                                angular_compiler::parse_util::ParseLocation::new(
+                                    fake_file_rc.clone(),
+                                    start_offset,
+                                    line_index, // line
+                                    0,          // col (not needed for this specific debug info)
+                                ),
+                                angular_compiler::parse_util::ParseLocation::new(
+                                    fake_file_rc,
+                                    span.end as usize,
+                                    line_index,
+                                    0,
+                                ),
+                            );
+                    }
+                }
+            }
+        }
 
         let mut real_constant_pool = angular_compiler::constant_pool::ConstantPool::new(false);
 

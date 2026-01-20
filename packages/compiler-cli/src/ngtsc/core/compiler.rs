@@ -512,12 +512,18 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                 // Apply to AST
                                 // Primary result
                                 let mut hoisted_statements = String::new();
+                                let mut trailing_statements = String::new();
 
                                 // Merge results if multiple (e.g. fac and cmp)
                                 for res in &compiled_results {
                                     for stmt in &res.statements {
-                                        hoisted_statements.push_str(stmt);
-                                        hoisted_statements.push('\n');
+                                        if stmt.contains("setClassDebugInfo") {
+                                            trailing_statements.push_str(stmt);
+                                            trailing_statements.push('\n');
+                                        } else {
+                                            hoisted_statements.push_str(stmt);
+                                            hoisted_statements.push('\n');
+                                        }
                                     }
                                 }
 
@@ -548,6 +554,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                 let fac_initializer = compiled_results.iter().find(|r| r.name == "ɵfac").and_then(|r| r.initializer.as_deref()).unwrap_or(&fac_expr_str_default);
 
                                 let hoisted_statements_arena: &str = allocator.alloc_str(&hoisted_statements);
+                                let trailing_statements_arena: &str = allocator.alloc_str(&trailing_statements);
                                 let fac_expr_arena: &str = allocator.alloc_str(fac_initializer); // Use correct fac logic
 
                                 // Allocate definitions strings in arena
@@ -565,6 +572,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                         &mut parse_result.program,
                                         &directive_name,
                                         hoisted_statements_arena,
+                                        trailing_statements_arena,
                                         fac_expr_arena, // fac
                                         &definitions_arena,
                                         &additional_imports,

@@ -6,6 +6,7 @@ use crate::core::ViewEncapsulation;
 use crate::directive_matching::CssSelector;
 use crate::output::output_ast as o;
 use crate::output::output_ast::Expression;
+use crate::render3::r3_class_debug_info_compiler::{compile_class_debug_info, R3ClassDebugInfo};
 use crate::render3::r3_identifiers::Identifiers as R3;
 use crate::render3::util::R3CompiledExpression;
 use crate::render3::view::api::{R3ComponentMetadata, R3TemplateDependencyMetadata};
@@ -251,7 +252,7 @@ pub fn emit_component(
     let mut definition_entries = vec![
         o::LiteralMapEntry {
             key: "type".into(),
-            value: Box::new(type_expr),
+            value: Box::new(type_expr.clone()),
             quoted: false,
         },
         o::LiteralMapEntry {
@@ -659,6 +660,24 @@ pub fn emit_component(
     });
 
     let expr = o::import_ref(R3::define_component()).call_fn(vec![definition], None, None);
+
+    // Generate class debug info (ngDevMode)
+    let debug_info = R3ClassDebugInfo {
+        type_: type_expr.clone(),
+        class_name: *o::literal(metadata.directive.name.clone()),
+        file_path: Some(*o::literal(metadata.relative_context_file_path.clone())),
+        line_number: *o::literal((metadata.directive.type_source_span.start.line + 1) as f64),
+        forbid_orphan_rendering: false, // Default to false for now
+    };
+
+    let debug_info_expr = compile_class_debug_info(&debug_info);
+
+    let debug_stmt = o::Statement::Expression(o::ExpressionStatement {
+        expr: Box::new(debug_info_expr),
+        source_span: None,
+    });
+
+    statements.push(debug_stmt);
 
     R3CompiledExpression::new(*expr, o::dynamic_type(), statements)
 }
