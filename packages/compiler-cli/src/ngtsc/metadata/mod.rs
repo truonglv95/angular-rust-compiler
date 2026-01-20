@@ -13,6 +13,7 @@ pub mod src;
 pub use src::api::{
     BaseClass,
     ComponentMetadata,
+    ConstructorParam,
     DecoratorMetadata,
     DirectiveMeta,
     DirectiveMetadata,
@@ -36,8 +37,8 @@ pub use src::api::{
 pub use src::property_mapping::{ClassPropertyMapping, ClassPropertyName, InputOrOutput};
 pub use src::registry::{MetadataReader, OxcMetadataReader};
 pub use src::util::{
-    extract_directive_metadata, extract_injectable_metadata, extract_pipe_metadata,
-    get_all_metadata,
+    convert_oxc_expression, extract_directive_metadata, extract_injectable_metadata,
+    extract_pipe_metadata, get_all_metadata,
 };
 pub use src::ModuleMetadataReader;
 

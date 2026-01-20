@@ -1,5 +1,6 @@
 use crate::ngtsc::metadata::{
-    extract_directive_metadata, DecoratorMetadata, DirectiveMetadata, ModuleMetadataReader,
+    convert_oxc_expression, extract_directive_metadata, DecoratorMetadata, DirectiveMetadata,
+    ModuleMetadataReader,
 };
 use crate::ngtsc::reflection::{ClassDeclaration, ReflectionHost, TypeScriptReflectionHost};
 use crate::ngtsc::transform::src::api::{
@@ -11,8 +12,15 @@ use angular_compiler::ml_parser::html_whitespaces::{
 };
 use angular_compiler::output::abstract_emitter::EmitterVisitorContext;
 use angular_compiler::output::abstract_js_emitter::AbstractJsEmitterVisitor;
-use angular_compiler::output::output_ast::{Expression, ExpressionTrait, ReadVarExpr};
+use angular_compiler::output::output_ast::{
+    Expression, ExpressionTrait, ExternalExpr, ExternalReference, LiteralArrayExpr, LiteralExpr,
+    LiteralMapEntry, LiteralMapExpr, LiteralValue, ReadVarExpr, TemplateLiteralElement,
+    TemplateLiteralExpr,
+};
 use angular_compiler::parse_util::{ParseLocation, ParseSourceFile, ParseSourceSpan};
+use angular_compiler::render3::r3_class_metadata_compiler::{
+    compile_class_metadata, R3ClassMetadata,
+};
 use angular_compiler::render3::r3_template_transform::{
     html_ast_to_render3_ast, Render3ParseOptions,
 };
@@ -20,18 +28,13 @@ use angular_compiler::render3::view::api::{
     DeclarationListEmitMode, R3ComponentDeferMetadata, R3ComponentMetadata, R3ComponentTemplate,
     R3DirectiveMetadata, R3HostMetadata, R3LifecycleMetadata, R3TemplateDependencyMetadata,
 };
+
 use indexmap::IndexMap;
-use std::path::PathBuf;
-// use angular_compiler::render3::view::template::{parse_template, ParseTemplateOptions};
-// use std::collections::HashMap;
-use angular_compiler::template::pipeline::src::compilation::TemplateCompilationMode;
-use angular_compiler::template::pipeline::src::emit::emit_component;
-use angular_compiler::template::pipeline::src::ingest::{ingest_host_binding, HostBindingInput};
-use angular_compiler::template::pipeline::src::phases;
 use std::any::Any;
+use std::path::PathBuf;
 // use std::time::Instant;
 // use angular_compiler::constant_pool::ConstantPool as CompilerConstantPool; // Distinct from ngtsc ConstantPool if needed
-use angular_compiler::output::output_ast::{ExternalExpr, ExternalReference};
+
 use angular_compiler::render3::r3_factory::{
     compile_factory_function, DepsOrInvalid, FactoryTarget, R3ConstructorFactoryMetadata,
     R3DependencyMetadata, R3FactoryMetadata,
@@ -49,6 +52,7 @@ impl DecoratorHandler<DirectiveMetadata<'static>, DirectiveMetadata<'static>, ()
     for ComponentDecoratorHandler
 {
     fn name(&self) -> &str {
+        let _class_name = "ComponentDecoratorHandler";
         "ComponentDecoratorHandler"
     }
 
@@ -61,7 +65,7 @@ impl DecoratorHandler<DirectiveMetadata<'static>, DirectiveMetadata<'static>, ()
         node: &ClassDeclaration,
         _decorators: &[String],
     ) -> Option<DetectResult<DirectiveMetadata<'static>>> {
-        let class_name = node
+        let _class_name = node
             .id
             .as_ref()
             .map(|id| id.name.as_str())
@@ -91,7 +95,9 @@ impl DecoratorHandler<DirectiveMetadata<'static>, DirectiveMetadata<'static>, ()
                         }
                         other => other,
                     };
-                    // Safety: We cleared the decorator reference, so there's no dangling pointer
+                    // Safety: We cleared the decorator reference (which binds to the AST lifetime),
+                    // so the remaining data in DirectiveMetadata is fully owned (Strings, bools, etc.).
+                    // Thus, it is safe to transmute it to 'static lifetime to satisfy the AnalysisOutput requirement.
                     let static_metadata: DirectiveMetadata<'static> =
                         unsafe { std::mem::transmute(owned_metadata) };
                     return Some(DetectResult {
@@ -124,12 +130,12 @@ impl DecoratorHandler<DirectiveMetadata<'static>, DirectiveMetadata<'static>, ()
 
     fn compile_full(
         &self,
-        _node: &ClassDeclaration,
+        node: &ClassDeclaration,
         analysis: &DirectiveMetadata<'static>,
         _resolution: Option<&()>,
         _constant_pool: &mut ConstantPool,
     ) -> Vec<CompileResult> {
-        self.compile_ivy(analysis, None)
+        self.compile_ivy(analysis, Some(node), None)
     }
 }
 
@@ -137,6 +143,7 @@ impl ComponentDecoratorHandler {
     pub fn compile_ivy(
         &self,
         analysis: &DirectiveMetadata<'static>,
+        node: Option<&ClassDeclaration>,
         external_import_manager: Option<&mut crate::ngtsc::translator::src::import_manager::import_manager::EmitterImportManager>,
     ) -> Vec<CompileResult> {
         // Extract DirectiveMeta from DecoratorMetadata enum (must be a component)
@@ -686,7 +693,7 @@ impl ComponentDecoratorHandler {
                     // Calculate line number (0-indexed)
                     let start_offset = span.start as usize;
                     if start_offset <= content.len() {
-                        let line_num = content[..start_offset].lines().count();
+                        let _line_num = content[..start_offset].lines().count();
                         // Update type_source_span start line. convert to u32 for ParseLocation
                         // The structure is deeply nested, so we construct a new one.
                         // But we can just create a minimal valid Span with correct line info since that's what emit.rs uses.
@@ -902,6 +909,509 @@ impl ComponentDecoratorHandler {
             emitted_statements.push(stmt_ctx.to_source());
         }
 
+        if true {
+            let mut imports_map = std::collections::HashMap::new();
+            if let Some(file_imports) = &dir.file_imports {
+                for (k, v) in file_imports {
+                    imports_map.insert(k.clone(), v.clone());
+                }
+            }
+
+            let type_expr = Expression::ReadVar(ReadVarExpr {
+                name: dir.t2.name.clone(),
+                type_: None,
+                source_span: None,
+            });
+
+            let decorators_expr = if let Some(class_decl) = node {
+                let mut component_dec_expr = None;
+                for decorator in &class_decl.decorators {
+                    if let oxc_ast::ast::Expression::CallExpression(call_expr) =
+                        &decorator.expression
+                    {
+                        if let oxc_ast::ast::Expression::Identifier(ident) = &call_expr.callee {
+                            if ident.name == "Component" {
+                                let core_module = Some("@angular/core".to_string());
+                                let type_expr = Expression::External(ExternalExpr {
+                                    value: ExternalReference {
+                                        module_name: core_module,
+                                        name: Some("Component".to_string()),
+                                        runtime: None,
+                                    },
+                                    type_: None,
+                                    source_span: None,
+                                });
+
+                                let mut args = vec![];
+                                for arg in &call_expr.arguments {
+                                    if let Some(expr) = arg.as_expression() {
+                                        if let oxc_ast::ast::Expression::ObjectExpression(
+                                            obj_expr,
+                                        ) = expr
+                                        {
+                                            let mut properties = vec![];
+
+                                            // Add explicit template/styles from metadata
+                                            if let Some(comp_meta) = &dir.component {
+                                                // Template
+                                                if let Some(tmpl) = &comp_meta.template {
+                                                    properties.push(LiteralMapEntry {
+                                                        key: "template".to_string(),
+                                                        value: Box::new(
+                                                            Expression::TemplateLiteral(
+                                                                TemplateLiteralExpr {
+                                                                    elements: vec![
+                                                                        TemplateLiteralElement {
+                                                                            text: tmpl.clone(),
+                                                                            raw_text: tmpl.clone(),
+                                                                            source_span: None,
+                                                                        },
+                                                                    ],
+                                                                    expressions: vec![],
+                                                                },
+                                                            ),
+                                                        ),
+                                                        quoted: false,
+                                                    });
+                                                }
+
+                                                // Styles
+                                                if let Some(styles) = &comp_meta.styles {
+                                                    if !styles.is_empty() {
+                                                        let styles_expr = Expression::LiteralArray(LiteralArrayExpr {
+                                                             entries: styles.iter().map(|s| Expression::Literal(LiteralExpr {
+                                                                 value: LiteralValue::String(s.clone()),
+                                                                 type_: None,
+                                                                 source_span: None,
+                                                             })).collect(),
+                                                             type_: None,
+                                                             source_span: None,
+                                                         });
+                                                        properties.push(LiteralMapEntry {
+                                                            key: "styles".to_string(),
+                                                            value: Box::new(styles_expr),
+                                                            quoted: false,
+                                                        });
+                                                    }
+                                                }
+                                            }
+
+                                            for prop in &obj_expr.properties {
+                                                match prop {
+                                                     oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) => {
+                                                         let key = match &p.key {
+                                                             oxc_ast::ast::PropertyKey::StaticIdentifier(id) => Some(id.name.as_str()),
+                                                             oxc_ast::ast::PropertyKey::StringLiteral(s) => Some(s.value.as_str()),
+                                                             _ => None,
+                                                         };
+
+                                                         if let Some(k) = key {
+                                                             if k == "templateUrl" || k == "styleUrl" || k == "styleUrls" || k == "template" || k == "styles" {
+                                                                 continue;
+                                                             }
+                                                             let val = convert_oxc_expression(&p.value, &imports_map);
+                                                             properties.push(LiteralMapEntry {
+                                                                 key: k.to_string(),
+                                                                 value: Box::new(val),
+                                                                 quoted: false,
+                                                             });
+                                                         }
+                                                     },
+                                                     _ => {}
+                                                 }
+                                            }
+
+                                            args.push(Expression::LiteralMap(LiteralMapExpr {
+                                                entries: properties,
+                                                type_: None,
+                                                source_span: None,
+                                            }));
+                                        } else {
+                                            args.push(convert_oxc_expression(expr, &imports_map));
+                                        }
+                                    }
+                                }
+
+                                let args_expr = Expression::LiteralArray(LiteralArrayExpr {
+                                    entries: args,
+                                    type_: None,
+                                    source_span: None,
+                                });
+
+                                let entry = Expression::LiteralMap(LiteralMapExpr {
+                                    entries: vec![
+                                        LiteralMapEntry {
+                                            key: "type".to_string(),
+                                            value: Box::new(type_expr),
+                                            quoted: false,
+                                        },
+                                        LiteralMapEntry {
+                                            key: "args".to_string(),
+                                            value: Box::new(args_expr),
+                                            quoted: false,
+                                        },
+                                    ],
+                                    type_: None,
+                                    source_span: None,
+                                });
+
+                                component_dec_expr =
+                                    Some(Expression::LiteralArray(LiteralArrayExpr {
+                                        entries: vec![entry],
+                                        type_: None,
+                                        source_span: None,
+                                    }));
+                                break;
+                            }
+                        }
+                    }
+                }
+                component_dec_expr.unwrap_or(Expression::Literal(LiteralExpr {
+                    value: LiteralValue::Null,
+                    type_: None,
+                    source_span: None,
+                }))
+            } else {
+                Expression::Literal(LiteralExpr {
+                    value: LiteralValue::Null,
+                    type_: None,
+                    source_span: None,
+                })
+            };
+
+            let ctor_params_expr = if !dir.constructor_params.is_empty() {
+                let params: Vec<Expression> = dir
+                    .constructor_params
+                    .iter()
+                    .map(|p| {
+                        let mut map_entries = Vec::new();
+
+                        // type: Type
+                        if let Some(type_name) = &p.type_name {
+                            let type_expr = if let Some(module) = &p.from_module {
+                                Expression::External(ExternalExpr {
+                                    value: ExternalReference {
+                                        module_name: Some(module.clone()),
+                                        name: Some(type_name.clone()),
+                                        runtime: None,
+                                    },
+                                    type_: None,
+                                    source_span: None,
+                                })
+                            } else {
+                                Expression::ReadVar(ReadVarExpr {
+                                    name: type_name.clone(),
+                                    type_: None,
+                                    source_span: None,
+                                })
+                            };
+                            map_entries.push(LiteralMapEntry {
+                                key: "type".to_string(),
+                                value: Box::new(type_expr),
+                                quoted: false,
+                            });
+                        }
+
+                        // decorators: [...]
+                        let mut decorators = Vec::new();
+                        let core_module = Some("@angular/core".to_string());
+
+                        if p.optional {
+                            decorators.push(Expression::LiteralMap(LiteralMapExpr {
+                                entries: vec![LiteralMapEntry {
+                                    key: "type".to_string(),
+                                    value: Box::new(Expression::External(ExternalExpr {
+                                        value: ExternalReference {
+                                            module_name: core_module.clone(),
+                                            name: Some("Optional".to_string()),
+                                            runtime: None,
+                                        },
+                                        type_: None,
+                                        source_span: None,
+                                    })),
+                                    quoted: false,
+                                }],
+                                type_: None,
+                                source_span: None,
+                            }));
+                        }
+                        if p.host {
+                            decorators.push(Expression::LiteralMap(LiteralMapExpr {
+                                entries: vec![LiteralMapEntry {
+                                    key: "type".to_string(),
+                                    value: Box::new(Expression::External(ExternalExpr {
+                                        value: ExternalReference {
+                                            module_name: core_module.clone(),
+                                            name: Some("Host".to_string()),
+                                            runtime: None,
+                                        },
+                                        type_: None,
+                                        source_span: None,
+                                    })),
+                                    quoted: false,
+                                }],
+                                type_: None,
+                                source_span: None,
+                            }));
+                        }
+                        if p.self_ {
+                            decorators.push(Expression::LiteralMap(LiteralMapExpr {
+                                entries: vec![LiteralMapEntry {
+                                    key: "type".to_string(),
+                                    value: Box::new(Expression::External(ExternalExpr {
+                                        value: ExternalReference {
+                                            module_name: core_module.clone(),
+                                            name: Some("Self".to_string()),
+                                            runtime: None,
+                                        },
+                                        type_: None,
+                                        source_span: None,
+                                    })),
+                                    quoted: false,
+                                }],
+                                type_: None,
+                                source_span: None,
+                            }));
+                        }
+                        if p.skip_self {
+                            decorators.push(Expression::LiteralMap(LiteralMapExpr {
+                                entries: vec![LiteralMapEntry {
+                                    key: "type".to_string(),
+                                    value: Box::new(Expression::External(ExternalExpr {
+                                        value: ExternalReference {
+                                            module_name: core_module.clone(),
+                                            name: Some("SkipSelf".to_string()),
+                                            runtime: None,
+                                        },
+                                        type_: None,
+                                        source_span: None,
+                                    })),
+                                    quoted: false,
+                                }],
+                                type_: None,
+                                source_span: None,
+                            }));
+                        }
+                        if let Some(attr_name) = &p.attribute {
+                            decorators.push(Expression::LiteralMap(LiteralMapExpr {
+                                entries: vec![
+                                    LiteralMapEntry {
+                                        key: "type".to_string(),
+                                        value: Box::new(Expression::External(ExternalExpr {
+                                            value: ExternalReference {
+                                                module_name: core_module.clone(),
+                                                name: Some("Attribute".to_string()),
+                                                runtime: None,
+                                            },
+                                            type_: None,
+                                            source_span: None,
+                                        })),
+                                        quoted: false,
+                                    },
+                                    LiteralMapEntry {
+                                        key: "args".to_string(),
+                                        value: Box::new(Expression::LiteralArray(
+                                            LiteralArrayExpr {
+                                                entries: vec![Expression::Literal(LiteralExpr {
+                                                    value: LiteralValue::String(attr_name.clone()),
+                                                    type_: None,
+                                                    source_span: None,
+                                                })],
+                                                type_: None,
+                                                source_span: None,
+                                            },
+                                        )),
+                                        quoted: false,
+                                    },
+                                ],
+                                type_: None,
+                                source_span: None,
+                            }));
+                        }
+
+                        if !decorators.is_empty() {
+                            map_entries.push(LiteralMapEntry {
+                                key: "decorators".to_string(),
+                                value: Box::new(Expression::LiteralArray(LiteralArrayExpr {
+                                    entries: decorators,
+                                    type_: None,
+                                    source_span: None,
+                                })),
+                                quoted: false,
+                            });
+                        }
+
+                        Expression::LiteralMap(LiteralMapExpr {
+                            entries: map_entries,
+                            type_: None,
+                            source_span: None,
+                        })
+                    })
+                    .collect();
+
+                Some(Expression::ArrowFn(
+                    angular_compiler::output::output_ast::ArrowFunctionExpr {
+                        params: vec![],
+                        body: angular_compiler::output::output_ast::ArrowFunctionBody::Expression(
+                            Box::new(Expression::LiteralArray(LiteralArrayExpr {
+                                entries: params,
+                                type_: None,
+                                source_span: None,
+                            })),
+                        ),
+                        type_: None,
+                        source_span: None,
+                    },
+                ))
+            } else {
+                None
+            };
+
+            let prop_decorators_expr = if let Some(class_decl) = node {
+                let mut prop_entries = Vec::new();
+
+                for element in &class_decl.body.body {
+                    let (key, decorators) = match element {
+                        oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
+                            (&p.key, &p.decorators)
+                        }
+                        oxc_ast::ast::ClassElement::MethodDefinition(m) => (&m.key, &m.decorators),
+                        oxc_ast::ast::ClassElement::AccessorProperty(a) => (&a.key, &a.decorators),
+                        _ => continue,
+                    };
+
+                    if decorators.is_empty() {
+                        continue;
+                    }
+
+                    let prop_name = match key {
+                        oxc_ast::ast::PropertyKey::StaticIdentifier(id) => Some(id.name.as_str()),
+                        oxc_ast::ast::PropertyKey::StringLiteral(s) => Some(s.value.as_str()),
+                        _ => None,
+                    };
+
+                    if let Some(prop_name) = prop_name {
+                        let mut dec_exprs = Vec::new();
+                        for dec in decorators {
+                            let (callee, args) = match &dec.expression {
+                                oxc_ast::ast::Expression::CallExpression(call) => {
+                                    (&call.callee, Some(&call.arguments))
+                                }
+                                expr => (expr, None),
+                            };
+
+                            let type_expr = if let oxc_ast::ast::Expression::Identifier(id) = callee
+                            {
+                                if let Some(import_name) = imports_map.get(id.name.as_str()) {
+                                    Expression::External(ExternalExpr {
+                                        value: ExternalReference {
+                                            module_name: Some(import_name.clone()),
+                                            name: Some(id.name.to_string()),
+                                            runtime: None,
+                                        },
+                                        type_: None,
+                                        source_span: None,
+                                    })
+                                } else {
+                                    Expression::ReadVar(ReadVarExpr {
+                                        name: id.name.to_string(),
+                                        type_: None,
+                                        source_span: None,
+                                    })
+                                }
+                            } else {
+                                convert_oxc_expression(callee, &imports_map)
+                            };
+
+                            let mut entries = vec![LiteralMapEntry {
+                                key: "type".to_string(),
+                                value: Box::new(type_expr),
+                                quoted: false,
+                            }];
+
+                            if let Some(arguments) = args {
+                                if !arguments.is_empty() {
+                                    let arg_exprs: Vec<Expression> = arguments
+                                        .iter()
+                                        .map(|arg| {
+                                            if let Some(expr) = arg.as_expression() {
+                                                convert_oxc_expression(expr, &imports_map)
+                                            } else {
+                                                Expression::Literal(LiteralExpr {
+                                                    value: LiteralValue::Null,
+                                                    type_: None,
+                                                    source_span: None,
+                                                })
+                                            }
+                                        })
+                                        .collect();
+
+                                    entries.push(LiteralMapEntry {
+                                        key: "args".to_string(),
+                                        value: Box::new(Expression::LiteralArray(
+                                            LiteralArrayExpr {
+                                                entries: arg_exprs,
+                                                type_: None,
+                                                source_span: None,
+                                            },
+                                        )),
+                                        quoted: false,
+                                    });
+                                }
+                            }
+
+                            dec_exprs.push(Expression::LiteralMap(LiteralMapExpr {
+                                entries,
+                                type_: None,
+                                source_span: None,
+                            }));
+                        }
+
+                        prop_entries.push(LiteralMapEntry {
+                            key: prop_name.to_string(),
+                            value: Box::new(Expression::LiteralArray(LiteralArrayExpr {
+                                entries: dec_exprs,
+                                type_: None,
+                                source_span: None,
+                            })),
+                            quoted: false,
+                        });
+                    }
+                }
+
+                if prop_entries.is_empty() {
+                    None
+                } else {
+                    Some(Expression::LiteralMap(LiteralMapExpr {
+                        entries: prop_entries,
+                        type_: None,
+                        source_span: None,
+                    }))
+                }
+            } else {
+                None
+            };
+
+            let r3_metadata = R3ClassMetadata {
+                type_: type_expr,
+                decorators: decorators_expr,
+                ctor_parameters: ctor_params_expr,
+                prop_decorators: prop_decorators_expr,
+            };
+
+            let set_metadata_expr = compile_class_metadata(&r3_metadata);
+
+            let mut emitter =
+                angular_compiler::output::abstract_js_emitter::AbstractJsEmitterVisitor::new();
+            let mut stmt_ctx =
+                angular_compiler::output::abstract_emitter::EmitterVisitorContext::create_root();
+            let stmt = set_metadata_expr.to_stmt();
+
+            let stmt_context: &mut dyn Any = &mut stmt_ctx;
+            stmt.visit_statement(&mut emitter, stmt_context);
+            emitted_statements.push(stmt_ctx.to_source());
+        }
+
         // Filter additional_imports based on actual usage during emission
         let used_imports = emitter.used_imports;
         let mut additional_imports: Vec<(String, String)> = imports_map
@@ -945,9 +1455,7 @@ impl ComponentDecoratorHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ngtsc::metadata::{
-        ClassPropertyMapping, ComponentMetadata, DirectiveMeta, T2DirectiveMetadata,
-    };
+    use crate::ngtsc::metadata::{ComponentMetadata, DirectiveMeta, T2DirectiveMetadata};
     use crate::ngtsc::transform::src::api::HandlerPrecedence;
 
     #[test]
@@ -979,7 +1487,7 @@ mod tests {
 
         let handler = ComponentDecoratorHandler::new();
 
-        let results = handler.compile_ivy(&metadata, None);
+        let results = handler.compile_ivy(&metadata, None, None);
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert_eq!(result.name, "ɵcmp");

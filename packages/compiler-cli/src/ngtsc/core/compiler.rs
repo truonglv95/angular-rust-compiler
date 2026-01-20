@@ -137,9 +137,16 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                             None
                         };
 
-                        if let Some(template) = template_str {
+                        if let Some(template) = &template_str {
+                            // Persist resolved template to metadata for setClassMetadata extraction
+                            if let Some(comp) = &mut dir.component {
+                                if comp.template.is_none() {
+                                    comp.template = Some(template.clone());
+                                }
+                            }
+
                             let parser = HtmlParser::new(get_html_tag_definition_wrapper);
-                            let parse_result = parser.parse(&template, "template.html", None);
+                            let parse_result = parser.parse(template, "template.html", None);
 
                             if !parse_result.errors.is_empty() {
                             } else {
@@ -315,7 +322,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                 let (compiled_results, directive_name) = match directive {
                                     DecoratorMetadata::Directive(dir) => {
                                         let results = if dir.t2.is_component {
-                                            component_handler.compile_ivy(&directive, Some(&mut import_manager))
+                                            component_handler.compile_ivy(&directive, find_class_decl(&parse_result.program, &dir.t2.name), Some(&mut import_manager))
                                         } else {
                                             directive_handler.compile_ivy(&directive, Some(&mut import_manager))
                                         };
@@ -517,7 +524,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                 // Merge results if multiple (e.g. fac and cmp)
                                 for res in &compiled_results {
                                     for stmt in &res.statements {
-                                        if stmt.contains("setClassDebugInfo") {
+                                        if stmt.contains("setClassDebugInfo") || stmt.contains("setClassMetadata") {
                                             trailing_statements.push_str(stmt);
                                             trailing_statements.push('\n');
                                         } else {
@@ -765,7 +772,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
         let (compiled_results, directive_name, source_file) = match directive {
             DecoratorMetadata::Directive(dir) => {
                 let results = if dir.t2.is_component {
-                    component_handler.compile_ivy(directive, None)
+                    component_handler.compile_ivy(directive, None, None)
                 } else {
                     directive_handler.compile_ivy(directive, None)
                 };
@@ -942,4 +949,33 @@ fn extract_and_remove_imports(code: &str) -> (Vec<String>, String) {
     }
 
     (imports, remaining_lines.join("\n"))
+}
+
+fn find_class_decl<'a>(
+    program: &'a oxc_ast::ast::Program<'a>,
+    name: &str,
+) -> Option<&'a oxc_ast::ast::Class<'a>> {
+    use oxc_ast::ast::{Declaration, Statement};
+    for stmt in &program.body {
+        match stmt {
+            Statement::ExportNamedDeclaration(decl) => {
+                if let Some(Declaration::ClassDeclaration(class)) = &decl.declaration {
+                    if let Some(id) = &class.id {
+                        if id.name == name {
+                            return Some(class);
+                        }
+                    }
+                }
+            }
+            Statement::ClassDeclaration(class) => {
+                if let Some(id) = &class.id {
+                    if id.name == name {
+                        return Some(class);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
