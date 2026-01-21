@@ -955,6 +955,10 @@ impl ComponentDecoratorHandler {
                                             if let Some(comp_meta) = &dir.component {
                                                 // Template
                                                 if let Some(tmpl) = &comp_meta.template {
+                                                    let escaped_tmpl = tmpl
+                                                        .replace("\\", "\\\\")
+                                                        .replace("`", "\\`")
+                                                        .replace("${", "\\${");
                                                     properties.push(LiteralMapEntry {
                                                         key: "template".to_string(),
                                                         value: Box::new(
@@ -962,8 +966,9 @@ impl ComponentDecoratorHandler {
                                                                 TemplateLiteralExpr {
                                                                     elements: vec![
                                                                         TemplateLiteralElement {
-                                                                            text: tmpl.clone(),
-                                                                            raw_text: tmpl.clone(),
+                                                                            text: escaped_tmpl
+                                                                                .clone(),
+                                                                            raw_text: escaped_tmpl,
                                                                             source_span: None,
                                                                         },
                                                                     ],

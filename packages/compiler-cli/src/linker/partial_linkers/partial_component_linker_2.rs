@@ -6,6 +6,9 @@ use angular_compiler::constant_pool::ConstantPool;
 use angular_compiler::core::{ChangeDetectionStrategy, ViewEncapsulation};
 use angular_compiler::output::output_ast as o;
 use angular_compiler::parse_util::ParseSourceSpan;
+use angular_compiler::render3::r3_class_metadata_compiler::{
+    compile_class_metadata, R3ClassMetadata,
+};
 use angular_compiler::render3::util::R3Reference;
 use angular_compiler::render3::view::api::{
     ChangeDetectionOrExpression, DeclarationListEmitMode, R3ComponentDeferMetadata,
@@ -32,7 +35,7 @@ impl PartialComponentLinker2 {
         source_url: &str,
         target_name: Option<&str>,
         imports: Option<&std::collections::HashMap<String, String>>,
-    ) -> Result<R3ComponentMetadata, String> {
+    ) -> Result<(R3ComponentMetadata, String), String> {
         // DEBUG: Trace function entry
         // eprintln!("[Linker2] to_r3_component_metadata called, target_name: {:?}, source: {}", target_name, source_url);
 
@@ -1146,30 +1149,33 @@ impl PartialComponentLinker2 {
         }
         let _schema_registry = DummySchemaRegistry;
 
-        Ok(R3ComponentMetadata {
-            directive,
-            template: R3ComponentTemplate {
-                nodes: parsed_template.nodes,
-                ng_content_selectors: parsed_template.ng_content_selectors,
-                preserve_whitespaces: false,
+        Ok((
+            R3ComponentMetadata {
+                directive,
+                template: R3ComponentTemplate {
+                    nodes: parsed_template.nodes,
+                    ng_content_selectors: parsed_template.ng_content_selectors,
+                    preserve_whitespaces: false,
+                },
+                declarations,
+                defer: R3ComponentDeferMetadata::PerComponent {
+                    dependencies_fn: None,
+                },
+                declaration_list_emit_mode: DeclarationListEmitMode::Closure,
+                styles,
+                external_styles: None,
+                encapsulation,
+                animations: None,
+                view_providers: None,
+                relative_context_file_path: "".to_string(),
+                i18n_use_external_ids: false,
+                change_detection,
+                relative_template_path: None,
+                has_directive_dependencies: false,
+                raw_imports: None,
             },
-            declarations,
-            defer: R3ComponentDeferMetadata::PerComponent {
-                dependencies_fn: None,
-            },
-            declaration_list_emit_mode: DeclarationListEmitMode::Closure,
-            styles,
-            external_styles: None,
-            encapsulation,
-            animations: None,
-            view_providers: None,
-            relative_context_file_path: "".to_string(),
-            i18n_use_external_ids: false,
-            change_detection,
-            relative_template_path: None,
-            has_directive_dependencies: false,
-            raw_imports: None,
-        })
+            template_str,
+        ))
     }
 }
 
@@ -1187,7 +1193,7 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialComponentLinker
         // TODO: Use source_url to resolve template if needed
         // println!("[LINKER] link_partial_declaration called, source_url: {}", source_url);
         match self.to_r3_component_metadata(meta_obj, source_url, _target_name, imports) {
-            Ok(meta) => {
+            Ok((meta, template_str)) => {
                 let _parser = angular_compiler::expression_parser::parser::Parser::new();
                 struct DummySchemaRegistry;
                 impl angular_compiler::schema::element_schema_registry::ElementSchemaRegistry
@@ -1274,35 +1280,140 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialComponentLinker
                 let res =
                     compile_component_from_metadata(&meta, constant_pool, &mut binding_parser);
 
+                // Synthesize R3ClassMetadata for setClassMetadata
+                let mut args = vec![];
+
+                // selector
+                if let Some(selector) = &meta.directive.selector {
+                    args.push(o::LiteralMapEntry {
+                        key: "selector".to_string(),
+                        value: Box::new(o::Expression::Literal(o::LiteralExpr {
+                            value: o::LiteralValue::String(selector.clone()),
+                            type_: None,
+                            source_span: None,
+                        })),
+                        quoted: false,
+                    });
+                }
+
+                // template (inlined)
+                let escaped_template = template_str
+                    .replace("\\", "\\\\")
+                    .replace("`", "\\`")
+                    .replace("${", "\\${");
+                args.push(o::LiteralMapEntry {
+                    key: "template".to_string(),
+                    value: Box::new(o::Expression::TemplateLiteral(o::TemplateLiteralExpr {
+                        elements: vec![o::TemplateLiteralElement {
+                            text: escaped_template.clone(),
+                            raw_text: escaped_template,
+                            source_span: None,
+                        }],
+                        expressions: vec![],
+                    })),
+                    quoted: false,
+                });
+
+                // styles (inlined)
+                if !meta.styles.is_empty() {
+                    let styles_expr = o::Expression::LiteralArray(o::LiteralArrayExpr {
+                        entries: meta
+                            .styles
+                            .iter()
+                            .map(|s| {
+                                o::Expression::Literal(o::LiteralExpr {
+                                    value: o::LiteralValue::String(s.clone()),
+                                    type_: None,
+                                    source_span: None,
+                                })
+                            })
+                            .collect(),
+                        type_: None,
+                        source_span: None,
+                    });
+                    args.push(o::LiteralMapEntry {
+                        key: "styles".to_string(),
+                        value: Box::new(styles_expr),
+                        quoted: false,
+                    });
+                }
+
+                // Create Component decorator expression
+                let component_decorator = o::Expression::LiteralMap(o::LiteralMapExpr {
+                    entries: vec![
+                        o::LiteralMapEntry {
+                            key: "type".to_string(),
+                            value: Box::new(o::Expression::External(o::ExternalExpr {
+                                value: o::ExternalReference {
+                                    module_name: Some("@angular/core".to_string()),
+                                    name: Some("Component".to_string()),
+                                    runtime: None,
+                                },
+                                type_: None,
+                                source_span: None,
+                            })),
+                            quoted: false,
+                        },
+                        o::LiteralMapEntry {
+                            key: "args".to_string(),
+                            value: Box::new(o::Expression::LiteralArray(o::LiteralArrayExpr {
+                                entries: vec![o::Expression::LiteralMap(o::LiteralMapExpr {
+                                    entries: args,
+                                    type_: None,
+                                    source_span: None,
+                                })],
+                                type_: None,
+                                source_span: None,
+                            })),
+                            quoted: false,
+                        },
+                    ],
+                    type_: None,
+                    source_span: None,
+                });
+
+                let r3_class_metadata = R3ClassMetadata {
+                    type_: meta.directive.type_.value.clone(),
+                    decorators: o::Expression::LiteralArray(o::LiteralArrayExpr {
+                        entries: vec![component_decorator],
+                        type_: None,
+                        source_span: None,
+                    }),
+                    ctor_parameters: None,
+                    prop_decorators: None,
+                };
+
+                let set_metadata_expr = compile_class_metadata(&r3_class_metadata);
+                let set_metadata_stmt = set_metadata_expr.to_stmt();
+
                 // Merge res.statements into constant_pool. Because compile_component_from_metadata
                 // adds statements (template functions) directly to res.statements while also
                 // populating constant_pool.statements (e.g., _forTrack vars), we need to combine
                 // them into a single scope to avoid duplicate declarations.
                 // Prepend constant_pool.statements before res.statements and emit once.
-                if res.statements.is_empty() && constant_pool.statements.is_empty() {
-                    res.expression
-                } else {
-                    // Combine: constant_pool statements first, then res.statements
-                    let mut all_stmts = std::mem::take(&mut constant_pool.statements);
-                    all_stmts.extend(res.statements);
-                    all_stmts.push(o::Statement::Return(o::ReturnStatement {
-                        value: Box::new(res.expression),
-                        source_span: None,
-                    }));
 
-                    o::Expression::InvokeFn(o::InvokeFunctionExpr {
-                        fn_: Box::new(o::Expression::ArrowFn(o::ArrowFunctionExpr {
-                            params: vec![],
-                            body: o::ArrowFunctionBody::Statements(all_stmts),
-                            type_: None,
-                            source_span: None,
-                        })),
-                        args: vec![],
+                // Combine: constant_pool statements first, then res.statements, then setClassMetadata
+                let mut all_stmts = std::mem::take(&mut constant_pool.statements);
+                all_stmts.extend(res.statements);
+                all_stmts.push(set_metadata_stmt);
+
+                all_stmts.push(o::Statement::Return(o::ReturnStatement {
+                    value: Box::new(res.expression),
+                    source_span: None,
+                }));
+
+                o::Expression::InvokeFn(o::InvokeFunctionExpr {
+                    fn_: Box::new(o::Expression::ArrowFn(o::ArrowFunctionExpr {
+                        params: vec![],
+                        body: o::ArrowFunctionBody::Statements(all_stmts),
                         type_: None,
                         source_span: None,
-                        pure: false,
-                    })
-                }
+                    })),
+                    args: vec![],
+                    type_: None,
+                    source_span: None,
+                    pure: false,
+                })
             }
             Err(e) => {
                 // Return error expression or panic?

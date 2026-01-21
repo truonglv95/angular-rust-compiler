@@ -229,17 +229,17 @@ impl DecoratorHandler<NgModuleAnalysis, NgModuleAnalysis, NgModuleSymbol, NgModu
         let define_injector_name = Identifiers::define_injector().name.unwrap_or_default();
 
         // Generate ɵmod definition
-        let mod_def = format!(
-            "static ɵmod = {}({{ type: {} }});",
-            define_ng_module_name, meta.type_ref
-        );
+        let mod_def = format!("{}({{ type: {} }})", define_ng_module_name, meta.type_ref);
 
         // Generate ɵinj definition
-        let inj_def = format!("static ɵinj = {}({{}});", define_injector_name);
+        println!("DEBUG: define_injector_name = '{}'", define_injector_name);
+        println!("DEBUG: define_ng_module_name = '{}'", define_ng_module_name);
+        let inj_def = format!("{}({{}})", define_injector_name);
+        println!("DEBUG: inj_def = '{}'", inj_def);
 
         // Generate factory
         let fac_def = format!(
-            "static ɵfac = function {}Factory(t) {{ return new (t || {})(); }};",
+            "function {}Factory(t) {{ return new (t || {})(); }}",
             analysis.factory_meta.name, analysis.factory_meta.name
         );
 

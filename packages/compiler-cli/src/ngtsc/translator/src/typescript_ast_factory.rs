@@ -1,6 +1,6 @@
 use oxc_ast::ast::{Expression, ObjectPropertyKind, PropertyKey, PropertyKind, Statement};
 use oxc_ast::AstBuilder;
-use oxc_span::Span;
+use oxc_span::{Atom, Span};
 use oxc_syntax::operator::{
     AssignmentOperator, BinaryOperator as OxcBinaryOperator, UnaryOperator as OxcUnaryOperator,
 };
@@ -430,35 +430,72 @@ impl<'a> AstFactory for TypeScriptAstFactory<'a> {
     fn create_tagged_template(
         &self,
         tag: Self::Expression,
-        _template: TemplateLiteral<Self::Expression>,
+        template: TemplateLiteral<Self::Expression>,
     ) -> Self::Expression {
-        // Implement template literal creation
-        // Placeholder
-        oxc_ast::ast::Expression::TaggedTemplateExpression(self.builder.alloc(
-            self.builder.tagged_template_expression(
-                Span::default(),
-                tag,
-                None::<oxc_allocator::Box<oxc_ast::ast::TSTypeParameterInstantiation>>,
-                self.builder.template_literal(
+        let element_count = template.elements.len();
+        let quasis = oxc_allocator::Vec::from_iter_in(
+            template.elements.into_iter().enumerate().map(|(i, e)| {
+                let raw = self.builder.allocator.alloc_str(&e.raw);
+                let cooked = self.builder.allocator.alloc_str(&e.cooked);
+                oxc_ast::ast::TemplateElement {
+                    span: Span::default(),
+                    tail: i == element_count - 1,
+                    value: oxc_ast::ast::TemplateElementValue {
+                        raw: Atom::from(raw),
+                        cooked: Some(Atom::from(cooked)),
+                    },
+                    lone_surrogates: false,
+                }
+            }),
+            self.builder.allocator,
+        );
+
+        let expressions =
+            oxc_allocator::Vec::from_iter_in(template.expressions, self.builder.allocator);
+
+        oxc_ast::ast::Expression::TaggedTemplateExpression(
+            self.builder.alloc(
+                self.builder.tagged_template_expression(
                     Span::default(),
-                    self.builder.vec(),
-                    self.builder.vec(),
+                    tag,
+                    None::<oxc_allocator::Box<oxc_ast::ast::TSTypeParameterInstantiation>>,
+                    self.builder
+                        .template_literal(Span::default(), quasis, expressions),
                 ),
             ),
-        ))
+        )
     }
 
     fn create_template_literal(
         &self,
-        _template: TemplateLiteral<Self::Expression>,
+        template: TemplateLiteral<Self::Expression>,
     ) -> Self::Expression {
-        // Placeholder
+        let element_count = template.elements.len();
+        let quasis = oxc_allocator::Vec::from_iter_in(
+            template.elements.into_iter().enumerate().map(|(i, e)| {
+                let raw = self.builder.allocator.alloc_str(&e.raw);
+                let cooked = self.builder.allocator.alloc_str(&e.cooked);
+                oxc_ast::ast::TemplateElement {
+                    span: Span::default(),
+                    tail: i == element_count - 1,
+                    value: oxc_ast::ast::TemplateElementValue {
+                        raw: Atom::from(raw),
+                        cooked: Some(Atom::from(cooked)),
+                    },
+                    lone_surrogates: false,
+                }
+            }),
+            self.builder.allocator,
+        );
+
+        let expressions =
+            oxc_allocator::Vec::from_iter_in(template.expressions, self.builder.allocator);
+
         oxc_ast::ast::Expression::TemplateLiteral(
-            self.builder.alloc(self.builder.template_literal(
-                Span::default(),
-                self.builder.vec(),
-                self.builder.vec(),
-            )),
+            self.builder.alloc(
+                self.builder
+                    .template_literal(Span::default(), quasis, expressions),
+            ),
         )
     }
 

@@ -26,9 +26,99 @@ use std::path::PathBuf;
 
 fn expression_to_string(expr: &angular_compiler::output::output_ast::Expression) -> String {
     let mut ctx = EmitterVisitorContext::create_root();
+    let mut import_manager = EmitterImportManager::new();
     let mut visitor = AbstractEmitterVisitor::new(false);
+
+    // Visit expression to populate imports
     expr.visit_expression(&mut visitor, &mut ctx);
+
+    // If it's an ExternalExpr, we need special handling to alias it
+    // But AbstractEmitterVisitor doesn't use ImportManager directly.
+    // We need to customize how ExternalExpr is printed or pre-process it.
+    // For now, let's try to use the import manager to resolve it.
+
     ctx.to_source()
+}
+
+/// Helper to convert expression to string, with basic handling for raw ExternalExpr usage
+/// which is common in hardcoded compiler paths.
+fn expression_to_string_with_imports(
+    expr: &angular_compiler::output::output_ast::Expression,
+    additional_imports: &mut Vec<(String, String)>,
+) -> String {
+    use angular_compiler::output::output_ast::{Expression, ExternalExpr};
+
+    match expr {
+        Expression::External(ext) => {
+            if let Some(module_name) = &ext.value.module_name {
+                let alias = format!("i_{}", additional_imports.len());
+                additional_imports.push((alias.clone(), module_name.clone()));
+                return format!("{}.{}", alias, ext.value.name.clone().unwrap_or_default());
+            }
+            ext.value.name.clone().unwrap_or_default()
+        }
+        Expression::LiteralArray(arr) => {
+            let entries: Vec<String> = arr
+                .entries
+                .iter()
+                .map(|e| expression_to_string_with_imports(e, additional_imports))
+                .collect();
+            format!("[{}]", entries.join(", "))
+        }
+        Expression::LiteralMap(map) => {
+            let entries: Vec<String> = map
+                .entries
+                .iter()
+                .map(|e| {
+                    format!(
+                        "'{}': {}",
+                        e.key,
+                        expression_to_string_with_imports(&e.value, additional_imports)
+                    )
+                })
+                .collect();
+            format!("{{{}}}", entries.join(", "))
+        }
+        Expression::InvokeFn(call) => {
+            let fn_str = expression_to_string_with_imports(&call.fn_, additional_imports);
+            let args: Vec<String> = call
+                .args
+                .iter()
+                .map(|a| expression_to_string_with_imports(a, additional_imports))
+                .collect();
+            format!("{}({})", fn_str, args.join(", "))
+        }
+        Expression::Instantiate(inst) => {
+            let class_str = expression_to_string_with_imports(&inst.class_expr, additional_imports);
+            let args: Vec<String> = inst
+                .args
+                .iter()
+                .map(|a| expression_to_string_with_imports(a, additional_imports))
+                .collect();
+            format!("new {}({})", class_str, args.join(", "))
+        }
+        Expression::ReadVar(var) => var.name.clone(),
+        Expression::Literal(lit) => match &lit.value {
+            angular_compiler::output::output_ast::LiteralValue::String(s) => format!("'{}'", s),
+            angular_compiler::output::output_ast::LiteralValue::Number(n) => n.to_string(),
+            angular_compiler::output::output_ast::LiteralValue::Bool(b) => b.to_string(),
+            angular_compiler::output::output_ast::LiteralValue::Null => "null".to_string(),
+            angular_compiler::output::output_ast::LiteralValue::Undefined => {
+                "undefined".to_string()
+            }
+        },
+        Expression::ReadProp(prop) => {
+            let receiver = expression_to_string_with_imports(&prop.receiver, additional_imports);
+            format!("{}.{}", receiver, prop.name)
+        }
+        _ => {
+            // Fallback for other expressions
+            let mut ctx = EmitterVisitorContext::create_root();
+            let mut visitor = AbstractEmitterVisitor::new(false);
+            expr.visit_expression(&mut visitor, &mut ctx);
+            ctx.to_source()
+        }
+    }
 }
 
 fn get_html_tag_definition_wrapper(name: &str) -> &'static dyn TagDefinition {
@@ -470,7 +560,8 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                         let mut results = vec![];
 
                                         // Result for ɵmod
-                                        let mod_init = expression_to_string(&res_mod.expression)
+                                        let mut mod_imports = Vec::new();
+                                        let mod_init = expression_to_string_with_imports(&res_mod.expression, &mut mod_imports)
                                             .replace("@angular/core.", "i0.");
                                         results.push(crate::ngtsc::transform::src::api::CompileResult {
                                             name: "ɵmod".to_string(),
@@ -479,11 +570,12 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                             type_desc: format!("i0.ɵɵNgModuleDeclaration<{}, never, never, never>", ngm.name),
                                             deferrable_imports: None,
                                             diagnostics: Vec::new(),
-                                            additional_imports: Vec::new(),
+                                            additional_imports: mod_imports,
                                         });
 
                                         // Result for ɵinj
-                                        let inj_init = expression_to_string(&res_inj.expression)
+                                        let mut inj_imports = Vec::new();
+                                        let inj_init = expression_to_string_with_imports(&res_inj.expression, &mut inj_imports)
                                             .replace("@angular/core.", "i0.");
                                         results.push(crate::ngtsc::transform::src::api::CompileResult {
                                             name: "ɵinj".to_string(),
@@ -492,10 +584,8 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                             type_desc: format!("i0.ɵɵInjectorDeclaration<{}>", ngm.name),
                                             deferrable_imports: None,
                                             diagnostics: Vec::new(),
-                                            additional_imports: Vec::new(),
+                                            additional_imports: inj_imports,
                                         });
-
-                                        // eprintln!("[RUST_DEBUG] Matched NgModule: {}, Results: {}", ngm.name, results.len());
 
                                         (results, ngm.name.clone())
                                     }
