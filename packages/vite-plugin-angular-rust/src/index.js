@@ -135,12 +135,15 @@ export default function angularRustPlugin(options = {}) {
             const startTime = Date.now();
             const result = compiler.bundle(configFile);
 
-            // Stats Output
-            // Stats Output
-            printBuildStats(result, Date.now() - startTime);
+            // Stats Output - check for --verbose flag
+            const isVerbose = process.argv.includes('--verbose');
+            if (!options.skipStats) {
+                printBuildStats(result, Date.now() - startTime, { verbose: isVerbose });
+            }
 
             const files = result.files || {};
             const fileCount = Object.keys(files).length;
+            
 
             if (fileCount === 0) {
                 const bundle = result.bundleJs || result.bundle_js || '';
@@ -151,6 +154,20 @@ export default function angularRustPlugin(options = {}) {
             }
 
             bundleCache = result;
+            bundleCache = result;
+
+            // Save external imports to cache file for Vite optimization
+            const externalImports = result.externalImports || result.external_imports || [];
+            if (externalImports.length > 0) {
+                const cacheDir = path.resolve(projectRoot, '.angular/cache/rust-compiler');
+                if (!fs.existsSync(cacheDir)) {
+                    fs.mkdirSync(cacheDir, { recursive: true });
+                }
+                const cachePath = path.join(cacheDir, 'external-imports.json');
+                fs.writeFileSync(cachePath, JSON.stringify(externalImports, null, 2));
+                // console.log(`[Plugin] External imports cached (${externalImports.length} packages) → .angular/cache/rust-compiler/external-imports.json`);
+            }
+
             return result;
         } finally {
             isBundling = false;
@@ -174,6 +191,65 @@ export default function angularRustPlugin(options = {}) {
             } catch (e) {
                 console.warn('Failed to parse angular.json for styles:', e);
             }
+
+
+            // Middleware to serve styles.css as raw CSS (bypassing Vite transformation)
+            server.middlewares.use(async (req, res, next) => {
+                const url = req.url;
+                // Match /styles.css, allow query params but skip ?import
+                if ((url === '/styles.css' || url.startsWith('/styles.css?')) && !url.includes('?import')) {
+                    try {
+                        if (!bundleCache) await getBundle();
+                        const content = bundleCache.stylesCss || bundleCache.styles_css;
+                        if (content) {
+                            res.setHeader('Content-Type', 'text/css');
+                            res.end(content);
+                            return;
+                        }
+                    } catch (e) {
+                        console.error('[Middleware] Failed to serve styles.css:', e);
+                    }
+                }
+
+                // polyfills.js is now handled as virtual module via resolveId/load hooks
+                // This allows Vite to properly resolve and cache dependencies like zone.js
+
+                // Serve assets from node_modules (rewritten by bundler)
+                if (url.startsWith('/__node_modules/') && !url.includes('?import')) {
+                     // /__node_modules/pkg/foo.woff -> pkg/foo.woff
+                     const relativePath = url.replace(/^\/__node_modules\//, '').split('?')[0];
+                     
+                     const possiblePaths = [
+                         path.resolve(projectRoot, 'node_modules', relativePath),
+                         path.resolve(process.cwd(), 'node_modules', relativePath),
+                         path.resolve(projectRoot, '../node_modules', relativePath)
+                     ];
+
+                     for (const tryPath of possiblePaths) {
+                         if (fs.existsSync(tryPath)) {
+                             try {
+                                 const content = fs.readFileSync(tryPath);
+                                 const ext = path.extname(tryPath).toLowerCase();
+                                 if (ext === '.woff2') res.setHeader('Content-Type', 'font/woff2');
+                                 else if (ext === '.woff') res.setHeader('Content-Type', 'font/woff');
+                                 else if (ext === '.ttf') res.setHeader('Content-Type', 'font/ttf');
+                                 else if (ext === '.eot') res.setHeader('Content-Type', 'application/vnd.ms-fontobject');
+                                 else if (ext === '.svg') res.setHeader('Content-Type', 'image/svg+xml');
+                                 else if (ext === '.png') res.setHeader('Content-Type', 'image/png');
+                                 else if (ext === '.jpg' || ext === '.jpeg') res.setHeader('Content-Type', 'image/jpeg');
+                                 else if (ext === '.gif') res.setHeader('Content-Type', 'image/gif');
+                                 
+                                 res.end(content);
+                                 return;
+                             } catch (e) {
+                                 console.error('[Middleware] Failed to serve node_modules asset:', e);
+                             }
+                         }
+                     }
+                     console.warn(`[Middleware] Asset not found: ${relativePath}`);
+                }
+                next();
+            });
         },
 
         async handleHotUpdate({ file, server, modules }) {
@@ -202,19 +278,51 @@ export default function angularRustPlugin(options = {}) {
                         try {
                             const result = compiler.compile(targetTsFile, content);
                             if (result.code && !result.code.includes('/* Error')) {
-                                const key = 'dist/' + path.relative(projectRoot, targetTsFile).replace(/\\/g, '/').replace(/\.ts$/, '.js');
+                                const relTsPath = path.relative(projectRoot, targetTsFile).replace(/\\/g, '/');
+                                const key = 'dist/' + relTsPath.replace(/\.ts$/, '.js');
                                 
                                 if (bundleCache.files) {
                                     bundleCache.files[key] = result.code;
                                 }
 
-                                const virtualId = '\0' + key;
+                                // Update raw_files if it exists (for dev mode consistency)
+                                if (bundleCache.raw_files) {
+                                  bundleCache.raw_files[key] = result.code;
+                                }
+
                                 const updatedModules = [];
 
+                                // Case 1: Individual file module (non-bundled mode)
+                                const virtualId = '\0' + key;
                                 const mod = server.moduleGraph.getModuleById(virtualId);
                                 if (mod) {
                                     server.moduleGraph.invalidateModule(mod);
                                     updatedModules.push(mod);
+                                }
+
+                                // Case 2: Chunk-aware HMR (bundled mode)
+                                const moduleToChunk = bundleCache.moduleToChunk;
+                                if (moduleToChunk) {
+                                    const chunkName = moduleToChunk[relTsPath];
+                                    if (chunkName) {
+                                        const chunkVirtualId = `\0Chunk:${chunkName}`;
+                                        const chunkMod = server.moduleGraph.getModuleById(chunkVirtualId);
+                                        if (chunkMod) {
+                                            server.moduleGraph.invalidateModule(chunkMod);
+                                            updatedModules.push(chunkMod);
+                                        }
+
+                                        // Also handle the monolithic bundle if it's the main bundle
+                                        const mainBundleName = bundleCache.bundleName || bundleCache.bundle_name || 'bundle.js';
+                                        if (chunkName === mainBundleName) {
+                                            const mainVirtualId = `\0${mainBundleName}`;
+                                            const mainMod = server.moduleGraph.getModuleById(mainVirtualId);
+                                            if (mainMod) {
+                                                server.moduleGraph.invalidateModule(mainMod);
+                                                updatedModules.push(mainMod);
+                                            }
+                                        }
+                                    }
                                 }
 
                                 if (updatedModules.length > 0) {
@@ -260,14 +368,41 @@ export default function angularRustPlugin(options = {}) {
             // Virtual modules are self-resolving
             if (cleanId.startsWith('\0')) return cleanId;
 
+            // Handle polyfills.js as virtual module - let Vite resolve dependencies like zone.js
+            if (cleanId === '/polyfills.js' || cleanId === 'polyfills.js') {
+                return '\0angular:polyfills';
+            }
+
             if (!bundleCache) await getBundle();
+
+            // Handle dynamic bundle name (e.g., main.js) explicitly
+            const bundleName = bundleCache.bundleName || bundleCache.bundle_name || 'bundle.js';
+            if (cleanId === `/${bundleName}` || cleanId === bundleName) {
+                if (bundleCache.bundleJs || bundleCache.bundle_js) return '\0' + bundleName;
+            }
 
             // Map .ts files to compiled .js in cache
             let resolvedPath = id;
 
             if (importer && importer.startsWith('\0')) {
                 const virtualImporterPath = importer.slice(1);
-                const importerDir = path.dirname(path.resolve(projectRoot, virtualImporterPath));
+                let importerDir;
+                
+                // Handle chunk imports - chunks use their chunkNames mapping for source path
+                if (virtualImporterPath.startsWith('Chunk:')) {
+                    const chunkKey = virtualImporterPath.slice(6); // Remove 'Chunk:'
+                    // Try to find the source path from chunkNames
+                    if (bundleCache?.chunkNames?.[chunkKey]) {
+                        // chunkNames[chunkKey] is the source path like 'src/app/feature.module.ts'
+                        const sourcePath = bundleCache.chunkNames[chunkKey];
+                        importerDir = path.dirname(path.resolve(projectRoot, sourcePath));
+                    } else {
+                        // Fallback: assume chunk is in src/app/
+                        importerDir = path.resolve(projectRoot, 'src/app');
+                    }
+                } else {
+                    importerDir = path.dirname(path.resolve(projectRoot, virtualImporterPath));
+                }
                 resolvedPath = path.resolve(importerDir, id);
             } else if (importer) {
                 resolvedPath = path.resolve(path.dirname(importer), id);
@@ -326,13 +461,6 @@ export default function angularRustPlugin(options = {}) {
                                  const timestamp = new Date().toISOString();
                                  
                                  // ANSI Colors (reusing logic if possible, or re-defining for safety in this scope)
-                                 const env = process.env;
-                                 const isColorSupported = !env.NO_COLOR && (env.FORCE_COLOR || (process.stdout.isTTY && env.TERM !== 'dumb'));
-                                 const cyan = (s) => isColorSupported ? `\x1b[36m${s}\x1b[39m` : s;
-                                 const dim = (s) => isColorSupported ? `\x1b[2m${s}\x1b[22m` : s;
-                                 const green = (s) => isColorSupported ? `\x1b[32m${s}\x1b[39m` : s;
-
-                                 console.log(`\nLazy chunk compiled: ${green(path.basename(jsKey))} | ${dim(formattedSize)} | [${cyan(durationSeconds + ' s')}] - ${timestamp}`);
                              }
                          } catch (e) {
                              console.error(`[rustBundlePlugin] Lazy compile failed for ${sourceRelPath}:`, e);
@@ -362,6 +490,41 @@ export default function angularRustPlugin(options = {}) {
                 // key might be "chunk-name.js" or "dist/chunk-name.js"
                 const chunkKey = key.replace(/^dist\//, '');
                 if (bundleCache.chunks[chunkKey]) return '\0Chunk:' + chunkKey;
+                
+                // Reverse lookup: find chunk by source path
+                // chunkNames is { hashedName: sourcePath }, we need sourcePath -> hashedName
+                if (bundleCache.chunkNames || bundleCache.chunk_names) {
+                    const chunkNamesMap = bundleCache.chunkNames || bundleCache.chunk_names;
+                    
+                    // Normalize the key for comparison (remove dist/, handle .js/.ts extensions)
+                    let normalizedKey = key.replace(/^dist\//, '');
+                    if (!normalizedKey.endsWith('.ts') && !normalizedKey.endsWith('.js')) {
+                        normalizedKey = normalizedKey + '.ts'; // Dynamic imports usually omit extension
+                    }
+                    
+                    // Search for matching chunk
+                    for (const [hashedName, sourcePath] of Object.entries(chunkNamesMap)) {
+                        // sourcePath might be like "src/app/src/components/materials/card/card.ts"
+                        // normalizedKey might be like "src/app/src/components/materials/card/card.ts" 
+                        // or "src/app/src/components/materials/card/card.js"
+                        const sourcePathNoExt = sourcePath.replace(/\.(ts|js)$/, '');
+                        const keyNoExt = normalizedKey.replace(/\.(ts|js)$/, '');
+                        
+                        if (sourcePathNoExt === keyNoExt || sourcePath === normalizedKey) {
+                            return '\0Chunk:' + hashedName;
+                        }
+                    }
+                }
+            }
+
+            // Handle dynamic bundle
+            const bName = bundleCache.bundleName || bundleCache.bundle_name || 'bundle.js';
+            if (key === bName) {
+                if (bundleCache.bundleJs || bundleCache.bundle_js) return '\0' + bName;
+            }
+
+            if (key === 'styles.css' || cleanId === '/styles.css' || cleanId === 'styles.css') {
+                if (bundleCache.stylesCss || bundleCache.styles_css) return path.resolve(projectRoot, 'styles.css');
             }
 
             return null;
@@ -387,10 +550,6 @@ export default function angularRustPlugin(options = {}) {
                             return null;
                         }
                         if (result !== code) {
-                            if (id.includes('template-outlet-test.component.ts')) {
-                                console.log('[Debugging ReferenceError] Transformed code for:', id);
-                                console.log(result);
-                            }
                             return `/* LINKED BY RUST LINKER */\n${result}`;
                         }
                     } catch (e) {
@@ -404,19 +563,71 @@ export default function angularRustPlugin(options = {}) {
         async load(id) {
             if (!bundleCache) await getBundle();
 
-            // Handle absolute path .ts files - intercept before Vite's native transform
-            if (id.endsWith('.ts') && !id.includes('node_modules') && fs.existsSync(id)) {
-                // ... same as before
-                const relPath = path.relative(projectRoot, id);
-                const jsKey = 'dist/' + relPath.replace(/\.ts$/, '.js');
+            // Handle polyfills virtual module - Vite will resolve zone.js etc to cached deps
+            if (id === '\0angular:polyfills') {
+                const content = bundleCache?.polyfillsJs || bundleCache?.polyfills_js;
+                if (content) {
+                    // Return raw imports - Vite will transform them to use optimized deps
+                    // e.g., import 'zone.js' -> import '/@fs/.../vite/deps/zone__js.js?v=...'
+                    return content;
+                }
+                return '// No polyfills configured';
+            }
+
+            // Handle .ts files - intercept before Vite's native transform
+            // id can be absolute path (from Vite) or request path
+            if (id.endsWith('.ts') && !id.includes('node_modules')) {
+                // Normalize to relative path from project root
+                let relPath;
+                if (path.isAbsolute(id)) {
+                    // Absolute path like /Users/.../demo-app/src/main.ts
+                    relPath = path.relative(projectRoot, id);
+                } else if (id.startsWith('/')) {
+                    // Request path like /src/app/app.ts
+                    relPath = id.slice(1); // Remove leading /
+                } else {
+                    relPath = id;
+                }
                 
-                if (bundleCache?.files?.[jsKey]) {
-                    let code = bundleCache.files[jsKey];
+                // Try multiple key formats to find compiled code
+                // In dev mode, prefer rawFiles (has imports intact) over files (imports stripped for bundling)
+                const jsKey = 'dist/' + relPath.replace(/\.ts$/, '.js');
+                const tsKey = relPath; // source key like src/app/app.ts
+                const jsKeyNoPrefix = relPath.replace(/\.ts$/, '.js');
+                
+                // rawFiles preserves imports for dev mode ES module resolution
+                const rawFiles = bundleCache?.rawFiles || bundleCache?.raw_files;
+                const processedFiles = bundleCache?.files;
+                
+                // Prefer raw files (imports intact) for dev mode, else fall back to processed files
+                let code = rawFiles?.[jsKey] || 
+                           rawFiles?.[tsKey] || 
+                           rawFiles?.[jsKeyNoPrefix] ||
+                           processedFiles?.[jsKey] || 
+                           processedFiles?.[tsKey] || 
+                           processedFiles?.[jsKeyNoPrefix];
+                
+                
+                if (code) {
+                    // Strip version hashes - Vite will add fresh ones
+                    code = code.replace(/(\?v=[a-f0-9]+)/g, '');
                     // For main.js, inject styles and HMR bootstrap
-                    if (jsKey.endsWith('main.js')) {
+                    if (relPath.endsWith('main.ts')) {
                         code = injectMainPreamble(code, projectRoot, globalStyles);
                     }
                     return { code, map: null };
+                }
+            }
+
+
+            // Handle styles.css (served as raw file)
+            if (id.endsWith('styles.css')) {
+                const key = path.relative(projectRoot, id);
+                if (key === 'styles.css') {
+                    const content = bundleCache.stylesCss || bundleCache.styles_css;
+                    if (content) {
+                        return content;
+                    }
                 }
             }
 
@@ -425,27 +636,38 @@ export default function angularRustPlugin(options = {}) {
                 if (id.startsWith('\0Chunk:')) {
                     const chunkKey = id.slice(7); // Remove '\0Chunk:'
                     if (bundleCache?.chunks?.[chunkKey]) {
-                         // ANSI Colors
-                         const env = process.env;
-                         const isColorSupported = !env.NO_COLOR && (env.FORCE_COLOR || (process.stdout.isTTY && env.TERM !== 'dumb'));
-                         const cyan = (s) => isColorSupported ? `\x1b[36m${s}\x1b[39m` : s;
-                         const dim = (s) => isColorSupported ? `\x1b[2m${s}\x1b[22m` : s;
-                         const green = (s) => isColorSupported ? `\x1b[32m${s}\x1b[39m` : s;
-                        
-                         // Fake duration for served chunks (since they are pre-compiled)
-                         // We just log that it's "compiled" (served)
-                         const timestamp = new Date().toISOString();
-                         const size = Buffer.byteLength(bundleCache.chunks[chunkKey], 'utf8');
-                         const formattedSize = formatSize(size);
-                         
-                         // We mock a small "compile" time to indicate it's served instantly
-                         console.log(`\nLazy chunk compiled: ${green(chunkKey)} | ${dim(formattedSize)} | [${cyan('0.001 s')}] - ${timestamp}`);
-
-                         return bundleCache.chunks[chunkKey];
+                         // Strip version hashes - Vite will add fresh ones
+                         let chunkContent = bundleCache.chunks[chunkKey];
+                         chunkContent = chunkContent.replace(/(\?v=[a-f0-9]+)/g, '');
+                         return chunkContent;
+                    } else {
+                        console.error(`[Plugin] Chunk not found in cache: ${chunkKey}`);
+                        if (bundleCache.chunks) {
+                            console.error('[Plugin] Available chunks:', Object.keys(bundleCache.chunks));
+                        }
                     }
                 }
 
                 const key = id.slice(1);
+
+                // Handle dynamic bundle (monolithic bundle)
+                const bundleName = bundleCache.bundleName || bundleCache.bundle_name || 'bundle.js';
+                if (key === bundleName) {
+                    let content = bundleCache.bundleJs || bundleCache.bundle_js;
+                    if (content) {
+                         // Strip version hashes from import paths - Vite will add fresh ones
+                         // This prevents stale hashes from previous builds causing duplicate module loads
+                         content = content.replace(/(\?v=[a-f0-9]+)/g, '');
+                         return content;
+                    }
+                }
+
+                if (key === 'styles.css') {
+                    const content = bundleCache.stylesCss || bundleCache.styles_css;
+                    if (content) {
+                        return content;
+                    }
+                }
                 
                 if (bundleCache?.files?.[key]) {
                     let code = bundleCache.files[key];
@@ -465,39 +687,42 @@ export default function angularRustPlugin(options = {}) {
 })();
 `;
 
-                        // Inject global styles
+                        // Inject global styles (Only for non-bundled mode)
                         try {
-                            const configPath = path.resolve(projectRoot, 'angular.json');
-                            if (fs.existsSync(configPath)) {
-                                const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-                                const projectKey = Object.keys(config.projects)[0];
-                                const project = config.projects[projectKey];
-                                const styles = project?.architect?.build?.options?.styles || [];
-                                
-                                styles.forEach(style => {
-                                    let stylePath = typeof style === 'string' ? style : style.input;
-                                    if (stylePath.startsWith('node_modules/')) {
-                                        let currentDir = projectRoot;
-                                        let foundPath = null;
-                                        let depth = 0;
-                                        while (depth < 10) {
-                                            const tryPath = path.resolve(currentDir, stylePath);
-                                            if (fs.existsSync(tryPath)) {
-                                                foundPath = tryPath;
-                                                break;
+                            const isBundled = bundleCache.bundleJs || bundleCache.bundle_js;
+                            if (!isBundled) {
+                                const configPath = path.resolve(projectRoot, 'angular.json');
+                                if (fs.existsSync(configPath)) {
+                                    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+                                    const projectKey = Object.keys(config.projects)[0];
+                                    const project = config.projects[projectKey];
+                                    const styles = project?.architect?.build?.options?.styles || [];
+                                    
+                                    styles.forEach(style => {
+                                        let stylePath = typeof style === 'string' ? style : style.input;
+                                        if (stylePath.startsWith('node_modules/')) {
+                                            let currentDir = projectRoot;
+                                            let foundPath = null;
+                                            let depth = 0;
+                                            while (depth < 10) {
+                                                const tryPath = path.resolve(currentDir, stylePath);
+                                                if (fs.existsSync(tryPath)) {
+                                                    foundPath = tryPath;
+                                                    break;
+                                                }
+                                                const parent = path.dirname(currentDir);
+                                                if (parent === currentDir) break;
+                                                currentDir = parent;
+                                                depth++;
                                             }
-                                            const parent = path.dirname(currentDir);
-                                            if (parent === currentDir) break;
-                                            currentDir = parent;
-                                            depth++;
+                                            if (foundPath) {
+                                                preamble += `import '${foundPath}';\n`;
+                                            }
+                                        } else {
+                                            preamble += `import '/${stylePath}';\n`;
                                         }
-                                        if (foundPath) {
-                                            preamble += `import '${foundPath}';\n`;
-                                        }
-                                    } else {
-                                        preamble += `import '/${stylePath}';\n`;
-                                    }
-                                });
+                                    });
+                                }
                             }
                         } catch (e) {
                             // Ignore style injection errors
@@ -550,8 +775,21 @@ if (import.meta.hot) {
         async transformIndexHtml(html) {
             await getBundle();
 
+            // Inject polyfills.js BEFORE main bundle if present in angular.json config
+            const hasPolyfills = bundleCache?.polyfillsJs || bundleCache?.polyfills_js;
+            if (hasPolyfills && !html.includes('polyfills.js')) {
+                const polyfillsTag = `<script src="/polyfills.js" type="module"></script>`;
+                if (html.includes('</body>')) {
+                    html = html.replace('</body>', `${polyfillsTag}\n</body>`);
+                } else {
+                    html += polyfillsTag;
+                }
+            }
+
             // Inject main.ts script if not present
-            if (!html.includes('src/main.ts')) {
+            // Also check if any other module script is present (like main.js from bundled mode)
+            const hasModuleScript = html.includes('type="module"');
+            if (!html.includes('src/main.ts') && !hasModuleScript) {
                 const scriptTag = `<script src="/src/main.ts" type="module"></script>`;
                 if (html.includes('</body>')) {
                     html = html.replace('</body>', `${scriptTag}\n</body>`);
@@ -572,55 +810,101 @@ function formatSize(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
-function printBuildStats(result, durationMs) {
-  // ANSI Color Codes
+function printBuildStats(result, durationMs, options = {}) {
+  const maxLazyChunks = options.verbose ? Infinity : 15;
+  
+  // ANSI Color Codes - always enable colors (like Angular CLI does)
+  // Angular CLI uses chalk which has more sophisticated detection, but we'll just enable by default
   const env = process.env;
-  const isColorSupported = !env.NO_COLOR && (env.FORCE_COLOR || (process.stdout.isTTY && env.TERM !== 'dumb'));
+  const forceNoColor = env.NO_COLOR || env.TERM === 'dumb';
+  const isColorSupported = !forceNoColor;
   
   const bold = (s) => isColorSupported ? `\x1b[1m${s}\x1b[22m` : s;
   const green = (s) => isColorSupported ? `\x1b[32m${s}\x1b[39m` : s;
   const cyan = (s) => isColorSupported ? `\x1b[36m${s}\x1b[39m` : s;
   const dim = (s) => isColorSupported ? `\x1b[2m${s}\x1b[22m` : s;
+  const yellow = (s) => isColorSupported ? `\x1b[33m${s}\x1b[39m` : s;
 
-  const tableHeader = `
-${bold('Initial chunk files')} | ${bold('Names')}            |  ${bold('Raw size')}
-----------------------------------------------------------------`;
-
-  let output = '\n' + tableHeader + '\n';
+  let output = '\n';
+  output += `${bold('Initial chunk files')} | ${bold('Names')}            |  ${bold('Raw size')}\n`;
+  
   let totalSize = 0;
 
+  // Styles
   const stylesText = result.stylesCss || result.styles_css || '';
   const stylesSize = stylesText ? Buffer.byteLength(stylesText, "utf8") : 0;
   if (stylesSize > 0) {
-    output += `${green('styles.css')}${' '.repeat(10)} | ${dim('styles')}           | ${dim(formatSize(stylesSize).padStart(9))} |\n`;
+    output += `${green('styles.css'.padEnd(20))}| ${dim('styles'.padEnd(17))}| ${cyan(formatSize(stylesSize).padStart(9))} |\n`;
     totalSize += stylesSize;
   }
 
+  // Main bundle
   const mainText = result.bundleJs || result.bundle_js || '';
   const mainSize = Buffer.byteLength(mainText, "utf8");
-  output += `${green('main.js')}${' '.repeat(13)} | ${dim('main')}             | ${dim(formatSize(mainSize).padStart(9))} |\n`;
+  output += `${green('main.js'.padEnd(20))}| ${dim('main'.padEnd(17))}| ${cyan(formatSize(mainSize).padStart(9))} |\n`;
   totalSize += mainSize;
 
-  output += `\n                    | ${bold('Initial total')}    | ${bold(formatSize(totalSize).padStart(9))}\n\n`;
+  // Polyfills (if present)
+  const polyfillsText = result.polyfillsJs || result.polyfills_js || '';
+  const polyfillsSize = polyfillsText ? Buffer.byteLength(polyfillsText, "utf8") : 0;
+  if (polyfillsSize > 0) {
+    output += `${green('polyfills.js'.padEnd(20))}| ${dim('polyfills'.padEnd(17))}| ${cyan(formatSize(polyfillsSize).padStart(9))} |\n`;
+    totalSize += polyfillsSize;
+  }
 
+  output += `\n${''.padEnd(20)}| ${bold('Initial total')}    | ${bold(formatSize(totalSize).padStart(9))}\n\n`;
+
+  // Lazy chunks
   output += `${bold('Lazy chunk files')}    | ${bold('Names')}            |  ${bold('Raw size')}\n`;
   const chunks = result.chunks || {};
   const chunkKeys = Object.keys(chunks);
 
   if (chunkKeys.length > 0) {
-    for (const chunkName of chunkKeys) {
+    // Sort chunks by size descending
+    const chunkStats = chunkKeys.map(chunkName => {
       const size = Buffer.byteLength(chunks[chunkName], "utf8");
+      
       let shortName = chunkName.replace(/^chunk-/, "").replace(/\.js$/, "");
+      
+      // Use mapped name if available (extract just the component/module name)
+      if (result.chunk_names && result.chunk_names[chunkName]) {
+         shortName = result.chunk_names[chunkName];
+      } else if (result.chunkNames && result.chunkNames[chunkName]) {
+         shortName = result.chunkNames[chunkName];
+      }
+      
+      // Extract just the last part of path (e.g., "src/app/src/components/card/card.ts" -> "card")
+      shortName = shortName.replace(/\.(ts|js)$/, '').split('/').pop() || shortName;
+      
       if (shortName.length > 16) shortName = shortName.substring(0, 13) + "...";
 
-      output += `${chunkName.padEnd(19)} | ${dim(shortName.padEnd(16))} | ${dim(formatSize(size).padStart(9))} |\n`;
+      return {
+        chunkName,
+        shortName,
+        size,
+        formattedSize: formatSize(size)
+      };
+    });
+
+    chunkStats.sort((a, b) => b.size - a.size);
+
+    const displayChunks = chunkStats.slice(0, maxLazyChunks);
+    const hiddenCount = chunkStats.length - displayChunks.length;
+
+    for (const stat of displayChunks) {
+      output += `${green(stat.chunkName.padEnd(20))}| ${dim(stat.shortName.padEnd(17))}| ${cyan(stat.formattedSize.padStart(9))} |\n`;
+    }
+    
+    if (hiddenCount > 0) {
+      output += `${dim(`...and ${hiddenCount} more lazy chunk files. Use "--verbose" to show all the files.`)}\n`;
     }
   }
 
   const durationSeconds = (durationMs / 1000).toFixed(3);
   const timestamp = new Date().toISOString();
 
-  output += `\nApplication bundle generation complete. [${cyan(durationSeconds + ' seconds')}] - ${timestamp}\n`;
+  output += `\n${green('Application bundle generation complete.')} [${cyan(durationSeconds + ' seconds')}] - ${timestamp}\n`;
+  output += `\n${yellow('NOTE:')} Raw file sizes do not reflect development server per-request transformations.\n`;
 
   console.log(output);
 }
