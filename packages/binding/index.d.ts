@@ -25,10 +25,17 @@ export interface BatchEntryResult {
 }
 export interface NapiBundleResult {
   bundleJs: string;
+  bundleName: string;
   stylesCss?: string;
   scriptsJs?: string;
+  polyfillsJs?: string;
   indexHtml?: string;
   files: Record<string, string>;
+  rawFiles: Record<string, string>;
+  chunks: Record<string, string>;
+  chunkNames: Record<string, string>;
+  moduleToChunk: Record<string, string>;
+  externalImports: Array<string>;
 }
 export declare class Compiler {
   constructor();
