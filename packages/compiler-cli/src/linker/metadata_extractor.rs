@@ -241,9 +241,9 @@ fn process_class_declaration(
             if let oxc_ast::ast::ClassElement::PropertyDefinition(prop) = elem {
                 if prop.r#static {
                     if let Some(key_name) = prop.key.name() {
-                        if class_name == "MatChipOption" {
-                            eprintln!("[Metadata] DEBUG: MatChipOption static prop: {}", key_name);
-                        }
+                        // if class_name == "MatChipOption" {
+                        //     eprintln!("[Metadata] DEBUG: MatChipOption static prop: {}", key_name);
+                        // }
                         // eprintln!(
                         //     "[Metadata] Visiting class property: {}.{}",
                         //     class_name, key_name
@@ -259,7 +259,7 @@ fn process_class_declaration(
                             );
                         }
                     } else if class_name == "MatChipOption" {
-                        eprintln!("[Metadata] DEBUG: MatChipOption static prop has NO NAME");
+                        // eprintln!("[Metadata] DEBUG: MatChipOption static prop has NO NAME");
                     }
                 }
             }

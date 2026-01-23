@@ -67,7 +67,13 @@ fn process_unit(unit: &mut dyn crate::template::pipeline::src::compilation::Comp
                                         *two_way_binding_set(target.clone(), value.clone())
                                     }
                                     _ => {
-                                        panic!("Unsupported expression in two-way action binding.");
+                                        // For other expression types, use the same approach as ReadVariable
+                                        // This handles cases like CallExpr, ConditionalExpr, etc.
+                                        eprintln!(
+                                            "[Angular Compiler] Warning: Unsupported expression type {:?} in two-way binding, using fallback.",
+                                            std::mem::discriminant(&*target)
+                                        );
+                                        *two_way_binding_set(target.clone(), value.clone())
                                     }
                                 }
                             } else {

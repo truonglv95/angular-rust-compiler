@@ -925,6 +925,18 @@ pub fn link_file(source_code: String, filename: String) -> Result<String> {
                     }
                 }
 
+                // Strip ɵɵngDeclareClassMetadata calls - metadata is collected but not needed at runtime
+                // This is a IIFE call like: i0.ɵɵngDeclareClassMetadata({...})
+                // We replace it with void 0 to remove it cleanly
+                if n == "ɵɵngDeclareClassMetadata" {
+                    let span = expr.span;
+                    // Replace with empty expression to effectively strip it
+                    self.replacements
+                        .push((span.start, span.end, "void 0".to_string()));
+                    // Don't continue - we've handled this
+                    return;
+                }
+
                 if n.starts_with("ɵɵngDeclare") && self.selector.supports_declaration(n) {
                     // It's a target!
                     {

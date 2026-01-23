@@ -34,6 +34,8 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 rayon = { workspace = true }
 smallvec = { workspace = true }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+grass = "0.13"
 
 # NAPI-RS for Node.js bindings (optional)
 napi = { workspace = true, optional = true }

@@ -133,6 +133,24 @@ fn run_build(project_arg: Option<String>) {
     std::fs::write(&bundle_path, &result.bundle_js).unwrap();
     println!("Bundle written to {:?}", bundle_path);
 
+    // Write all individual files (including collected resources)
+    for (rel_path, content) in &result.files {
+        let file_path = dist_dir.join(rel_path);
+        if let Some(parent) = file_path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&file_path, content).unwrap();
+        // println!("File written to {:?}", file_path);
+    }
+    println!("Wrote {} individual files to dist", result.files.len());
+
+    // Write Chunks
+    for (chunk_name, chunk_content) in &result.chunks {
+        let chunk_path = dist_dir.join(chunk_name);
+        std::fs::write(&chunk_path, chunk_content).unwrap();
+        println!("Chunk written to {:?}", chunk_path);
+    }
+
     // Write Styles
     if let Some(css) = result.styles_css {
         let styles_path = dist_dir.join("styles.css");

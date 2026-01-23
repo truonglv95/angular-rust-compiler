@@ -274,11 +274,17 @@ pub struct BatchEntryResult {
 #[napi(object)]
 pub struct NapiBundleResult {
     pub bundle_js: String,
+    pub bundle_name: String,
     pub styles_css: Option<String>,
     pub scripts_js: Option<String>,
+    pub polyfills_js: Option<String>, // Generated from angular.json "polyfills" config
     pub index_html: Option<String>,
     pub files: HashMap<String, String>,
+    pub raw_files: HashMap<String, String>, // Raw compiled files without import stripping (for dev mode)
     pub chunks: HashMap<String, String>,
+    pub chunk_names: HashMap<String, String>, // Map<HashedName, OriginalName>
+    pub module_to_chunk: HashMap<String, String>, // Map<SourcePath, HashedName>
+    pub external_imports: Vec<String>, // List of external package imports for Vite optimizeDeps
 }
 
 #[napi]
@@ -581,21 +587,33 @@ impl Compiler {
         match bundle_project(Path::new(&project_path)) {
             Ok(res) => NapiBundleResult {
                 bundle_js: res.bundle_js,
+                bundle_name: res.bundle_name,
                 styles_css: res.styles_css,
                 scripts_js: res.scripts_js,
+                polyfills_js: res.polyfills_js,
                 index_html: res.index_html,
                 files: res.files,
+                raw_files: res.raw_files,
                 chunks: res.chunks,
+                chunk_names: res.chunk_names,
+                module_to_chunk: res.module_to_chunk,
+                external_imports: res.external_imports,
             },
             Err(e) => {
                 eprintln!("Bundle Error: {}", e);
                 NapiBundleResult {
                     bundle_js: format!("/* Bundle Error: {} */", e),
+                    bundle_name: "bundle.js".to_string(),
                     styles_css: None,
                     scripts_js: None,
+                    polyfills_js: None,
                     index_html: None,
                     files: HashMap::new(),
+                    raw_files: HashMap::new(),
                     chunks: HashMap::new(),
+                    chunk_names: HashMap::new(),
+                    module_to_chunk: HashMap::new(),
+                    external_imports: Vec::new(),
                 }
             }
         }
