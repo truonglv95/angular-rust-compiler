@@ -15,10 +15,11 @@ const require = createRequire(import.meta.url);
  */
 if (!isMainThread) {
   try {
-    const { angularJsonPath, bindingPath } = workerData;
+    const { angularJsonPath, bindingPath, hmr } = workerData;
+    console.log(`[Worker] hmr flag received: ${hmr} (type: ${typeof hmr})`);
     const binding = require(bindingPath);
     const compiler = new binding.Compiler();
-    const result = compiler.bundle(angularJsonPath);
+    const result = compiler.bundle(angularJsonPath, hmr);
     parentPort.postMessage({ type: 'success', result });
   } catch (err) {
     parentPort.postMessage({ type: 'error', message: err.message });
@@ -294,12 +295,18 @@ async function main() {
   const startTime = Date.now();
 
   try {
+    const isHmr = process.argv.includes('--hmr');
     const worker = new Worker(__filename, {
+      stdout: true,
+      stderr: true,
       workerData: {
         angularJsonPath: path.resolve(__dirname, 'angular.json'),
         bindingPath: path.resolve(__dirname, '../packages/binding/index.js'),
+        hmr: isHmr,
       },
     });
+    worker.stdout.pipe(process.stdout);
+    worker.stderr.pipe(process.stderr);
 
     const result = await new Promise((resolve, reject) => {
       worker.on('message', (msg) => {
