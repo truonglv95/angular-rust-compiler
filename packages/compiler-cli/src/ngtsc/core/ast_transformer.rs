@@ -72,6 +72,8 @@ fn add_trailing_statements<'a>(
         return;
     }
 
+    // eprintln!("[AST Transformer] Adding trailing statements for {}: {}", component_name, trailing_statements);
+
     use oxc_parser::Parser;
     use oxc_span::SourceType;
 
@@ -80,6 +82,10 @@ fn add_trailing_statements<'a>(
     let parse_result = parser.parse();
 
     if !parse_result.errors.is_empty() {
+        eprintln!(
+            "[AST Transformer] Parse Error in trailing statements: {:?}",
+            parse_result.errors
+        );
         return;
     }
 
@@ -101,14 +107,30 @@ fn add_trailing_statements<'a>(
                     break;
                 }
             }
+            Statement::ExportDefaultDeclaration(export_decl) => {
+                if let ExportDefaultDeclarationKind::ClassDeclaration(class) =
+                    &export_decl.declaration
+                {
+                    if class.id.as_ref().map(|id| id.name.as_str()) == Some(component_name) {
+                        class_idx = Some(idx);
+                        break;
+                    }
+                }
+            }
             _ => {}
         }
     }
 
     if let Some(idx) = class_idx {
+        // eprintln!("[AST Transformer] Class found at index {}, inserting statements.", idx);
         for (i, stmt) in parse_result.program.body.into_iter().enumerate() {
             program.body.insert(idx + 1 + i, stmt);
         }
+    } else {
+        eprintln!(
+            "[AST Transformer] Class {} NOT found in AST!",
+            component_name
+        );
     }
 }
 

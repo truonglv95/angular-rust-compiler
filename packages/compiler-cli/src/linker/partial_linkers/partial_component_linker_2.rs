@@ -1173,6 +1173,8 @@ impl PartialComponentLinker2 {
                 relative_template_path: None,
                 has_directive_dependencies: false,
                 raw_imports: None,
+                hmr_id: None,
+                hmr_deps: None,
             },
             template_str,
         ))

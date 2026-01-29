@@ -9,6 +9,7 @@ use std::time::Instant;
 pub fn parallel_compile(
     files: &[PathBuf],
     project_path: &Path,
+    hmr: bool,
 ) -> anyhow::Result<Vec<(PathBuf, String)>> {
     let start = Instant::now();
     // println!(
@@ -24,6 +25,7 @@ pub fn parallel_compile(
     let options = NgCompilerOptions {
         project: project_path.to_string_lossy().to_string(),
         out_dir: Some("dist".to_string()), // Virtual output dir
+        hmr,
         ..NgCompilerOptions::default()
     };
 

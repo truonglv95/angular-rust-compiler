@@ -79,6 +79,8 @@ fn compile_template(template: &str) -> (Vec<o::Statement>, ConstantPool) {
         relative_template_path: None,
         has_directive_dependencies: false,
         raw_imports: None,
+        hmr_id: None,
+        hmr_deps: None,
     };
 
     let mut constant_pool = ConstantPool::new(false);
@@ -221,6 +223,8 @@ fn should_handle_ngfor_nested_svg_attributes() {
         relative_template_path: None,
         has_directive_dependencies: false,
         raw_imports: None,
+        hmr_id: None,
+        hmr_deps: None,
     };
 
     let mut constant_pool = ConstantPool::new(false);

@@ -52,6 +52,8 @@ mod tests {
             flat_module_out_file: None,
             out_dir: Some("/dist".to_string()),
             root_dir: Some("/".to_string()),
+            hmr: false,
+            hmr_id: None,
         };
 
         let ticket = CompilationTicket {

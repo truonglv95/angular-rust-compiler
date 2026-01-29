@@ -116,6 +116,8 @@ fn should_emit_inherit_definition_feature_and_host_attrs() {
         relative_template_path: None,
         has_directive_dependencies: false,
         raw_imports: None,
+        hmr_id: None,
+        hmr_deps: None,
     };
 
     let result = compile_component_from_metadata(
@@ -479,6 +481,8 @@ fn should_compile_host_bindings_for_mat_divider() {
         relative_template_path: None,
         has_directive_dependencies: false,
         raw_imports: None,
+        hmr_id: None,
+        hmr_deps: None,
     };
 
     let result = compile_component_from_metadata(

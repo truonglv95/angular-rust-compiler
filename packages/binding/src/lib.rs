@@ -112,6 +112,13 @@ struct CachedDiagnostic {
     length: Option<u32>,
 }
 
+#[napi(object)]
+pub struct CompileOptions {
+    pub hmr: Option<bool>,
+    pub hmr_id: Option<String>,
+    pub root_dir: Option<String>,
+}
+
 /// A FileSystem that reads from disk (NodeJS) but captures writes in memory.
 struct CapturingFileSystem {
     delegate: NodeJSFileSystem,
@@ -215,7 +222,7 @@ impl FileSystem for CapturingFileSystem {
         _exclusive: Option<bool>,
     ) -> io::Result<()> {
         let mut captured = self.captured_files.lock().unwrap();
-        eprintln!("[Rust Binding] Writing to memory: {}", path);
+
         captured.insert(path.clone(), data.to_vec());
         Ok(())
     }
@@ -334,14 +341,30 @@ impl Compiler {
     }
 
     #[napi]
-    pub fn compile(&self, filename: String, content: String) -> CompileResult {
-        // 1. Compute hash of content (including template and style files)
-        let combined_content = get_combined_content_for_hash(&filename, &content);
-        let hash = compute_hash(&combined_content);
+    pub fn compile(
+        &self,
+        filename: String,
+        content: String,
+        options: Option<CompileOptions>,
+    ) -> CompileResult {
+        // Extract hmr_id from options first (before moving options)
+        let hmr_id_option = options.as_ref().and_then(|o| o.hmr_id.as_ref().cloned());
 
-        // 2. Check cache
-        if let Some(cached) = self.read_compiler_cache(&hash) {
-            return cached;
+        // 1. Compute hash of content (including template, style files, and hmr_id if present)
+        let combined_content = get_combined_content_for_hash(&filename, &content);
+        let hash_input = if let Some(ref hmr_id) = hmr_id_option {
+            // Include hmr_id in hash so HMR callback compile gets fresh result
+            format!("{}::hmr_id::{}", combined_content, hmr_id)
+        } else {
+            combined_content
+        };
+        let hash = compute_hash(&hash_input);
+
+        // 2. Check cache (skip cache for hmr_id compiles to ensure fresh UpdateMetadata)
+        if hmr_id_option.is_none() {
+            if let Some(cached) = self.read_compiler_cache(&hash) {
+                return cached;
+            }
         }
 
         // 3. Setup Capturing FileSystem
@@ -351,13 +374,24 @@ impl Compiler {
         fs.write_file(&abs_filename, content.as_bytes(), None).ok();
 
         // 4. Setup Compiler Options
-        let mut options = NgCompilerOptions::default();
-        options.project = abs_filename_str.clone();
-        options.out_dir = Some(fs.dirname(&abs_filename_str));
+        let mut ng_options = NgCompilerOptions::default();
+        ng_options.project = abs_filename_str.clone();
+        ng_options.out_dir = Some(fs.dirname(&abs_filename_str));
+
+        if let Some(opt) = options {
+            ng_options.hmr = opt.hmr.unwrap_or(false);
+            ng_options.hmr_id = opt.hmr_id;
+            ng_options.root_dir = opt.root_dir;
+        }
+
+        // Capture HMR ID presence before ng_options is moved
+        let has_hmr_id = ng_options.hmr_id.is_some();
+
+        // Debug log for HMR ID path
 
         // 5. Create Program
         let root_names = vec![abs_filename_str.clone()];
-        let mut program = NgtscProgram::new(root_names, options, &fs);
+        let mut program = NgtscProgram::new(root_names, ng_options, &fs);
 
         // 6. Load NG Structure
         let mut diagnostics = Vec::new();
@@ -390,14 +424,16 @@ impl Compiler {
         }
 
         // 8. Retrieve output from Memory
-        let output_path_str = abs_filename_str.replace(".ts", ".js");
+        let output_path_str = if has_hmr_id {
+            abs_filename_str.replace(".ts", ".hmr.js")
+        } else {
+            abs_filename_str.replace(".ts", ".js")
+        };
         let output_path = AbsoluteFsPath::from(Path::new(&output_path_str));
 
         let code = match fs.read_file(&output_path) {
             Ok(js_content) => js_content,
-            Err(_) => {
-                format!("/* Output not found in memory for {} */", output_path_str)
-            }
+            Err(_) => format!("/* Output not found in memory for {} */", output_path_str),
         };
 
         let result = CompileResult { code, diagnostics };
@@ -546,10 +582,7 @@ impl Compiler {
 
             let code = match fs.read_file(&output_path) {
                 Ok(c) => Some(c),
-                Err(_) => {
-                    eprintln!("[Rust Binding] Failed to read from memory: {}", output_path);
-                    None
-                }
+                Err(_) => None,
             };
             let diags = file_diagnostics.remove(&abs_path_str).unwrap_or_default();
 
@@ -580,11 +613,12 @@ impl Compiler {
         }
     }
     #[napi]
-    pub fn bundle(&self, project_path: String) -> NapiBundleResult {
+
+    pub fn bundle(&self, project_path: String, hmr: Option<bool>) -> NapiBundleResult {
         use angular_compiler_cli::bundler::bundle_project;
         use std::path::Path;
 
-        match bundle_project(Path::new(&project_path)) {
+        match bundle_project(Path::new(&project_path), hmr.unwrap_or(false)) {
             Ok(res) => NapiBundleResult {
                 bundle_js: res.bundle_js,
                 bundle_name: res.bundle_name,

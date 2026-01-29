@@ -2678,8 +2678,8 @@ fn make_listener_handler_ops(
 }
 
 /// Helper function to convert event handler AST into UpdateOps for two-way bindings
-/// This wraps the handler expression with TwoWayBindingSetExpr(target, $event)
-/// so that transform_two_way_binding_set phase can transform it properly.
+/// This wraps assignment expressions with TwoWayBindingSetExpr(target, $event)
+/// so that transform_two_way_binding_set phase can transform them properly.
 fn make_two_way_listener_handler_ops(
     handler: &crate::expression_parser::ast::AST,
     handler_span: &ParseSourceSpan,
@@ -2691,7 +2691,8 @@ fn make_two_way_listener_handler_ops(
 > {
     use crate::expression_parser::ast::AST;
     use crate::output::output_ast::{
-        Expression, ExpressionStatement, ReadVarExpr, ReturnStatement, Statement,
+        Expression, ExpressionStatement, ReadKeyExpr, ReadPropExpr, ReadVarExpr, ReturnStatement,
+        Statement,
     };
     use crate::template::pipeline::ir::expression::TwoWayBindingSetExpr;
     use crate::template::pipeline::ir::operations::OpList;
@@ -2718,7 +2719,7 @@ fn make_two_way_listener_handler_ops(
     }
 
     // Convert expressions
-    let mut expressions: Vec<Expression> = handler_exprs
+    let expressions: Vec<Expression> = handler_exprs
         .iter()
         .map(|expr| {
             crate::template::pipeline::src::conversion::convert_ast(
@@ -2731,9 +2732,6 @@ fn make_two_way_listener_handler_ops(
         })
         .collect();
 
-    // The last expression is the target for two-way binding
-    let target_expr = expressions.pop().unwrap();
-
     // Create $event variable reference
     let event_var = Expression::ReadVar(ReadVarExpr {
         name: "$event".to_string(),
@@ -2741,17 +2739,56 @@ fn make_two_way_listener_handler_ops(
         source_span: None,
     });
 
-    // Wrap with TwoWayBindingSetExpr: this will be transformed by transform_two_way_binding_set phase
-    // into: twoWayBindingSet(target, $event) || (target = $event)
-    let two_way_set_expr = Expression::TwoWayBindingSet(TwoWayBindingSetExpr::new(
-        Box::new(target_expr),
-        Box::new(event_var.clone()),
-    ));
+    let is_event_ref = |e: &Expression| -> bool {
+        if let Expression::ReadVar(v) = e {
+            v.name == "$event"
+        } else {
+            false
+        }
+    };
 
-    // Add statements for intermediate expressions
+    // Process expressions: wrap assignments to $event in TwoWayBindingSetExpr
     for expr in expressions {
+        // Check if expression is an assignment to $event
+        let target_expr = match &expr {
+            Expression::WriteVar(write) if is_event_ref(&write.value) => {
+                Some(Expression::ReadVar(ReadVarExpr {
+                    name: write.name.clone(),
+                    type_: None,
+                    source_span: write.source_span.clone(),
+                }))
+            }
+            Expression::WriteProp(write) if is_event_ref(&write.value) => {
+                Some(Expression::ReadProp(ReadPropExpr {
+                    receiver: write.receiver.clone(),
+                    name: write.name.clone(),
+                    type_: None,
+                    source_span: write.source_span.clone(),
+                }))
+            }
+            Expression::WriteKey(write) if is_event_ref(&write.value) => {
+                Some(Expression::ReadKey(ReadKeyExpr {
+                    receiver: write.receiver.clone(),
+                    index: write.index.clone(),
+                    type_: None,
+                    source_span: write.source_span.clone(),
+                }))
+            }
+            _ => None,
+        };
+
+        let final_expr = if let Some(target) = target_expr {
+            // Found a write to $event - transform to TwoWayBindingSet
+            Expression::TwoWayBindingSet(TwoWayBindingSetExpr::new(
+                Box::new(target),
+                Box::new(event_var.clone()),
+            ))
+        } else {
+            expr
+        };
+
         let expr_stmt = ExpressionStatement {
-            expr: Box::new(expr),
+            expr: Box::new(final_expr),
             source_span: Some(handler_span.clone()),
         };
         let stmt = Statement::Expression(expr_stmt);
@@ -2760,17 +2797,6 @@ fn make_two_way_listener_handler_ops(
         >(Box::new(stmt));
         handler_ops.push(Box::new(stmt_op));
     }
-
-    // Add statement for TwoWayBindingSetExpr
-    let set_stmt = ExpressionStatement {
-        expr: Box::new(two_way_set_expr),
-        source_span: Some(handler_span.clone()),
-    };
-    let stmt = Statement::Expression(set_stmt);
-    let stmt_op = create_statement_op::<
-        Box<dyn crate::template::pipeline::ir::operations::UpdateOp + Send + Sync>,
-    >(Box::new(stmt));
-    handler_ops.push(Box::new(stmt_op));
 
     // Add return statement with $event
     let return_stmt_val = ReturnStatement {

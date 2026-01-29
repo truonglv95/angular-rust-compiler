@@ -32,6 +32,38 @@ pub fn extract_directive_metadata<'a>(
         .map(|id| id.name.to_string())
         .unwrap_or_default();
 
+    // Generate stable HMR ID based on relative path + class name
+    // Walk up to find project root (package.json or node_modules)
+    let project_root = {
+        let mut dir = source_file
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .to_path_buf();
+        loop {
+            if dir.join("package.json").exists() || dir.join("node_modules").exists() {
+                break dir;
+            }
+            if !dir.pop() {
+                // Fallback to cwd or component dir
+                break std::env::current_dir().unwrap_or_else(|_| {
+                    source_file
+                        .parent()
+                        .unwrap_or(std::path::Path::new("."))
+                        .to_path_buf()
+                });
+            }
+        }
+    };
+
+    let rel_path = source_file
+        .strip_prefix(&project_root)
+        .unwrap_or(source_file)
+        .to_string_lossy()
+        .to_string()
+        .replace("\\", "/");
+
+    let hmr_id_val = format!("{}@{}", rel_path, name);
+
     let mut meta = DirectiveMeta {
         kind: MetaKind::Directive,
         match_source: MatchSource::Selector,
@@ -52,6 +84,7 @@ pub fn extract_directive_metadata<'a>(
         decorator: Some(decorator.node),
         file_imports: Some(imports_map.clone()),
         decl_span: Some(class_decl.span.clone()),
+        hmr_id: Some(hmr_id_val),
         ..Default::default()
     };
 

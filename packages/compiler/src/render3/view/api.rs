@@ -132,6 +132,10 @@ pub struct R3ComponentMetadata {
     pub has_directive_dependencies: bool,
     /// The imports expression for standalone components.
     pub raw_imports: Option<Expression>,
+    /// Unique ID for HMR surgical updates.
+    pub hmr_id: Option<String>,
+    /// Dependencies for HMR (directives, pipes, modules names)
+    pub hmr_deps: Option<Vec<String>>,
 }
 
 /// Change detection strategy or expression

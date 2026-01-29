@@ -35,6 +35,8 @@ mod tests {
             flat_module_out_file: None,
             out_dir: None,
             root_dir: None,
+            hmr: false,
+            hmr_id: None,
         };
 
         let ticket = CompilationTicket {
@@ -108,6 +110,8 @@ mod tests {
             flat_module_out_file: None,
             out_dir: None,
             root_dir: None,
+            hmr: false,
+            hmr_id: None,
         };
 
         let ticket = CompilationTicket {
@@ -173,6 +177,8 @@ mod tests {
             flat_module_out_file: None,
             out_dir: None,
             root_dir: None,
+            hmr: false,
+            hmr_id: None,
         };
 
         let ticket = CompilationTicket {

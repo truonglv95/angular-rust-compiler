@@ -823,6 +823,8 @@ fn convert_component_facade_to_metadata(
         relative_template_path: None,
         has_directive_dependencies: false,
         raw_imports: None,
+        hmr_id: None,
+        hmr_deps: None,
     }
 }
 
@@ -872,6 +874,8 @@ fn convert_declare_component_facade_to_metadata(
         relative_template_path: None,
         has_directive_dependencies: false,
         raw_imports: None,
+        hmr_id: None,
+        hmr_deps: None,
     }
 }
 

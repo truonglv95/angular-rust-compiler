@@ -7,8 +7,8 @@ use crate::output::output_ast::dynamic_type;
 use crate::output::output_ast::{
     ArrowFunctionBody, ArrowFunctionExpr, BinaryOperator, BinaryOperatorExpr, DeclareFunctionStmt,
     DeclareVarStmt, DynamicImportExpr, Expression, ExternalExpr, ExternalReference, FnParam,
-    InvokeFunctionExpr, LiteralArrayExpr, LiteralExpr, LiteralValue, ReadPropExpr, ReadVarExpr,
-    Statement, StmtModifier, WritePropExpr,
+    InvokeFunctionExpr, LiteralArrayExpr, LiteralExpr, LiteralValue, ReadKeyExpr, ReadPropExpr,
+    ReadVarExpr, Statement, StmtModifier, WritePropExpr,
 };
 
 use super::r3_identifiers::Identifiers as R3;
@@ -58,9 +58,11 @@ pub struct R3HmrMetadata {
     /// File path of the component class
     pub file_path: String,
     /// Namespace dependencies (e.g. import * as i0 from '@angular/core')
-    pub namespace_dependencies: Vec<R3HmrNamespaceDependency>,
-    /// Local dependencies that need to be passed to the update callback
-    pub local_dependencies: Vec<R3HmrLocalDependency>,
+    pub namespace_dependencies: Vec<Expression>,
+    /// Local dependencies (the actual symbols like MatCardModule)
+    pub local_dependencies: Vec<Expression>,
+    /// Unique HMR ID
+    pub hmr_id: String,
 }
 
 /// HMR dependency on a namespace import
@@ -87,21 +89,7 @@ pub fn compile_hmr_initializer(meta: &R3HmrMetadata) -> Expression {
     let id_name = "id";
     let import_callback_name = format!("{}_HmrLoad", meta.class_name);
 
-    let namespaces: Vec<Expression> = meta
-        .namespace_dependencies
-        .iter()
-        .map(|dep| {
-            Expression::External(ExternalExpr {
-                value: ExternalReference {
-                    module_name: Some(dep.module_name.clone()),
-                    name: None,
-                    runtime: None,
-                },
-                type_: None,
-                source_span: None,
-            })
-        })
-        .collect();
+    let namespaces: Vec<Expression> = meta.namespace_dependencies.clone();
 
     // m.default
     let default_read = Expression::ReadProp(ReadPropExpr {
@@ -116,11 +104,7 @@ pub fn compile_hmr_initializer(meta: &R3HmrMetadata) -> Expression {
     });
 
     // Build locals array
-    let locals_arr: Vec<Expression> = meta
-        .local_dependencies
-        .iter()
-        .map(|l| l.runtime_representation.clone())
-        .collect();
+    let locals_arr: Vec<Expression> = meta.local_dependencies.clone();
 
     // ɵɵreplaceMetadata(Comp, m.default, [...namespaces], [...locals], import.meta, id)
     let replace_metadata_ref = R3::replace_metadata();
@@ -179,12 +163,27 @@ pub fn compile_hmr_initializer(meta: &R3HmrMetadata) -> Expression {
         source_span: None,
     });
 
-    // getReplaceMetadataURL(id, timestamp, import.meta.url)
-    let get_replace_metadata_url_ref = R3::get_replace_metadata_url();
-    let get_replace_metadata_url_expr = external_expr(get_replace_metadata_url_ref);
+    let url_expr = Expression::ReadProp(ReadPropExpr {
+        receiver: Box::new(Expression::ReadProp(ReadPropExpr {
+            receiver: Box::new(Expression::ReadVar(ReadVarExpr {
+                name: "import".to_string(),
+                type_: None,
+                source_span: None,
+            })),
+            name: "meta".to_string(),
+            type_: None,
+            source_span: None,
+        })),
+        name: "url".to_string(),
+        type_: None,
+        source_span: None,
+    });
 
-    let _url_expr = Expression::InvokeFn(InvokeFunctionExpr {
-        fn_: Box::new(get_replace_metadata_url_expr),
+    // i0.ɵɵgetReplaceMetadataURL(id, t, import.meta.url)
+    // This returns a special metadata-only URL: ./@ng/component?c=<id>&t=<timestamp>
+    // that Vite handles to return only component metadata, not the full module
+    let get_replace_metadata_url_call = Expression::InvokeFn(InvokeFunctionExpr {
+        fn_: Box::new(external_expr(R3::get_replace_metadata_url())),
         args: vec![
             Expression::ReadVar(ReadVarExpr {
                 name: id_name.to_string(),
@@ -196,35 +195,24 @@ pub fn compile_hmr_initializer(meta: &R3HmrMetadata) -> Expression {
                 type_: None,
                 source_span: None,
             }),
-            Expression::ReadProp(ReadPropExpr {
-                receiver: Box::new(Expression::ReadProp(ReadPropExpr {
-                    receiver: Box::new(Expression::ReadVar(ReadVarExpr {
-                        name: "import".to_string(),
-                        type_: None,
-                        source_span: None,
-                    })),
-                    name: "meta".to_string(),
-                    type_: None,
-                    source_span: None,
-                })),
-                name: "url".to_string(),
-                type_: None,
-                source_span: None,
-            }),
+            url_expr,
         ],
         type_: None,
         source_span: None,
         pure: false,
     });
 
-    // import(url).then(replaceCallback)
-    // Note: DynamicImportExpr in Rust expects a String, but TypeScript accepts an Expression
-    // We need to use the url_expr as a template string or evaluate it
-    // For now, we'll create a DynamicImportExpr with a placeholder and handle the expression separately
-    // The comment '@vite-ignore' would be handled by the emitter
-    let dynamic_import = Expression::DynamicImport(DynamicImportExpr {
-        url: "/* @vite-ignore */ import(url)".to_string(), // This will need proper stringification of url_expr
+    // import(/* @vite-ignore */ ɵɵgetReplaceMetadataURL(...)).then(replaceCallback)
+    let dynamic_import = Expression::InvokeFn(InvokeFunctionExpr {
+        fn_: Box::new(Expression::ReadVar(ReadVarExpr {
+            name: "__vite_ignore_import".to_string(), // Magic name handled by abstract_emitter
+            type_: None,
+            source_span: None,
+        })),
+        args: vec![get_replace_metadata_url_call],
+        type_: None,
         source_span: None,
+        pure: false,
     });
 
     let import_then = Expression::InvokeFn(InvokeFunctionExpr {
@@ -253,93 +241,13 @@ pub fn compile_hmr_initializer(meta: &R3HmrMetadata) -> Expression {
         source_span: None,
     });
 
-    // (d) => d.id === id && Cmp_HmrLoad(d.timestamp)
-    let d_id = Expression::ReadProp(ReadPropExpr {
-        receiver: Box::new(Expression::ReadVar(ReadVarExpr {
-            name: data_name.to_string(),
-            type_: None,
-            source_span: None,
-        })),
-        name: "id".to_string(),
-        type_: None,
-        source_span: None,
-    });
-    let d_timestamp = Expression::ReadProp(ReadPropExpr {
-        receiver: Box::new(Expression::ReadVar(ReadVarExpr {
-            name: data_name.to_string(),
-            type_: None,
-            source_span: None,
-        })),
-        name: "timestamp".to_string(),
-        type_: None,
-        source_span: None,
-    });
-    let hmr_load_call = Expression::InvokeFn(InvokeFunctionExpr {
-        fn_: Box::new(Expression::ReadVar(ReadVarExpr {
-            name: import_callback_name.clone(),
-            type_: None,
-            source_span: None,
-        })),
-        args: vec![d_timestamp],
-        type_: None,
-        source_span: None,
-        pure: false,
-    });
-
-    let update_callback = Expression::ArrowFn(ArrowFunctionExpr {
-        params: vec![FnParam {
-            name: data_name.to_string(),
-            type_: None,
-        }],
-        body: ArrowFunctionBody::Expression(Box::new(Expression::BinaryOp(BinaryOperatorExpr {
-            operator: BinaryOperator::And,
-            lhs: Box::new(Expression::BinaryOp(BinaryOperatorExpr {
-                operator: BinaryOperator::Identical,
-                lhs: Box::new(d_id),
-                rhs: Box::new(Expression::ReadVar(ReadVarExpr {
-                    name: id_name.to_string(),
-                    type_: None,
-                    source_span: None,
-                })),
-                type_: None,
-                source_span: None,
-            })),
-            rhs: Box::new(hmr_load_call),
-            type_: None,
-            source_span: None,
-        }))),
+    let id_read = Expression::ReadVar(ReadVarExpr {
+        name: id_name.to_string(),
         type_: None,
         source_span: None,
     });
 
-    // Cmp_HmrLoad(Date.now())
-    let date_now = Expression::InvokeFn(InvokeFunctionExpr {
-        fn_: Box::new(Expression::ReadProp(ReadPropExpr {
-            receiver: Box::new(Expression::ReadVar(ReadVarExpr {
-                name: "Date".to_string(),
-                type_: None,
-                source_span: None,
-            })),
-            name: "now".to_string(),
-            type_: None,
-            source_span: None,
-        })),
-        args: vec![],
-        type_: None,
-        source_span: None,
-        pure: false,
-    });
-    let initial_call = Expression::InvokeFn(InvokeFunctionExpr {
-        fn_: Box::new(Expression::ReadVar(ReadVarExpr {
-            name: import_callback_name.clone(),
-            type_: None,
-            source_span: None,
-        })),
-        args: vec![date_now],
-        type_: None,
-        source_span: None,
-        pure: false,
-    });
+    let update_callback = compile_hmr_update_callback(id_read, &import_callback_name);
 
     // import.meta.hot
     let hot_read = Expression::ReadProp(ReadPropExpr {
@@ -379,16 +287,16 @@ pub fn compile_hmr_initializer(meta: &R3HmrMetadata) -> Expression {
         pure: false,
     });
 
-    // Encode ID
-    let encoded_id = encode_uri_component(&format!("{}@{}", meta.file_path, meta.class_name));
+    // Encode ID (kept for potential future use)
+    let _encoded_id = encode_uri_component(&format!("{}@{}", meta.file_path, meta.class_name));
 
     // Build the IIFE
     let iife_body: Vec<Statement> = vec![
-        // const id = <encoded_id>
+        // const id = <hmr_id>
         Statement::DeclareVar(DeclareVarStmt {
             name: id_name.to_string(),
             value: Some(Box::new(Expression::Literal(LiteralExpr {
-                value: LiteralValue::String(encoded_id),
+                value: LiteralValue::String(meta.hmr_id.clone()),
                 type_: None,
                 source_span: None,
             }))),
@@ -398,16 +306,78 @@ pub fn compile_hmr_initializer(meta: &R3HmrMetadata) -> Expression {
         }),
         // function Cmp_HmrLoad() {...}
         import_callback,
-        // ngDevMode && Cmp_HmrLoad(Date.now())
-        dev_only_guarded_expression(initial_call).to_stmt(),
-        // ngDevMode && import.meta.hot && import.meta.hot.on(...)
-        dev_only_guarded_expression(Expression::BinaryOp(BinaryOperatorExpr {
-            operator: BinaryOperator::And,
-            lhs: Box::new(hot_read),
-            rhs: Box::new(hot_listener),
+        // (typeof ngDevMode === "undefined" || ngDevMode) && Cmp_HmrLoad(Date.now());
+        // Now safe to call immediately because ɵɵgetReplaceMetadataURL returns a metadata-only URL
+        // that won't cause infinite loop by re-importing the full module
+        dev_only_guarded_expression(Expression::InvokeFn(InvokeFunctionExpr {
+            fn_: Box::new(Expression::ReadVar(ReadVarExpr {
+                name: import_callback_name.clone(),
+                type_: None,
+                source_span: None,
+            })),
+            args: vec![Expression::InvokeFn(InvokeFunctionExpr {
+                fn_: Box::new(Expression::ReadProp(ReadPropExpr {
+                    receiver: Box::new(Expression::ReadVar(ReadVarExpr {
+                        name: "Date".to_string(),
+                        type_: None,
+                        source_span: None,
+                    })),
+                    name: "now".to_string(),
+                    type_: None,
+                    source_span: None,
+                })),
+                args: vec![],
+                type_: None,
+                source_span: None,
+                pure: false,
+            })],
             type_: None,
             source_span: None,
+            pure: false,
         }))
+        .to_stmt(),
+        // (typeof ngDevMode === "undefined" || ngDevMode) && (import.meta.hot && import.meta.hot.on(...))
+        Expression::BinaryOp(BinaryOperatorExpr {
+            operator: BinaryOperator::And,
+            lhs: Box::new(Expression::BinaryOp(BinaryOperatorExpr {
+                operator: BinaryOperator::Or,
+                lhs: Box::new(Expression::BinaryOp(BinaryOperatorExpr {
+                    operator: BinaryOperator::Identical,
+                    lhs: Box::new(Expression::TypeOf(crate::output::output_ast::TypeofExpr {
+                        expr: Box::new(Expression::ReadVar(ReadVarExpr {
+                            name: "ngDevMode".to_string(),
+                            type_: None,
+                            source_span: None,
+                        })),
+                        type_: None,
+                        source_span: None,
+                    })),
+                    rhs: Box::new(Expression::Literal(LiteralExpr {
+                        value: LiteralValue::String("undefined".to_string()),
+                        type_: None,
+                        source_span: None,
+                    })),
+                    type_: None,
+                    source_span: None,
+                })),
+                rhs: Box::new(Expression::ReadVar(ReadVarExpr {
+                    name: "ngDevMode".to_string(),
+                    type_: None,
+                    source_span: None,
+                })),
+                type_: None,
+                source_span: None,
+            })),
+            rhs: Box::new(Expression::BinaryOp(BinaryOperatorExpr {
+                operator: BinaryOperator::And,
+                lhs: Box::new(hot_read),
+                rhs: Box::new(hot_listener),
+                type_: None,
+                source_span: None,
+            })),
+            type_: None,
+            source_span: None,
+        })
         .to_stmt(),
     ];
 
@@ -427,32 +397,123 @@ pub fn compile_hmr_initializer(meta: &R3HmrMetadata) -> Expression {
     })
 }
 
-/// Definition for HMR update callback
+/// Compiles the HMR update callback
+pub fn compile_hmr_update_callback(id_expr: Expression, import_callback_name: &str) -> Expression {
+    let data_name = "d";
+
+    // (d) => d.id === id && Cmp_HmrLoad(d.timestamp)
+    let d_id = Expression::ReadProp(ReadPropExpr {
+        receiver: Box::new(Expression::ReadVar(ReadVarExpr {
+            name: data_name.to_string(),
+            type_: None,
+            source_span: None,
+        })),
+        name: "id".to_string(),
+        type_: None,
+        source_span: None,
+    });
+
+    let d_timestamp = Expression::ReadProp(ReadPropExpr {
+        receiver: Box::new(Expression::ReadVar(ReadVarExpr {
+            name: data_name.to_string(),
+            type_: None,
+            source_span: None,
+        })),
+        name: "timestamp".to_string(),
+        type_: None,
+        source_span: None,
+    });
+
+    let hmr_load_call = Expression::InvokeFn(InvokeFunctionExpr {
+        fn_: Box::new(Expression::ReadVar(ReadVarExpr {
+            name: import_callback_name.to_string(),
+            type_: None,
+            source_span: None,
+        })),
+        args: vec![d_timestamp],
+        type_: None,
+        source_span: None,
+        pure: false,
+    });
+
+    Expression::ArrowFn(ArrowFunctionExpr {
+        params: vec![FnParam {
+            name: data_name.to_string(),
+            type_: None,
+        }],
+        body: ArrowFunctionBody::Expression(Box::new(Expression::BinaryOp(BinaryOperatorExpr {
+            operator: BinaryOperator::And,
+            lhs: Box::new(Expression::BinaryOp(BinaryOperatorExpr {
+                operator: BinaryOperator::Identical,
+                lhs: Box::new(d_id),
+                rhs: Box::new(id_expr),
+                type_: None,
+                source_span: None,
+            })),
+            rhs: Box::new(hmr_load_call),
+            type_: None,
+            source_span: None,
+        }))),
+        type_: None,
+        source_span: None,
+    })
+}
+
+/// Metadata for HMR update callback compilation
 #[derive(Debug, Clone)]
-pub struct HmrDefinition {
+pub struct R3HmrUpdateCallbackMeta {
+    /// Name of the component class
+    pub class_name: String,
+    /// Namespace dependencies with assigned names (e.g., ɵhmr0, ɵhmr1)
+    pub namespace_dependencies: Vec<R3HmrNamespaceDependency>,
+    /// Local dependencies (imported symbols like MatCardModule)  
+    pub local_dependencies: Vec<R3HmrLocalDependency>,
+}
+
+/// Component definition field (ɵfac, ɵcmp)
+#[derive(Debug, Clone)]
+pub struct HmrComponentField {
+    /// Field name (e.g., "ɵfac", "ɵcmp")
     pub name: String,
+    /// Field initializer expression
     pub initializer: Option<Expression>,
+    /// Additional statements for this field
     pub statements: Vec<Statement>,
 }
 
-/// Compiles the HMR update callback for a class
-pub fn compile_hmr_update_callback(
-    definitions: &[HmrDefinition],
-    constant_statements: &[Statement],
-    meta: &R3HmrMetadata,
-) -> DeclareFunctionStmt {
-    let namespaces = "ɵɵnamespaces";
+/// Compiles the HMR update callback module that can replace component metadata at runtime.
+///
+/// This generates:
+/// ```javascript
+/// export default function Component_UpdateMetadata(Component, ɵɵnamespaces, Dep1, Dep2, ...) {
+///     const ɵhmr0 = ɵɵnamespaces[0];
+///     const ɵhmr1 = ɵɵnamespaces[1];
+///     ...
+///     Component.ɵfac = function Component_Factory(...) { ... };
+///     Component.ɵcmp = ɵhmr0.ɵɵdefineComponent({ ... });
+///     // ɵsetClassMetadata and ɵsetClassDebugInfo calls
+/// }
+/// ```
+pub fn compile_hmr_update_callback_module(
+    meta: &R3HmrUpdateCallbackMeta,
+    definitions: Vec<HmrComponentField>,
+    constant_statements: Vec<Statement>,
+) -> Vec<Statement> {
+    let namespaces_param = "ɵɵnamespaces";
+
+    // Build function parameters: (ComponentClass, ɵɵnamespaces, ...localDeps)
     let mut params = vec![
         FnParam {
             name: meta.class_name.clone(),
             type_: Some(dynamic_type()),
         },
         FnParam {
-            name: namespaces.to_string(),
+            name: namespaces_param.to_string(),
             type_: Some(dynamic_type()),
         },
     ];
 
+    // Add local dependencies as parameters
     for local in &meta.local_dependencies {
         params.push(FnParam {
             name: local.name.clone(),
@@ -460,19 +521,24 @@ pub fn compile_hmr_update_callback(
         });
     }
 
+    // Build function body
     let mut body: Vec<Statement> = vec![];
 
-    // Declare variables that read out the individual namespaces
-    for (i, dep) in meta.namespace_dependencies.iter().enumerate() {
+    // Declare namespace extraction variables: const ɵhmr0 = ɵɵnamespaces[0];
+    for (i, ns_dep) in meta.namespace_dependencies.iter().enumerate() {
         body.push(Statement::DeclareVar(DeclareVarStmt {
-            name: dep.assigned_name.clone(),
-            value: Some(Box::new(Expression::ReadProp(ReadPropExpr {
+            name: ns_dep.assigned_name.clone(),
+            value: Some(Box::new(Expression::ReadKey(ReadKeyExpr {
                 receiver: Box::new(Expression::ReadVar(ReadVarExpr {
-                    name: namespaces.to_string(),
+                    name: namespaces_param.to_string(),
                     type_: None,
                     source_span: None,
                 })),
-                name: i.to_string(),
+                index: Box::new(Expression::Literal(LiteralExpr {
+                    value: LiteralValue::Number(i as f64),
+                    type_: None,
+                    source_span: None,
+                })),
                 type_: None,
                 source_span: None,
             }))),
@@ -482,36 +548,42 @@ pub fn compile_hmr_update_callback(
         }));
     }
 
-    body.extend(constant_statements.iter().cloned());
+    // Add constant statements
+    body.extend(constant_statements);
 
+    // Add field definitions: Component.ɵfac = ...; Component.ɵcmp = ...;
     for field in definitions {
-        if let Some(ref initializer) = field.initializer {
-            // Comp.fieldName = initializer
-            let assignment = Expression::WriteProp(WritePropExpr {
-                receiver: Box::new(Expression::ReadVar(ReadVarExpr {
-                    name: meta.class_name.clone(),
+        if let Some(initializer) = field.initializer {
+            // Component.fieldName = initializer;
+            body.push(
+                Expression::WriteProp(WritePropExpr {
+                    receiver: Box::new(Expression::ReadVar(ReadVarExpr {
+                        name: meta.class_name.clone(),
+                        type_: None,
+                        source_span: None,
+                    })),
+                    name: field.name,
+                    value: Box::new(initializer),
                     type_: None,
                     source_span: None,
-                })),
-                name: field.name.clone(),
-                value: Box::new(initializer.clone()),
-                type_: None,
-                source_span: None,
-            });
-            body.push(assignment.to_stmt());
+                })
+                .to_stmt(),
+            );
 
-            for stmt in &field.statements {
-                body.push(stmt.clone());
-            }
+            // Add additional statements for this field
+            body.extend(field.statements);
         }
     }
 
-    DeclareFunctionStmt {
+    // Create the function declaration
+    let func_decl = Statement::DeclareFn(DeclareFunctionStmt {
         name: format!("{}_UpdateMetadata", meta.class_name),
         params,
         statements: body,
         type_: None,
-        modifiers: StmtModifier::Final,
+        modifiers: StmtModifier::Exported, // Will be made default export in emitter
         source_span: None,
-    }
+    });
+
+    vec![func_decl]
 }

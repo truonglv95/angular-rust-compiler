@@ -22,6 +22,8 @@ pub struct NgCompilerOptions {
     pub flat_module_out_file: Option<String>,
     pub out_dir: Option<String>,
     pub root_dir: Option<String>,
+    pub hmr: bool,
+    pub hmr_id: Option<String>,
 }
 
 /// Compilation diagnostics

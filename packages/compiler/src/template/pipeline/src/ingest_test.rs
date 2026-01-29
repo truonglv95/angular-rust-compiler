@@ -217,6 +217,8 @@ mod tests {
             has_directive_dependencies: false,
             raw_imports: None,
             declaration_list_emit_mode: crate::render3::view::api::DeclarationListEmitMode::Direct,
+            hmr_id: None,
+            hmr_deps: None,
         };
 
         let compiled = crate::template::pipeline::src::emit::emit_component(&job, &meta, None);

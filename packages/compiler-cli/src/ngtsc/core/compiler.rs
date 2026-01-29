@@ -313,6 +313,150 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
             }
         }
 
+        // Handle Surgical HMR Update if requested
+        if let Some(target_id) = &self.options.hmr_id {
+            for (src_file, directives) in &file_to_directives {
+                for directive in directives {
+                    let hmr_id = if let DecoratorMetadata::Directive(d) = directive {
+                        d.hmr_id.as_deref()
+                    } else {
+                        None
+                    };
+
+                    if hmr_id == Some(target_id) {
+                        // We found our target!
+                        // 1. We need to parse the file to get class declarations for compile_ivy
+                        let source_path = AbsoluteFsPath::from(src_file.as_path());
+                        if let Ok(source_content) = fs.read_file(&source_path) {
+                            let allocator = Allocator::default();
+                            let source_type = SourceType::ts();
+                            let parser = Parser::new(&allocator, &source_content, source_type);
+                            let parse_result = parser.parse();
+
+                            if parse_result.errors.is_empty() {
+                                let mut import_manager = EmitterImportManager::new();
+                                let _ = import_manager.get_or_generate_alias("@angular/core");
+
+                                let (compiled_results, component_name) = match directive {
+                                    DecoratorMetadata::Directive(dir) => {
+                                        let results = if dir.t2.is_component {
+                                            component_handler.compile_ivy(
+                                                &directive,
+                                                find_class_decl(
+                                                    &parse_result.program,
+                                                    &dir.t2.name,
+                                                ),
+                                                Some(&mut import_manager),
+                                            )
+                                        } else {
+                                            directive_handler
+                                                .compile_ivy(&directive, Some(&mut import_manager))
+                                        };
+                                        (results, dir.t2.name.clone())
+                                    }
+                                    _ => (vec![], "".to_string()),
+                                };
+
+                                if !compiled_results.is_empty() {
+                                    // Generate the HMR UpdateMetadata function module
+                                    // Format: export default function Component_UpdateMetadata(Component, ɵɵnamespaces, ...deps) {...}
+                                    let mut code = String::new();
+
+                                    // Collect namespace imports for the function parameters
+                                    let imports_map = import_manager.get_imports_map();
+                                    let namespace_count = imports_map.len();
+
+                                    // Collect                                    // manual parse
+                                    let mut local_deps: Vec<String> = Vec::new();
+                                    // manual parse
+                                    for stmt in &parse_result.program.body {
+                                        if let oxc_ast::ast::Statement::ImportDeclaration(decl) =
+                                            stmt
+                                        {
+                                            if decl.import_kind
+                                                == oxc_ast::ast::ImportOrExportKind::Type
+                                            {
+                                                continue;
+                                            }
+                                            // Skip all @angular/core imports as they are usually aliased or erased
+                                            if decl.source.value.as_str() == "@angular/core" {
+                                                continue;
+                                            }
+                                            if let Some(specifiers) = &decl.specifiers {
+                                                for spec in specifiers {
+                                                    if let oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(s) = spec {
+                                                        if s.import_kind == oxc_ast::ast::ImportOrExportKind::Type {
+                                                            continue;
+                                                        }
+                                                        let name = s.local.name.as_str();
+                                                        // Skip Angular core imports
+                                                        if name != "Component" && name != "i0" {
+                                                            local_deps.push(name.to_string());
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // Sort local_deps to ensure deterministic order matching handler.rs
+                                    local_deps.sort();
+
+                                    // Build function signature
+                                    // export default function Component_UpdateMetadata(Component, ɵɵnamespaces, Dep1, Dep2, ...) {
+                                    let mut params: Vec<String> =
+                                        vec![component_name.clone(), "ɵɵnamespaces".to_string()];
+                                    params.extend(local_deps.clone());
+
+                                    code.push_str(&format!(
+                                        "export default function {}_UpdateMetadata({}) {{\n",
+                                        component_name,
+                                        params.join(", ")
+                                    ));
+
+                                    // Add namespace extraction: const ɵhmr0 = ɵɵnamespaces[0];
+                                    let mut imports_list: Vec<_> = imports_map.iter().collect();
+                                    imports_list.sort_by_key(|(_, alias)| *alias);
+
+                                    for (i, (_, alias)) in imports_list.iter().enumerate() {
+                                        code.push_str(&format!(
+                                            "    const {} = ɵɵnamespaces[{}];\n",
+                                            alias, i
+                                        ));
+                                    }
+
+                                    // Add field setters: Component.ɵfac = ...; Component.ɵcmp = ...;
+                                    for result in &compiled_results {
+                                        if let Some(init) = &result.initializer {
+                                            code.push_str(&format!(
+                                                "    {}.{} = {};\n",
+                                                component_name, result.name, init
+                                            ));
+
+                                            // Add statements (like setClassMetadata)
+                                            for stmt in &result.statements {
+                                                code.push_str(&format!("    {};\n", stmt));
+                                            }
+                                        }
+                                    }
+
+                                    code.push_str("}\n");
+
+                                    // Determine output path (use .hmr.js suffix)
+                                    let mut out_path = src_file.clone();
+                                    out_path.set_extension("hmr.js");
+                                    let out_path_abs = AbsoluteFsPath::from(out_path.as_path());
+
+                                    let _ = fs.write_file(&out_path_abs, code.as_bytes(), None);
+                                    return Ok(vec![]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return Err(format!("Component with HMR ID {} not found", target_id));
+        }
+
         struct FileResult {
             path: PathBuf,
             diagnostics: Vec<crate::ngtsc::core::Diagnostic>,
@@ -613,6 +757,9 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
 
                                 // Merge results if multiple (e.g. fac and cmp)
                                 for res in &compiled_results {
+                                    if res.name == "ɵhmr_init" {
+                                        continue;
+                                    }
                                     for stmt in &res.statements {
                                         if stmt.contains("setClassDebugInfo") || stmt.contains("setClassMetadata") {
                                             trailing_statements.push_str(stmt);
@@ -637,11 +784,19 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                     if res.name == "ɵfac" {
                                         continue;
                                     }
+                                    // Special handling for ɵhmr_init
+                                    if res.name == "ɵhmr_init" { continue; }
+
                                     let init = res.initializer.as_deref().unwrap_or("null");
-                                    // Wrap in PURE annotation
+
                                     let expr = format!("/*@__PURE__*/ {}", init);
                                     definitions_vec.push((res.name.clone(), expr));
                                     last_def_name = res.name.clone();
+                                }
+
+                                // Add imports from ImportManager
+                                for (module, alias) in import_manager.get_imports_map() {
+                                    additional_imports.push((alias.clone(), module.clone()));
                                 }
 
                                 // Make additional_imports unique
@@ -664,6 +819,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
 
                                 // Only transform if we have something valid (definitions or fac)
                                 if !definitions_arena.is_empty() || fac_initializer != "null" {
+                                    // eprintln!("DEBUG: parse_result trivias count: {}", parse_result.trivias.comments().count());
                                     let failed = super::ast_transformer::transform_component_ast(
                                         &allocator,
                                         &mut parse_result.program,
@@ -940,8 +1096,26 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                             let source_text = content.clone();
                             let stripped = strip_angular_decorator(&source_text);
                             // We strictly prepend the imports.
-                            format!("{}\n{}\n\n{}.ɵfac = function {}_Factory(t) {{ return new (t || {})(); }};\n{}.ɵcmp = /*@__PURE__*/ {};",
-                                   import_stmts, stripped, directive_name, directive_name, directive_name, directive_name, initializer)
+                            // Emit all compilation results (fac, cmp, hmr, etc.)
+                            let mut compiled_fields = String::new();
+                            for res in &compiled_results {
+                                if let Some(init) = &res.initializer {
+                                    let pure = if res.name == "ɵcmp"
+                                        || res.name == "ɵdir"
+                                        || res.name == "ɵpipe"
+                                    {
+                                        "/*@__PURE__*/ "
+                                    } else {
+                                        ""
+                                    };
+                                    compiled_fields.push_str(&format!(
+                                        "{}.{} = {}{};\n",
+                                        directive_name, res.name, pure, init
+                                    ));
+                                }
+                            }
+
+                            format!("{}\n{}\n\n{}", import_stmts, stripped, compiled_fields)
                         }
                         Err(_) => format!(
                             "// Error reading file\nexport class {} {{}}",

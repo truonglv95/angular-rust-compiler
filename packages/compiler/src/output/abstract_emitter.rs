@@ -354,6 +354,30 @@ impl o::ExpressionVisitor for AbstractEmitterVisitor {
         expr: &o::InvokeFunctionExpr,
         context: &mut dyn std::any::Any,
     ) -> Box<dyn std::any::Any> {
+        // Special handling for import_with_vite_ignore to inject magic comment
+        if let o::Expression::ReadVar(check_var) = &*expr.fn_ {
+            if check_var.name == "import_with_vite_ignore" {
+                {
+                    let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+                    ctx.print(Some(expr), "import(/* @vite-ignore */ ", false);
+                }
+                for (i, arg) in expr.args.iter().enumerate() {
+                    {
+                        let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+                        if i > 0 {
+                            ctx.print(Some(expr), ", ", false);
+                        }
+                    }
+                    arg.visit_expression(self, context);
+                }
+                {
+                    let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
+                    ctx.print(Some(expr), ")", false);
+                }
+                return Box::new(());
+            }
+        }
+
         // Wrap function expressions that need parentheses due to operator precedence:
         // - ArrowFn and Fn: (function(){})() or (()=>{})()
         // - BinaryOp: (a || b)() - critical for inherited factory caching pattern

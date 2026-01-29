@@ -105,7 +105,7 @@ fn run_build(project_arg: Option<String>) {
         .and_then(|t| t.options.as_ref());
 
     // Bundle using library
-    let result = match bundle_project(&project_path) {
+    let result = match bundle_project(&project_path, false) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("Bundling failed: {}", e);

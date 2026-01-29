@@ -425,7 +425,7 @@ fn process_bundle_file_preserve_exports(
     name_counters: &mut HashMap<String, usize>,
     bundle_config: &BundleConfig,
 ) -> Result<String> {
-    process_bundle_file_inner(
+    let result = process_bundle_file_inner(
         content,
         file_path,
         root_dir,
@@ -434,7 +434,9 @@ fn process_bundle_file_preserve_exports(
         name_counters,
         true,
         bundle_config,
-    )
+    );
+
+    result
 }
 
 fn process_bundle_file_inner(
@@ -746,6 +748,41 @@ fn process_bundle_file_inner(
 
     // Deduplicate edits at same position (keep first occurrence after sort)
     edits.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
+
+    // Fix: Ensure /* @vite-ignore */ comment exists in HMR dynamic imports.
+    // The comment might have been stripped during earlier transformations (e.g. AST parsing).
+    // We scan for dynamic imports involving `ɵɵgetReplaceMetadataURL` and re-inject the comment if missing.
+    let mut search_idx = 0;
+    let mut added_fix = false;
+    while let Some(idx) = content[search_idx..].find("ɵɵgetReplaceMetadataURL") {
+        let actual_idx = search_idx + idx;
+
+        // Look backwards for "import(" within reasonable range
+        let lookback_start = actual_idx.saturating_sub(100);
+        let lookback_slice = &content[lookback_start..actual_idx];
+
+        if let Some(import_rel_idx) = lookback_slice.rfind("import(") {
+            let import_start = lookback_start + import_rel_idx;
+            let import_end = import_start + 7; // "import(" length
+
+            // Check if comment already exists between import_end and actual_idx
+            let gap = &content[import_end..actual_idx];
+            if !gap.contains("@vite-ignore") {
+                edits.push((import_end, import_end, "/* @vite-ignore */ ".to_string()));
+                // eprintln!("APPLYING FIX: Re-injected @vite-ignore comment at {}", import_end);
+                // eprintln!("APPLYING FIX: Re-injected @vite-ignore comment at {}", import_end);
+                added_fix = true;
+            } else {
+                // eprintln!("FIX SKIPPED: Comment already present: {:?}", gap);
+            }
+        }
+        search_idx = actual_idx + "ɵɵgetReplaceMetadataURL".len();
+    }
+
+    if added_fix {
+        // Re-sort edits because we added new ones
+        edits.sort_by(|a, b| b.0.cmp(&a.0));
+    }
 
     let mut new_content = content.to_string();
     for (start, end, replacement) in edits {
@@ -1800,7 +1837,7 @@ fn build_import_graph(
     Ok((static_set, dynamic_set, resources_set))
 }
 
-pub fn bundle_project(project_path: &Path) -> Result<BundleResult> {
+pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
     // 1. Load configuration
     let config = AngularConfig::load(project_path)?;
     let (_name, project) = config
@@ -1876,7 +1913,7 @@ pub fn bundle_project(project_path: &Path) -> Result<BundleResult> {
     let sorted_source_files = sort_files_topologically(&source_files, root_dir)?;
 
     // Compile source files
-    let raw_compiled = parallel_compile(&source_files, project_path)?;
+    let raw_compiled = parallel_compile(&source_files, project_path, hmr)?;
     let mut compiled_map: HashMap<PathBuf, String> = raw_compiled
         .into_iter()
         .map(|(p, c)| (normalize_path(&p), c))
@@ -1925,7 +1962,7 @@ pub fn bundle_project(project_path: &Path) -> Result<BundleResult> {
             continue;
         }
 
-        let raw_chunk_compiled = parallel_compile(&chunk_files_vec, project_path)?;
+        let raw_chunk_compiled = parallel_compile(&chunk_files_vec, project_path, hmr)?;
         let chunk_compiled: Vec<(PathBuf, String)> = raw_chunk_compiled
             .into_iter()
             .map(|(p, c)| (normalize_path(&p), c))
