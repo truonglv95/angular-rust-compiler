@@ -91,7 +91,7 @@ export default defineConfig({
     port: 4300,
   },
   optimizeDeps: {
-    exclude: angularPackages,
-    include: optimizeDepsInclude,
+    // exclude: angularPackages,
+    include: [...optimizeDepsInclude, ...angularPackages],
   },
 });

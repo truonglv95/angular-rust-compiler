@@ -203,7 +203,7 @@ function angularLinkerEsbuildPlugin() {
   };
 }
 
-async function startServer(finalPackagesToPreBundle) {
+async function startServer(finalPackagesToPreBundle, bundleResult = null) {
   const isBundled = process.argv.includes('--bundled');
   const bold = (s) => `\x1b[1m${s}\x1b[22m`;
   const cyan = (s) => `\x1b[36m${s}\x1b[39m`;
@@ -276,7 +276,12 @@ async function startServer(finalPackagesToPreBundle) {
           };
         },
       },
-      angularRust({ configFile: path.resolve(__dirname, 'angular.json'), skipStats: true }),
+      angularRust({
+        configFile: path.resolve(__dirname, 'angular.json'),
+        skipStats: true,
+        lazyCompile: !isBundled,
+        bundleResult: bundleResult, // Pass pre-built bundle from Worker thread
+      }),
     ],
   });
 
@@ -289,54 +294,64 @@ async function startServer(finalPackagesToPreBundle) {
 async function main() {
   const isColorSupported = !(process.env.NO_COLOR || process.env.TERM === 'dumb');
   const bold = (s) => (isColorSupported ? `\x1b[1m${s}\x1b[22m` : s);
-  console.log(`${bold('Starting Angular Rust Dev Server...')}`);
+  const isBundled = process.argv.includes('--bundled');
 
-  const spinner = createSpinner('Building...');
-  const startTime = Date.now();
+  if (isBundled) {
+    console.log(`${bold('Starting Angular Rust Dev Server (bundled)...')}`);
+    const spinner = createSpinner('Building...');
+    const startTime = Date.now();
 
-  try {
-    const isHmr = process.argv.includes('--hmr');
-    const worker = new Worker(__filename, {
-      stdout: true,
-      stderr: true,
-      workerData: {
-        angularJsonPath: path.resolve(__dirname, 'angular.json'),
-        bindingPath: path.resolve(__dirname, '../packages/binding/index.js'),
-        hmr: isHmr,
-      },
-    });
-    worker.stdout.pipe(process.stdout);
-    worker.stderr.pipe(process.stderr);
-
-    const result = await new Promise((resolve, reject) => {
-      worker.on('message', (msg) => {
-        if (msg.type === 'success') resolve(msg.result);
-        else reject(new Error(msg.message));
+    try {
+      const isHmr = process.argv.includes('--hmr');
+      const worker = new Worker(__filename, {
+        stdout: true,
+        stderr: true,
+        workerData: {
+          angularJsonPath: path.resolve(__dirname, 'angular.json'),
+          bindingPath: path.resolve(__dirname, '../packages/binding/index.js'),
+          hmr: isHmr,
+        },
       });
-      worker.on('error', reject);
-      worker.on('exit', (code) => {
-        if (code !== 0) reject(new Error(`Worker stopped with exit code ${code}`));
+      worker.stdout.pipe(process.stdout);
+      worker.stderr.pipe(process.stderr);
+
+      const result = await new Promise((resolve, reject) => {
+        worker.on('message', (msg) => {
+          if (msg.type === 'success') resolve(msg.result);
+          else reject(new Error(msg.message));
+        });
+        worker.on('error', reject);
+        worker.on('exit', (code) => {
+          if (code !== 0) reject(new Error(`Worker stopped with exit code ${code}`));
+        });
       });
-    });
 
-    const duration = Date.now() - startTime;
-    spinner.stop();
-    printBuildStats(result, duration);
+      const duration = Date.now() - startTime;
+      spinner.stop();
+      printBuildStats(result, duration);
 
-    if (result && result.externalImports) {
-      cachedExternalImports = result.externalImports;
-      const cacheDir = path.dirname(externalImportsCachePath);
-      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-      fs.writeFileSync(externalImportsCachePath, JSON.stringify(cachedExternalImports, null, 2));
+      if (result && result.externalImports) {
+        cachedExternalImports = result.externalImports;
+        const cacheDir = path.dirname(externalImportsCachePath);
+        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+        fs.writeFileSync(externalImportsCachePath, JSON.stringify(cachedExternalImports, null, 2));
+      }
+
+      const finalPackagesToPreBundle = [
+        ...new Set([...packagesToPreBundle, ...cachedExternalImports]),
+      ];
+      await startServer(finalPackagesToPreBundle, result);
+    } catch (err) {
+      spinner.stop(`\x1b[31m✖\x1b[0m Build failed: ${err.message}`);
+      process.exit(1);
     }
-
+  } else {
+    // Lazy compile: no full bundle upfront; server starts immediately, .ts compiled on-demand
+    console.log(`${bold('Starting Angular Rust Dev Server (lazy compile)...')}`);
     const finalPackagesToPreBundle = [
       ...new Set([...packagesToPreBundle, ...cachedExternalImports]),
     ];
     await startServer(finalPackagesToPreBundle);
-  } catch (err) {
-    spinner.stop(`\x1b[31m✖\x1b[0m Build failed: ${err.message}`);
-    process.exit(1);
   }
 }
 
