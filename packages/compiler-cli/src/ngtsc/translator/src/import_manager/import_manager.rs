@@ -10,6 +10,7 @@ use crate::ngtsc::translator::src::import_manager::reuse_source_file_imports::{
     attempt_to_reuse_existing_source_file_imports, ReuseExistingSourceFileImportsTracker,
     SourceFileImports,
 };
+use angular_compiler::output::output_ast::{Expression, ReadPropExpr, ReadVarExpr};
 use std::collections::{HashMap, HashSet};
 
 // We define ModuleName as generic string for now.
@@ -286,13 +287,21 @@ where
 // =========================================================================================
 // EmitterImportManager
 // A simplified ImportManager for use specifically with AbstractJsEmitter where no AST context exists.
+//
+// Aliases are assigned incrementally on first registration and cached.
+// The `generate_import_statements` and `get_imports_map` methods sort by MODULE NAME
+// to ensure deterministic OUTPUT ordering, but alias assignments are stable.
 // =========================================================================================
 
 pub struct EmitterImportManager {
-    /// Map of module name -> alias (e.g. "@angular/core" -> "i0")
+    /// Map of module name -> cached alias (e.g. "@angular/core" -> "i0")
+    /// Once assigned, alias never changes for this compilation run.
     imports: HashMap<String, String>,
     /// Counter for generating unique aliases
     next_id: usize,
+    /// Parse source local imports to reuse
+    /// Map (Module Name, Export Name) -> Local Variable Name
+    local_imports: HashMap<(String, String), String>,
 }
 
 impl EmitterImportManager {
@@ -300,10 +309,12 @@ impl EmitterImportManager {
         Self {
             imports: HashMap::new(),
             next_id: 0,
+            local_imports: HashMap::new(),
         }
     }
 
     /// Get the alias for a module, generating one if it doesn't exist.
+    /// Once assigned, the alias is cached and never changes.
     pub fn get_or_generate_alias(&mut self, module_name: &str) -> String {
         if let Some(alias) = self.imports.get(module_name) {
             return alias.clone();
@@ -320,16 +331,216 @@ impl EmitterImportManager {
         self.imports.clone()
     }
 
-    /// Generate the import statements to be prepended to the file
+    /// Generate the import statements to be prepended to the file.
+    /// Imports are sorted by module name for deterministic OUTPUT.
     pub fn generate_import_statements(&self) -> String {
         let mut statements = String::new();
-        // Sort imports to ensure deterministic output
         let mut sorted_imports: Vec<_> = self.imports.iter().collect();
+        // Sort by module name (a.0)
         sorted_imports.sort_by_key(|(module, _)| *module);
 
         for (module, alias) in sorted_imports {
             statements.push_str(&format!("import * as {} from '{}';\n", alias, module));
         }
         statements
+    }
+
+    pub fn add_local_import(&mut self, module: &str, name: &str, local_name: &str) {
+        self.local_imports.insert(
+            (module.to_string(), name.to_string()),
+            local_name.to_string(),
+        );
+    }
+}
+
+impl<TFile> ImportGenerator<TFile, Expression> for EmitterImportManager {
+    fn add_import(&mut self, request: ImportRequest<TFile>) -> Expression {
+        let module = request.export_module_specifier;
+        let symbol_opt = request.export_symbol_name;
+
+        // Check local imports first if a specific symbol is requested
+        if let Some(symbol) = &symbol_opt {
+            if let Some(local) = self.local_imports.get(&(module.clone(), symbol.clone())) {
+                {
+                    use std::io::Write;
+                    let path =
+                        std::path::Path::new("/Users/truong/Desktop/rust-compiler/hmr_debug.log");
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(path)
+                    {
+                        let _ = writeln!(
+                            f,
+                            "LOOKUP MATCH: module='{}', symbol='{}' -> local='{}'",
+                            module, symbol, local
+                        );
+                    }
+                }
+                return Expression::ReadVar(ReadVarExpr {
+                    name: local.clone(),
+                    type_: None,
+                    source_span: None,
+                });
+            } else {
+                {
+                    use std::io::Write;
+                    let path =
+                        std::path::Path::new("/Users/truong/Desktop/rust-compiler/hmr_debug.log");
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(path)
+                    {
+                        let _ = writeln!(
+                            f,
+                            "LOOKUP MISS: module='{}', symbol='{}'. Available keys: {:?}",
+                            module,
+                            symbol,
+                            self.local_imports.keys().collect::<Vec<_>>()
+                        );
+                    }
+                }
+            }
+        }
+
+        let alias = self.get_or_generate_alias(&module);
+
+        if let Some(symbol) = symbol_opt {
+            Expression::ReadProp(ReadPropExpr {
+                receiver: Box::new(Expression::ReadVar(ReadVarExpr {
+                    name: alias,
+                    type_: None,
+                    source_span: None,
+                })),
+                name: symbol,
+                type_: None,
+                source_span: None,
+            })
+        } else {
+            Expression::ReadVar(ReadVarExpr {
+                name: alias,
+                type_: None,
+                source_span: None,
+            })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxc_allocator::Allocator;
+    use oxc_parser::Parser;
+    use oxc_span::SourceType;
+
+    #[test]
+    fn test_hmr_local_import_registration() {
+        let source_code = r#"
+            import { Component } from '@angular/core';
+            import { provideNativeDateAdapter } from '@angular/material/core';
+            import { MatExpansionModule } from '@angular/material/expansion';
+        "#;
+
+        let allocator = Allocator::default();
+        let source_type = SourceType::ts();
+        let parser = Parser::new(&allocator, source_code, source_type);
+        let parse_result = parser.parse();
+
+        // Create import manager (which is in super)
+        let mut import_manager = EmitterImportManager::new();
+
+        // Replicating the logic from compiler.rs
+        for stmt in &parse_result.program.body {
+            if let oxc_ast::ast::Statement::ImportDeclaration(decl) = stmt {
+                if decl.import_kind == oxc_ast::ast::ImportOrExportKind::Type {
+                    continue;
+                }
+
+                let module_name = decl.source.value.as_str();
+                if module_name == "@angular/core" {
+                    continue;
+                }
+
+                if let Some(specifiers) = &decl.specifiers {
+                    for spec in specifiers {
+                        if let oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(s) = spec {
+                            if s.import_kind == oxc_ast::ast::ImportOrExportKind::Type {
+                                continue;
+                            }
+                            let local_name = s.local.name.as_str();
+                            let imported_name = match &s.imported {
+                                oxc_ast::ast::ModuleExportName::IdentifierName(id) => {
+                                    id.name.as_str()
+                                }
+                                oxc_ast::ast::ModuleExportName::IdentifierReference(id) => {
+                                    id.name.as_str()
+                                }
+                                oxc_ast::ast::ModuleExportName::StringLiteral(lit) => {
+                                    lit.value.as_str()
+                                }
+                            };
+                            import_manager.add_local_import(module_name, imported_name, local_name);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Verify lookup
+        // ImportRequest is generic over TFile. EmitterImportManager ignores TFile.
+        // We can use () as TFile.
+        let req = ImportRequest {
+            export_module_specifier: "@angular/material/core".to_string(),
+            export_symbol_name: Some("provideNativeDateAdapter".to_string()),
+            requested_file: (),
+            unsafe_alias_override: None,
+        };
+
+        let expr = import_manager.add_import(req);
+
+        if let Expression::ReadVar(var) = expr {
+            assert_eq!(
+                var.name, "provideNativeDateAdapter",
+                "Should reuse local import name"
+            );
+        } else {
+            panic!("Expected ReadVar, got {:?}", expr);
+        }
+
+        // Verify fallback
+        let req_alias = ImportRequest {
+            export_module_specifier: "@angular/material/expansion".to_string(),
+            export_symbol_name: Some("MatExpansionModule".to_string()),
+            requested_file: (),
+            unsafe_alias_override: None,
+        };
+        let expr_alias = import_manager.add_import(req_alias);
+        if let Expression::ReadVar(var) = expr_alias {
+            assert_eq!(
+                var.name, "MatExpansionModule",
+                "Should reuse local import name for MatExpansionModule"
+            );
+        } else {
+            panic!(
+                "Expected ReadVar for MatExpansionModule, got {:?}",
+                expr_alias
+            );
+        }
+
+        // Verify external (not in file)
+        let req_external = ImportRequest {
+            export_module_specifier: "@angular/common".to_string(),
+            export_symbol_name: Some("CommonModule".to_string()),
+            requested_file: (),
+            unsafe_alias_override: None,
+        };
+        let expr_ext = import_manager.add_import(req_external);
+
+        if let Expression::ReadProp(prop) = expr_ext {
+            assert_eq!(prop.name, "CommonModule");
+        } else {
+            panic!("Expected ReadProp for external import, got {:?}", expr_ext);
+        }
     }
 }

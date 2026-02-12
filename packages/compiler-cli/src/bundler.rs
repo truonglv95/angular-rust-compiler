@@ -5,8 +5,600 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::{Argument, Expression as OxcExpression, Statement};
 use oxc_parser::Parser;
 use oxc_span::{GetSpan, SourceType};
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+struct DependencyVisitor<'a> {
+    file_path: PathBuf,
+    root_dir: PathBuf,
+    output_dir_pattern: String,
+    internal_files: &'a HashSet<PathBuf>,
+    global_registry: &'a mut HashMap<(String, String), String>,
+    name_counters: &'a mut HashMap<String, usize>,
+    preserve_exports: bool,
+    edits: Vec<(usize, usize, String)>,
+    #[allow(dead_code)]
+    local_rewrites: HashMap<String, String>,
+    internal_namespaces: HashSet<String>,
+}
+
+impl<'a> DependencyVisitor<'a> {
+    fn get_file_dir(&self) -> PathBuf {
+        let abs_file_path = if self.file_path.is_absolute() {
+            self.file_path.clone()
+        } else {
+            self.root_dir.join(&self.file_path)
+        };
+
+        let out_dir = self.root_dir.join("dist"); // Assuming "dist" - should use config but simplistic here
+                                                  // Actually utilize output_dir_pattern to be safe if config changes
+                                                  // But for now, replicating the logic roughly or better:
+                                                  // Use the same logic from process_bundle_file_inner:
+
+        let path_str = abs_file_path.to_string_lossy();
+        let source_file_path = if path_str.contains(&self.output_dir_pattern) {
+            let stripped = path_str.replace(&self.output_dir_pattern, "/");
+            PathBuf::from(stripped)
+        } else {
+            abs_file_path.clone()
+        };
+
+        source_file_path
+            .parent()
+            .unwrap_or(&self.root_dir)
+            .to_path_buf()
+    }
+
+    fn handle_import_declaration(&mut self, decl: &oxc_ast::ast::ImportDeclaration) {
+        let specifier = decl.source.value.as_str();
+        let file_dir = self.get_file_dir();
+
+        // ... (Logic from process_bundle_file_inner) ...
+        // Simplification for brevity in tool call, will rely on copy-paste of logic or reimplementation
+        // I will implement the core logic here.
+
+        let mut is_internal = false;
+
+        if let Some(resolved) = resolve_import(specifier, &file_dir, &self.root_dir) {
+            let normalized_resolved = normalize_path(&resolved);
+            if self.internal_files.contains(&normalized_resolved) {
+                is_internal = true;
+            }
+
+            if !is_internal {
+                // Double check source path mapping logic
+                let resolved_str = normalized_resolved.to_string_lossy();
+                let source_path_str = resolved_str
+                    .replace(&self.output_dir_pattern, "/")
+                    .replace(".js", ".ts");
+                if self.internal_files.contains(Path::new(&source_path_str)) {
+                    is_internal = true;
+                }
+            }
+        }
+
+        if is_internal {
+            // Remove import
+            self.edits.push((
+                decl.span.start as usize,
+                decl.span.end as usize,
+                "".to_string(),
+            ));
+
+            // Track namespace
+            if let Some(specifiers) = &decl.specifiers {
+                for spec in specifiers {
+                    if let oxc_ast::ast::ImportDeclarationSpecifier::ImportNamespaceSpecifier(ns) =
+                        spec
+                    {
+                        self.internal_namespaces.insert(ns.local.name.to_string());
+                    }
+                }
+            }
+        } else {
+            // External import handling
+            if let Some(specifiers) = &decl.specifiers {
+                let mut named_parts: Vec<String> = Vec::new();
+                let mut default_part: Option<String> = None;
+                let mut namespace_part: Option<String> = None;
+
+                for spec in specifiers {
+                    let (imported_name, local_name) = match spec {
+                        oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(s) => (
+                            s.imported.name().as_str().to_string(),
+                            s.local.name.as_str().to_string(),
+                        ),
+                        oxc_ast::ast::ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => {
+                            ("default".to_string(), s.local.name.as_str().to_string())
+                        }
+                        oxc_ast::ast::ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => {
+                            ("*".to_string(), s.local.name.as_str().to_string())
+                        }
+                    };
+
+                    let key = (specifier.to_string(), imported_name.clone());
+                    let (unique_alias, is_new_entry) =
+                        if let Some(a) = self.global_registry.get(&key) {
+                            (a.clone(), false)
+                        } else {
+                            let count = self.name_counters.entry(local_name.clone()).or_insert(0);
+                            let new_alias = if *count == 0 {
+                                local_name.clone()
+                            } else {
+                                format!("{}{}", local_name, *count + 1)
+                            };
+                            *count += 1;
+                            self.global_registry.insert(key, new_alias.clone());
+                            (new_alias, true)
+                        };
+
+                    if local_name != unique_alias {
+                        self.local_rewrites
+                            .insert(local_name.clone(), unique_alias.clone());
+                    }
+
+                    if is_new_entry {
+                        if imported_name == "default" {
+                            default_part = Some(unique_alias);
+                        } else if imported_name == "*" {
+                            namespace_part = Some(unique_alias);
+                        } else {
+                            if imported_name == unique_alias {
+                                named_parts.push(imported_name);
+                            } else {
+                                named_parts.push(format!("{} as {}", imported_name, unique_alias));
+                            }
+                        }
+                    }
+                }
+
+                // Reconstruct import
+                let mut new_imports = Vec::new();
+                if let Some(alias) = default_part {
+                    new_imports.push(format!("import {} from '{}';", alias, specifier));
+                }
+                if let Some(alias) = namespace_part {
+                    new_imports.push(format!("import * as {} from '{}';", alias, specifier));
+                }
+                if !named_parts.is_empty() {
+                    new_imports.push(format!(
+                        "import {{{}}} from '{}';",
+                        named_parts.join(","),
+                        specifier
+                    ));
+                } else {
+                    if self.file_path.to_string_lossy().contains("checkbox") {
+                        eprintln!("[BundlerDebug] Import from '{}' produced no named parts. is_internal: {}", specifier, is_internal);
+                    }
+                }
+
+                let replacement = new_imports.join("\n");
+
+                self.edits.push((
+                    decl.span.start as usize,
+                    decl.span.end as usize,
+                    replacement,
+                ));
+            }
+        }
+    }
+
+    fn handle_import_expression(&mut self, expr: &oxc_ast::ast::ImportExpression) {
+        // Dynamic Import: import('./foo')
+        if let OxcExpression::StringLiteral(source) = &expr.source {
+            let specifier = source.value.as_str();
+            // Rewrite relative path logic
+            if specifier.starts_with('.') {
+                let file_dir = self.get_file_dir();
+                let joined = file_dir.join(specifier);
+                // We want path relative to root? No, we want path relative to output bundle structure or maintain relative?
+                // Original logic in 'bundle_project' regex:
+                // let joined = source_dir.join(import_path);
+                // let mut new_path = joined.to_string_lossy().to_string();
+                // if !new_path.starts_with('.') && !new_path.starts_with('/') { new_path = format!("./{}", new_path); }
+
+                // However, we are in 'visitor' context before final bundle assembly?
+                // No, process_bundle_file is called during bundle assembly.
+                // So we should do the rewrite here to avoid regex.
+
+                // Problem: 'source_dir' in regex loop was calculated via relative_file_path.strip_prefix("dist").
+                // My get_file_dir() does something similar.
+                // The goal is to enforce explicit "./" for relative paths.
+
+                let resolved_path = joined;
+                // Try to make it relative to CWD or keep as relative path?
+                // The regex logic just joined it and ensured ./ prefix.
+                // But 'joined' is absolute if file_dir is absolute.
+
+                // If file_dir is absolute (derived from root_dir), then joined is absolute.
+                // We need to convert it back to relative path regarding CWD/Execution context?
+                // Actually the regex loop in `bundle_project` used `source_dir` which was `file_dir.strip_prefix("dist")`.
+                // It seems it wanted to resolve relative to the *source* tree.
+
+                // Let's assume simplest safe rewrite:
+                // Don't change it if we can't be sure, OR verify if I can just let it be.
+                // But the regex was explicitly rewriting it.
+                // "Source dir" logic:
+
+                // Let's defer complex dynamic import rewriting to a separate task if needed,
+                // OR implement the "./" enforcement.
+                // For now, I will NOT modify the specifier if it's dynamic, unless I am sure.
+                // BUT, I MUST handle checking if it's an internal file and stripping it?
+                // Dynamic imports of internal files?
+                // Usually dynamic imports target chunks.
+                // Chunks are handled by module_system.
+
+                // IMPORTANT: The regex regarding dynamic imports was:
+                // rewritten_content = dynamic_import_regex.replace_all(...);
+                // It did the same "./" check.
+
+                // I'll skip rewriting for now to avoid breaking it,
+                // as the regex replacement was 'side-effects only' commented? No, that was static imports.
+                // Dynamic imports were "Lazy Loading".
+
+                // I'll leave checking dynamic imports for now, focusing on static imports removal/rewriting.
+            }
+        }
+    }
+
+    fn handle_export_named_declaration(&mut self, decl: &oxc_ast::ast::ExportNamedDeclaration) {
+        if let Some(inner) = &decl.declaration {
+            if !self.preserve_exports {
+                self.edits.push((
+                    decl.span.start as usize,
+                    inner.span().start as usize,
+                    "".to_string(),
+                ));
+            }
+        }
+    }
+
+    fn handle_variable_declaration(&mut self, decl: &oxc_ast::ast::VariableDeclaration) {
+        if matches!(
+            decl.kind,
+            oxc_ast::ast::VariableDeclarationKind::Const
+                | oxc_ast::ast::VariableDeclarationKind::Let
+        ) {
+            let len = if matches!(decl.kind, oxc_ast::ast::VariableDeclarationKind::Const) {
+                5
+            } else {
+                3
+            };
+            self.edits.push((
+                decl.span.start as usize,
+                decl.span.start as usize + len,
+                "var".to_string(),
+            ));
+        }
+    }
+
+    fn handle_for_head(&mut self, head: &oxc_ast::ast::ForStatementLeft) {
+        if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(decl) = head {
+            self.handle_variable_declaration(decl);
+        } else if let Some(target) = head.as_assignment_target() {
+            self.visit_assignment_target(target);
+        }
+    }
+
+    fn visit_assignment_target(&mut self, target: &oxc_ast::ast::AssignmentTarget) {
+        match target {
+            oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(ident) => {
+                self.visit_identifier_reference(ident);
+            }
+            _ => {}
+        }
+    }
+
+    fn visit_identifier_reference(&mut self, ident: &oxc_ast::ast::IdentifierReference) {
+        if let Some(new_name) = self.local_rewrites.get(ident.name.as_str()) {
+            self.edits.push((
+                ident.span.start as usize,
+                ident.span.end as usize,
+                new_name.clone(),
+            ));
+        }
+    }
+
+    fn visit_static_member_expression(&mut self, expr: &oxc_ast::ast::StaticMemberExpression) {
+        if let OxcExpression::Identifier(ident) = &expr.object {
+            if self.internal_namespaces.contains(ident.name.as_str()) {
+                let property_name = expr.property.name.as_str();
+                self.edits.push((
+                    ident.span.start as usize,
+                    expr.span.end as usize,
+                    property_name.to_string(),
+                ));
+                return;
+            }
+        }
+        self.visit_expression(&expr.object);
+    }
+
+    fn visit_computed_member_expression(&mut self, expr: &oxc_ast::ast::ComputedMemberExpression) {
+        self.visit_expression(&expr.object);
+        self.visit_expression(&expr.expression);
+    }
+
+    fn visit_program(&mut self, program: &oxc_ast::ast::Program) {
+        for stmt in &program.body {
+            self.visit_statement(stmt);
+        }
+    }
+
+    fn visit_statement(&mut self, stmt: &Statement) {
+        if self.file_path.to_string_lossy().contains("checkbox") {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/Users/truong/Desktop/rust-compiler/debug_bundler.txt")
+                .unwrap();
+
+            let variant_name = match stmt {
+                Statement::ImportDeclaration(_) => "ImportDeclaration",
+                Statement::ExpressionStatement(_) => "ExpressionStatement",
+                Statement::VariableDeclaration(_) => "VariableDeclaration",
+                Statement::ExportNamedDeclaration(_) => "ExportNamedDeclaration",
+                Statement::BlockStatement(_) => "BlockStatement",
+                Statement::FunctionDeclaration(_) => "FunctionDeclaration",
+                Statement::ReturnStatement(_) => "ReturnStatement",
+                Statement::IfStatement(_) => "IfStatement",
+                Statement::ForStatement(_) => "ForStatement",
+                Statement::WhileStatement(_) => "WhileStatement",
+                Statement::DoWhileStatement(_) => "DoWhileStatement",
+                Statement::SwitchStatement(_) => "SwitchStatement",
+                Statement::TryStatement(_) => "TryStatement",
+                Statement::ForInStatement(_) => "ForInStatement",
+                Statement::ForOfStatement(_) => "ForOfStatement",
+                _ => "Other",
+            };
+            writeln!(f, "[BundlerDebug] Checkbox Stmt: {}", variant_name).ok();
+        }
+        match stmt {
+            Statement::ImportDeclaration(decl) => self.handle_import_declaration(decl),
+            Statement::ExportNamedDeclaration(decl) => {
+                self.handle_export_named_declaration(decl);
+                if let Some(inner) = &decl.declaration {
+                    self.visit_declaration(inner);
+                }
+            }
+            Statement::VariableDeclaration(decl) => self.handle_variable_declaration(decl),
+            Statement::ExpressionStatement(stmt) => self.visit_expression(&stmt.expression),
+            Statement::BlockStatement(stmt) => {
+                for s in &stmt.body {
+                    self.visit_statement(s);
+                }
+            }
+            Statement::FunctionDeclaration(func) => {
+                if let Some(body) = &func.body {
+                    for s in &body.statements {
+                        self.visit_statement(s);
+                    }
+                }
+            }
+            Statement::ReturnStatement(stmt) => {
+                if let Some(arg) = &stmt.argument {
+                    self.visit_expression(arg);
+                }
+            }
+            Statement::IfStatement(stmt) => {
+                self.visit_expression(&stmt.test);
+                self.visit_statement(&stmt.consequent);
+                if let Some(alt) = &stmt.alternate {
+                    self.visit_statement(alt);
+                }
+            }
+            Statement::ForStatement(stmt) => {
+                if let Some(init) = &stmt.init {
+                    if let oxc_ast::ast::ForStatementInit::VariableDeclaration(decl) = init {
+                        self.handle_variable_declaration(decl);
+                    } else if let Some(expr) = init.as_expression() {
+                        self.visit_expression(expr);
+                    }
+                }
+                if let Some(test) = &stmt.test {
+                    self.visit_expression(test);
+                }
+                if let Some(update) = &stmt.update {
+                    self.visit_expression(update);
+                }
+                self.visit_statement(&stmt.body);
+            }
+            Statement::ForInStatement(stmt) => {
+                self.handle_for_head(&stmt.left);
+                self.visit_expression(&stmt.right);
+                self.visit_statement(&stmt.body);
+            }
+            Statement::ForOfStatement(stmt) => {
+                self.handle_for_head(&stmt.left);
+                self.visit_expression(&stmt.right);
+                self.visit_statement(&stmt.body);
+            }
+            Statement::WhileStatement(stmt) => {
+                self.visit_expression(&stmt.test);
+                self.visit_statement(&stmt.body);
+            }
+            Statement::DoWhileStatement(stmt) => {
+                self.visit_statement(&stmt.body);
+                self.visit_expression(&stmt.test);
+            }
+            Statement::SwitchStatement(stmt) => {
+                self.visit_expression(&stmt.discriminant);
+                for case in &stmt.cases {
+                    if let Some(test) = &case.test {
+                        self.visit_expression(test);
+                    }
+                    for s in &case.consequent {
+                        self.visit_statement(s);
+                    }
+                }
+            }
+            Statement::TryStatement(stmt) => {
+                for s in &stmt.block.body {
+                    self.visit_statement(s);
+                }
+                if let Some(handler) = &stmt.handler {
+                    for s in &handler.body.body {
+                        self.visit_statement(s);
+                    }
+                }
+                if let Some(finalizer) = &stmt.finalizer {
+                    for s in &finalizer.body {
+                        self.visit_statement(s);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn visit_declaration(&mut self, decl: &oxc_ast::ast::Declaration) {
+        match decl {
+            oxc_ast::ast::Declaration::VariableDeclaration(var) => {
+                self.handle_variable_declaration(var)
+            }
+            oxc_ast::ast::Declaration::FunctionDeclaration(func) => {
+                if let Some(body) = &func.body {
+                    for s in &body.statements {
+                        self.visit_statement(s);
+                    }
+                }
+            }
+            oxc_ast::ast::Declaration::ClassDeclaration(cls) => {
+                for elem in &cls.body.body {
+                    match elem {
+                        oxc_ast::ast::ClassElement::MethodDefinition(method) => {
+                            if let Some(body) = &method.value.body {
+                                for s in &body.statements {
+                                    self.visit_statement(s);
+                                }
+                            }
+                        }
+                        oxc_ast::ast::ClassElement::PropertyDefinition(prop) => {
+                            if let Some(curr) = &prop.value {
+                                self.visit_expression(curr);
+                            }
+                        }
+                        oxc_ast::ast::ClassElement::StaticBlock(block) => {
+                            for s in &block.body {
+                                self.visit_statement(s);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn visit_expression(&mut self, expr: &OxcExpression) {
+        match expr {
+            OxcExpression::Identifier(ident) => self.visit_identifier_reference(ident),
+            OxcExpression::ImportExpression(import) => self.handle_import_expression(import),
+            OxcExpression::CallExpression(call) => {
+                match &call.callee {
+                    OxcExpression::Identifier(ident) => self.visit_identifier_reference(ident),
+                    _ => self.visit_expression(&call.callee),
+                }
+                for arg in &call.arguments {
+                    if let Some(e) = arg.as_expression() {
+                        self.visit_expression(e);
+                    } else if let Argument::SpreadElement(s) = arg {
+                        self.visit_expression(&s.argument);
+                    }
+                }
+            }
+            OxcExpression::StaticMemberExpression(e) => {
+                self.visit_static_member_expression(e.as_ref())
+            }
+            OxcExpression::ComputedMemberExpression(e) => {
+                self.visit_computed_member_expression(e.as_ref())
+            }
+            OxcExpression::ArrowFunctionExpression(func) => {
+                for s in &func.body.statements {
+                    self.visit_statement(s);
+                }
+            }
+            OxcExpression::ObjectExpression(obj) => {
+                for prop in &obj.properties {
+                    match prop {
+                        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) => {
+                            if p.shorthand {
+                                // p.value is IdentifierReference matching key.
+                                self.visit_expression(&p.value);
+                            } else {
+                                if p.computed {
+                                    if let Some(expr) = p.key.as_expression() {
+                                        self.visit_expression(expr);
+                                    }
+                                }
+                                self.visit_expression(&p.value);
+                            }
+                        }
+                        oxc_ast::ast::ObjectPropertyKind::SpreadProperty(p) => {
+                            self.visit_expression(&p.argument)
+                        }
+                    }
+                }
+            }
+            OxcExpression::ArrayExpression(arr) => {
+                for elem in &arr.elements {
+                    if let Some(e) = elem.as_expression() {
+                        self.visit_expression(e);
+                    } else if let oxc_ast::ast::ArrayExpressionElement::SpreadElement(s) = elem {
+                        self.visit_expression(&s.argument);
+                    }
+                }
+            }
+            OxcExpression::FunctionExpression(func) => {
+                if let Some(body) = &func.body {
+                    for s in &body.statements {
+                        self.visit_statement(s);
+                    }
+                }
+            }
+            OxcExpression::BinaryExpression(e) => {
+                self.visit_expression(&e.left);
+                self.visit_expression(&e.right);
+            }
+            OxcExpression::UnaryExpression(e) => {
+                self.visit_expression(&e.argument);
+            }
+            OxcExpression::UpdateExpression(e) => {
+                match &e.argument {
+                    oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(ident) => {
+                        self.visit_identifier_reference(ident)
+                    }
+                    // Note: Updating member expression target might be needed if object is identifier
+                    _ => {}
+                }
+            }
+            OxcExpression::NewExpression(e) => {
+                self.visit_expression(&e.callee);
+                for arg in &e.arguments {
+                    if let Some(e) = arg.as_expression() {
+                        self.visit_expression(e);
+                    } else if let oxc_ast::ast::Argument::SpreadElement(s) = arg {
+                        self.visit_expression(&s.argument);
+                    }
+                }
+            }
+            OxcExpression::ParenthesizedExpression(e) => self.visit_expression(&e.expression),
+            OxcExpression::SequenceExpression(e) => {
+                for sub in &e.expressions {
+                    self.visit_expression(sub);
+                }
+            }
+            OxcExpression::ConditionalExpression(e) => {
+                self.visit_expression(&e.test);
+                self.visit_expression(&e.consequent);
+                self.visit_expression(&e.alternate);
+            }
+            _ => {}
+        }
+    }
+}
 
 pub struct BundleResult {
     pub bundle_js: String,
@@ -32,6 +624,7 @@ pub struct BundleConfig {
 }
 
 /// Represents result of scanning a file for imports
+#[derive(Default)]
 struct ImportScanResult {
     static_imports: Vec<PathBuf>,
     dynamic_imports: Vec<PathBuf>,
@@ -337,32 +930,18 @@ fn scan_dynamic_imports_in_expr(
     }
 }
 
-/// Topologically sort files based on imports
-fn sort_files_topologically(files: &[PathBuf], root_dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut adj: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
-    let file_set: HashSet<&PathBuf> = files.iter().collect();
-
-    for file in files {
-        if !file.exists() {
-            continue;
-        }
-        let scan = scan_imports(file, root_dir)?;
-        let mut deps = Vec::new();
-        for dep in scan.static_imports {
-            if file_set.contains(&dep) {
-                deps.push(dep);
-            }
-        }
-        adj.insert(file.clone(), deps);
-    }
-
+/// Topologically sort files based on imports using pre-built adjacency list
+fn sort_files_topologically(
+    files: &[PathBuf],
+    adj: &HashMap<PathBuf, Vec<PathBuf>>,
+) -> Result<Vec<PathBuf>> {
     let mut visited = HashSet::new();
     let mut temp_visited = HashSet::new();
     let mut order = Vec::new();
 
     // Use input order for deterministic iteration of independent nodes
     for file in files {
-        visit_topo(file, &adj, &mut visited, &mut temp_visited, &mut order);
+        visit_topo(file, adj, &mut visited, &mut temp_visited, &mut order);
     }
 
     Ok(order)
@@ -487,261 +1066,22 @@ fn process_bundle_file_inner(
     let file_dir = source_file_path.parent().unwrap_or(root_dir);
 
     // Track import declaration spans to avoid rewriting identifiers inside imports
-    let mut import_spans: Vec<(usize, usize)> = Vec::new();
+    let mut visitor = DependencyVisitor {
+        file_path: abs_file_path.clone(),
+        root_dir: root_dir.to_path_buf(),
+        output_dir_pattern,
+        internal_files,
+        global_registry,
+        name_counters,
+        preserve_exports,
+        edits: Vec::new(),
+        local_rewrites: HashMap::new(),
+        internal_namespaces: HashSet::new(),
+    };
 
-    // First pass: Process imports and collect rewrites
-    for stmt in &ret.program.body {
-        match stmt {
-            Statement::ImportDeclaration(decl) => {
-                let specifier = decl.source.value.as_str();
-                let mut is_internal = false;
+    visitor.visit_program(&ret.program);
 
-                // Debug: log all relative imports for troubleshooting
-                if specifier.starts_with('.') {
-                    let debug_log = format!("--- DEBUG RELATIVE ---\nFile: {:?}\nSpec: {}\nfile_dir: {:?}\nroot_dir: {:?}\n\n", 
-                        file_path, specifier, file_dir, root_dir);
-                    let _ = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open("/tmp/strip_debug_rel.log")
-                        .and_then(|mut f| std::io::Write::write_all(&mut f, debug_log.as_bytes()));
-                }
-
-                if let Some(resolved) = resolve_import(specifier, file_dir, root_dir) {
-                    let normalized_resolved = normalize_path(&resolved);
-
-                    let mut log = format!(
-                        "--- COMPARE ---\nFile: {:?}\nSpec: {}\nResolved: {:?}\nNorm: {:?}\n",
-                        file_path, specifier, resolved, normalized_resolved
-                    );
-                    log.push_str("Set contains:\n");
-                    for p in internal_files {
-                        log.push_str(&format!("  {:?}\n", p));
-                    }
-
-                    // Safe string slicing for UTF-8 content
-                    let content_prefix = content
-                        .char_indices()
-                        .take_while(|(i, _)| *i < 500)
-                        .map(|(_, c)| c)
-                        .collect::<String>();
-                    let content_prefix = content_prefix.as_str();
-                    log.push_str(&format!("Content prefix:\n{}\n", content_prefix));
-
-                    let _ = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open("/tmp/strip_debug_all.log")
-                        .and_then(|mut f| std::io::Write::write_all(&mut f, log.as_bytes()));
-
-                    if internal_files.contains(&normalized_resolved) {
-                        is_internal = true;
-                    }
-
-                    // Also check if the source file version is in internal_files
-                    // This handles the case where compiled files are in output_dir but internal_files contains source paths
-                    if !is_internal {
-                        let resolved_str = normalized_resolved.to_string_lossy();
-                        // Strip output_dir prefix and change .js to .ts for comparison
-                        let source_path_str = resolved_str
-                            .replace(&output_dir_pattern, "/")
-                            .replace(".js", ".ts");
-                        let source_path = PathBuf::from(&source_path_str);
-                        if internal_files.contains(&source_path) {
-                            is_internal = true;
-                        }
-                    }
-                }
-
-                if is_internal {
-                    // For internal imports, we need to:
-                    // 1. Remove the import statement entirely
-                    // 2. Track namespace imports so we can rewrite `ns.Symbol` → `Symbol`
-
-                    if let Some(specifiers) = &decl.specifiers {
-                        for spec in specifiers {
-                            if let oxc_ast::ast::ImportDeclarationSpecifier::ImportNamespaceSpecifier(ns) = spec {
-                                 // Track namespace name for later rewriting (e.g., i_3 in `import * as i_3 from '...'`)
-                                 internal_namespaces.insert(ns.local.name.to_string());
-                             }
-                        }
-                    }
-
-                    // Remove internal import entirely (both named and namespace imports)
-                    edits.push((
-                        decl.span.start as usize,
-                        decl.span.end as usize,
-                        "".to_string(),
-                    ));
-                } else {
-                    // Track this import span
-                    import_spans.push((decl.span.start as usize, decl.span.end as usize));
-
-                    // External Import - Rewrite inline with unique aliases
-                    if let Some(specifiers) = &decl.specifiers {
-                        let mut named_parts: Vec<String> = Vec::new();
-                        let mut default_part: Option<String> = None;
-                        let mut namespace_part: Option<String> = None;
-
-                        for spec in specifiers {
-                            let (imported_name, local_name) = match spec {
-                                 oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(s) => {
-                                     (s.imported.name().as_str().to_string(), s.local.name.as_str().to_string())
-                                 },
-                                 oxc_ast::ast::ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => {
-                                     ("default".to_string(), s.local.name.as_str().to_string())
-                                 },
-                                 oxc_ast::ast::ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => {
-                                     ("*".to_string(), s.local.name.as_str().to_string())
-                                 },
-                             };
-
-                            // Get or create unique alias
-                            // Key: (module, imported_name) -> unique_alias
-                            let key = (specifier.to_string(), imported_name.clone());
-                            let (unique_alias, is_new_entry) = if let Some(a) =
-                                global_registry.get(&key)
-                            {
-                                (a.clone(), false) // Already exists - don't emit import again
-                            } else {
-                                // Get or create per-identifier counter
-                                let count = name_counters.entry(local_name.clone()).or_insert(0);
-                                let new_alias = if *count == 0 {
-                                    // First occurrence - use original name without suffix
-                                    local_name.clone()
-                                } else {
-                                    // Subsequent occurrences - start from 2
-                                    format!("{}{}", local_name, *count + 1)
-                                };
-                                *count += 1;
-                                global_registry.insert(key, new_alias.clone());
-                                (new_alias, true) // New entry - emit import
-                            };
-
-                            // Collect rewrite mapping if alias differs from local name
-                            if local_name != unique_alias {
-                                local_rewrites.insert(local_name.clone(), unique_alias.clone());
-                            }
-
-                            // Only add to import parts if this is a NEW entry (first time seeing it)
-                            if is_new_entry {
-                                // Build import parts
-                                if imported_name == "default" {
-                                    default_part = Some(unique_alias);
-                                } else if imported_name == "*" {
-                                    namespace_part = Some(unique_alias);
-                                } else {
-                                    // Only use 'as' if alias differs from imported name
-                                    if imported_name == unique_alias {
-                                        named_parts.push(imported_name);
-                                    } else {
-                                        named_parts
-                                            .push(format!("{} as {}", imported_name, unique_alias));
-                                    }
-                                }
-                            }
-                        }
-
-                        // Build new import statement(s)
-                        let mut new_imports = Vec::new();
-
-                        if let Some(alias) = default_part {
-                            new_imports.push(format!("import {} from '{}';", alias, specifier));
-                        }
-                        if let Some(alias) = namespace_part {
-                            new_imports.push(format!("import*as {} from '{}';", alias, specifier));
-                        }
-                        if !named_parts.is_empty() {
-                            new_imports.push(format!(
-                                "import {{{}}} from '{}';",
-                                named_parts.join(","),
-                                specifier
-                            ));
-                        }
-
-                        edits.push((
-                            decl.span.start as usize,
-                            decl.span.end as usize,
-                            new_imports.join("\n"),
-                        ));
-                    }
-                }
-            }
-            Statement::VariableDeclaration(decl) => {
-                if matches!(
-                    decl.kind,
-                    oxc_ast::ast::VariableDeclarationKind::Const
-                        | oxc_ast::ast::VariableDeclarationKind::Let
-                ) {
-                    let len = if matches!(decl.kind, oxc_ast::ast::VariableDeclarationKind::Const) {
-                        5
-                    } else {
-                        3
-                    };
-                    edits.push((
-                        decl.span.start as usize,
-                        decl.span.start as usize + len,
-                        "var".to_string(),
-                    ));
-                }
-            }
-            Statement::ExportNamedDeclaration(decl) => {
-                if let Some(inner_decl) = &decl.declaration {
-                    // Remove 'export' keyword only for main bundle, not for chunks
-                    if !preserve_exports {
-                        edits.push((
-                            decl.span.start as usize,
-                            inner_decl.span().start as usize,
-                            "".to_string(),
-                        ));
-                    }
-
-                    if let oxc_ast::ast::Declaration::VariableDeclaration(var_decl) = inner_decl {
-                        if matches!(
-                            var_decl.kind,
-                            oxc_ast::ast::VariableDeclarationKind::Const
-                                | oxc_ast::ast::VariableDeclarationKind::Let
-                        ) {
-                            let len = if matches!(
-                                var_decl.kind,
-                                oxc_ast::ast::VariableDeclarationKind::Const
-                            ) {
-                                5
-                            } else {
-                                3
-                            };
-                            edits.push((
-                                var_decl.span.start as usize,
-                                var_decl.span.start as usize + len,
-                                "var".to_string(),
-                            ));
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // Second pass: Walk AST to find identifier references and rewrite them
-    if !local_rewrites.is_empty() {
-        collect_identifier_edits(
-            &ret.program.body,
-            &local_rewrites,
-            &import_spans,
-            &mut edits,
-        );
-    }
-
-    // Third pass: Rewrite internal namespace member expressions (e.g., `i_3.FeatureComponent` → `FeatureComponent`)
-    if !internal_namespaces.is_empty() {
-        collect_namespace_member_edits(
-            &ret.program.body,
-            &internal_namespaces,
-            &import_spans,
-            &mut edits,
-        );
-    }
+    let mut edits = visitor.edits;
 
     // Sort edits by start position descending (important for applying in reverse order)
     edits.sort_by(|a, b| b.0.cmp(&a.0));
@@ -1605,6 +1945,7 @@ fn resolve_import(specifier: &str, file_dir: &Path, root_dir: &Path) -> Option<P
                     let entry_point = json
                         .get("fesm2022")
                         .or_else(|| json.get("es2020"))
+                        .or_else(|| json.get("browser"))
                         .or_else(|| json.get("module"))
                         .or_else(|| json.get("main"))
                         .and_then(|v| v.as_str());
@@ -1632,18 +1973,18 @@ fn resolve_import(specifier: &str, file_dir: &Path, root_dir: &Path) -> Option<P
 fn resolve_file_path(path: &Path) -> Option<PathBuf> {
     // 1. Try exact path
     if path.is_file() {
-        return Some(normalize_path(path));
+        return path.canonicalize().ok();
     }
 
     // 2. Try extensions (regardless of whether it has one, e.g. app.config -> app.config.ts)
-    let extensions = [".ts", ".js", ".mjs", ".d.ts"];
+    let extensions = [".ts", ".js", ".mjs"];
 
     for ext in &extensions {
         let mut p = path.as_os_str().to_os_string();
         p.push(ext);
         let p_buf = PathBuf::from(p);
         if p_buf.is_file() {
-            return Some(normalize_path(&p_buf));
+            return p_buf.canonicalize().ok();
         }
     }
 
@@ -1652,7 +1993,7 @@ fn resolve_file_path(path: &Path) -> Option<PathBuf> {
         for ext in &extensions {
             let p = path.join(format!("index{}", ext));
             if p.is_file() {
-                return Some(normalize_path(&p));
+                return p.canonicalize().ok();
             }
         }
     }
@@ -1704,6 +2045,7 @@ fn resolve_package_exports(specifier: &str, root_dir: &Path) -> Option<PathBuf> 
                         let entry = obj
                             .get("fesm2022")
                             .or_else(|| obj.get("es2020")) // Angular logic
+                            .or_else(|| obj.get("browser"))
                             .or_else(|| obj.get("module"))
                             .or_else(|| obj.get("import"))
                             .or_else(|| obj.get("default"))
@@ -1786,12 +2128,21 @@ fn build_import_graph(
     entry: &Path,
     root_dir: &Path,
     ignored_files: Option<&HashSet<PathBuf>>,
-) -> Result<(HashSet<PathBuf>, HashSet<PathBuf>, HashSet<PathBuf>)> {
+) -> Result<(
+    HashSet<PathBuf>,
+    HashSet<PathBuf>,
+    HashSet<PathBuf>,
+    HashMap<PathBuf, Vec<PathBuf>>,
+)> {
     let mut static_set = HashSet::new();
     let mut dynamic_set = HashSet::new();
     let mut resources_set = HashSet::new();
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
+    let mut adj = HashMap::new();
+
+    // Use a HashSet for quick lookup of current queue to prevent adding duplicates in the same level
+    let mut queued_set = HashSet::new();
 
     // Init visited with ignored files so we don't traverse them
     if let Some(ignored) = ignored_files {
@@ -1801,40 +2152,107 @@ fn build_import_graph(
     }
 
     queue.push_back(entry.to_path_buf());
+    queued_set.insert(entry.to_path_buf());
 
-    while let Some(file) = queue.pop_front() {
-        if visited.contains(&file) {
-            continue;
-        }
-        visited.insert(file.clone());
-
-        if !file.exists() {
-            continue;
-        }
-
-        static_set.insert(file.clone());
-
-        let scan_result = scan_imports(&file, root_dir)?;
-
-        // Add static imports to queue
-        for static_import in scan_result.static_imports {
-            if !visited.contains(&static_import) {
-                queue.push_back(static_import);
+    while !queue.is_empty() {
+        // Limit batch size to prevent excessive memory usage or task spawning overhead
+        // But for graph building, we typically want to drain the whole level
+        let mut batch = Vec::new();
+        while let Some(file) = queue.pop_front() {
+            if !visited.contains(&file) {
+                batch.push(file);
             }
         }
 
-        // Record dynamic imports but don't traverse them (they become chunks)
-        for dynamic_import in scan_result.dynamic_imports {
-            dynamic_set.insert(dynamic_import);
+        if batch.is_empty() {
+            break;
         }
 
-        // Record resources
-        for res in scan_result.resources {
-            resources_set.insert(res);
+        // Parallel scan of the current batch (Level-Synchronous BFS)
+        let results: Vec<(PathBuf, Result<ImportScanResult>)> = batch
+            .par_iter()
+            .map(|file| {
+                if !file.exists() {
+                    return (file.clone(), Ok(ImportScanResult::default()));
+                }
+                match scan_imports(file, root_dir) {
+                    Ok(scan_result) => (file.clone(), Ok(scan_result)),
+                    Err(e) => (file.clone(), Err(e)),
+                }
+            })
+            .collect();
+
+        // Sequential state update
+        for (file, result) in results {
+            if visited.contains(&file) {
+                continue;
+            }
+            visited.insert(file.clone());
+
+            match result {
+                Ok(scan_result) => {
+                    // File exists and scanned successfully
+                    if file.exists() {
+                        static_set.insert(file.clone());
+                    }
+
+                    let mut deps = Vec::new();
+
+                    // Add static imports to queue
+                    for static_import in scan_result.static_imports {
+                        deps.push(static_import.clone());
+                        // Only add to queue if not visited and not already queued in this session (though queued_set is less critical with visited logic)
+                        if !visited.contains(&static_import) && !queued_set.contains(&static_import)
+                        {
+                            queue.push_back(static_import.clone());
+                            queued_set.insert(static_import);
+                        }
+                    }
+                    adj.insert(file.clone(), deps);
+
+                    // Record dynamic imports
+                    for dynamic_import in scan_result.dynamic_imports {
+                        dynamic_set.insert(dynamic_import);
+                    }
+
+                    // Record resources
+                    for res in scan_result.resources {
+                        resources_set.insert(res);
+                    }
+                }
+                Err(e) => return Err(e),
+            }
         }
     }
 
-    Ok((static_set, dynamic_set, resources_set))
+    Ok((static_set, dynamic_set, resources_set, adj))
+}
+
+fn rewrite_external_imports(content: &str, file_path: &Path, root_dir: &Path) -> String {
+    static IMPORT_RE: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| {
+        regex::Regex::new(r#"(import\s+(?:[\w\s{},*]*from\s+)?['"])([^'"]+)(['"])"#).unwrap()
+    });
+    // Matches: Group 1="import ... from '", Group 2="specifier", Group 3="'"
+
+    let file_dir = file_path.parent().unwrap_or(root_dir);
+
+    IMPORT_RE
+        .replace_all(content, |caps: &regex::Captures| {
+            let prefix = &caps[1];
+            let specifier = &caps[2];
+            let suffix = &caps[3];
+
+            if let Some(resolved) = resolve_import(specifier, file_dir, root_dir) {
+                let normalized = normalize_path(&resolved);
+                if normalized.to_string_lossy().contains("node_modules") {
+                    let new_specifier = format!("/@fs{}", normalized.to_string_lossy());
+                    return format!("{}{}{}", prefix, new_specifier, suffix);
+                }
+            }
+
+            caps[0].to_string()
+        })
+        .to_string()
 }
 
 pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
@@ -1888,8 +2306,13 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
     // eprintln!("Building from entry: {:?}", main_file);
 
     // 3. Build import graph for MAIN bundle (no ignored files initially)
-    let (static_files, dynamic_files, resource_files) =
+    let start_graph = std::time::Instant::now();
+    let (static_files, dynamic_files, resource_files, adj_list) =
         build_import_graph(&main_file, root_dir, None)?;
+    eprintln!(
+        "[Rust] build_import_graph: {}ms",
+        start_graph.elapsed().as_millis()
+    );
 
     // eprintln!(
     //     "Main Bundle: Static files: {}, Dynamic (lazy) entry points: {}",
@@ -1910,10 +2333,20 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
     }
 
     // Sort source files topologically
-    let sorted_source_files = sort_files_topologically(&source_files, root_dir)?;
+    let start_sort = std::time::Instant::now();
+    let sorted_source_files = sort_files_topologically(&source_files, &adj_list)?;
+    eprintln!(
+        "[Rust] sort_files_topologically: {}ms",
+        start_sort.elapsed().as_millis()
+    );
 
     // Compile source files
+    let start_compile = std::time::Instant::now();
     let raw_compiled = parallel_compile(&source_files, project_path, hmr)?;
+    eprintln!(
+        "[Rust] parallel_compile: {}ms",
+        start_compile.elapsed().as_millis()
+    );
     let mut compiled_map: HashMap<PathBuf, String> = raw_compiled
         .into_iter()
         .map(|(p, c)| (normalize_path(&p), c))
@@ -1923,6 +2356,8 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
 
     // Create ordered compiled contents
     let mut compiled_contents: Vec<(std::path::PathBuf, String)> = Vec::new();
+
+    // Read and add library files first (dependencies)
 
     for path in &sorted_source_files {
         // Construct lookup key: dist/{relative_source_path_with_js_ext}
@@ -1944,196 +2379,292 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
 
     use xxhash_rust::xxh3::xxh3_64;
 
-    for dynamic_entry in &dynamic_files {
-        if !dynamic_entry.exists() {
-            continue;
-        }
-        let chunk_name = dynamic_entry
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("chunk");
+    // 5. Build chunks for dynamic imports (Calculate first to allow import rewriting)
+    // Use Rayon for parallel processing of chunks
+    struct ChunkData {
+        hashed_name: String,
+        source_path: String,
+        content: String,
+        dynamic_entry: PathBuf,
+        relative_file_paths: Vec<String>,
+        external_imports: Vec<String>,
+        files_map_entries: Vec<(String, String)>,
+    }
 
-        // Pass main bundle files as ignored files so we don't duplicate them in chunks
-        let (chunk_static_files, _, _) =
-            build_import_graph(dynamic_entry, root_dir, Some(&static_files))?;
-        let chunk_files_vec: Vec<PathBuf> = chunk_static_files.into_iter().collect();
+    let chunk_results: Vec<Option<ChunkData>> = dynamic_files
+        .par_iter()
+        .map(|dynamic_entry| -> Result<Option<ChunkData>> {
+            let chunk_start = std::time::Instant::now();
+            if !dynamic_entry.exists() {
+                return Ok(None);
+            }
+            let chunk_name = dynamic_entry
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("chunk");
 
-        if chunk_files_vec.is_empty() {
-            continue;
-        }
+            // Do NOT ignore static_files for now to ensure chunks are self-contained (full bundling)
+            // This prevents "missing symbol" errors when stripping imports, at the cost of duplication.
+            let (chunk_static_files, _, _, _) = build_import_graph(dynamic_entry, root_dir, None)?;
 
-        let raw_chunk_compiled = parallel_compile(&chunk_files_vec, project_path, hmr)?;
-        let chunk_compiled: Vec<(PathBuf, String)> = raw_chunk_compiled
-            .into_iter()
-            .map(|(p, c)| (normalize_path(&p), c))
-            .collect();
-        let mut chunk_content = String::new();
+            // Filter out node_modules so they are treated as external imports!
+            let chunk_files_vec: Vec<PathBuf> = chunk_static_files
+                .into_iter()
+                .filter(|p| !p.to_string_lossy().contains("node_modules"))
+                .collect();
 
-        // Header for chunk
-        chunk_content.push_str(&format!("// Quantum Chunk: {}\n", chunk_name));
+            if chunk_files_vec.is_empty() {
+                return Ok(None);
+            }
 
-        // We need a way to register this chunk in the runtime if we were fully implementing Angular's runtime.
-        // For now, we concat content but we need to strip internal imports.
+            let raw_chunk_compiled = parallel_compile(&chunk_files_vec, project_path, hmr)?;
+            let chunk_compiled: Vec<(PathBuf, String)> = raw_chunk_compiled
+                .into_iter()
+                .map(|(p, c)| (normalize_path(&p), c))
+                .collect();
+            let mut chunk_content = String::new();
 
-        // Build a set of SOURCE file paths for internal import stripping
-        // IMPORTANT: Only include source files, NOT node_modules - external deps should not be stripped
-        let chunk_file_set: HashSet<PathBuf> = chunk_files_vec
-            .iter()
-            .filter(|p| !p.to_string_lossy().contains("node_modules"))
-            .map(|p| normalize_path(p))
-            .collect();
+            // Header for chunk
+            chunk_content.push_str(&format!("// Quantum Chunk: {}\n", chunk_name));
 
-        // Determine entry file path for comparison (convert source path to compiled path)
-        // dynamic_entry: src/app/.../module.ts -> dist/src/app/.../module.js
-        let entry_compiled_path = {
-            let entry_rel = dynamic_entry
-                .strip_prefix(root_dir)
-                .unwrap_or(dynamic_entry);
-            let entry_dist = Path::new(&bundle_config.output_dir).join(entry_rel);
-            normalize_path(&entry_dist.with_extension("js"))
-        };
+            // We need a way to register this chunk in the runtime if we were fully implementing Angular's runtime.
+            // For now, we concat content but we need to strip internal imports.
 
-        // Collect named imports ONLY from entry file (like ngtsc output)
-        // Other files keep their imports inline
-        let mut hoisted_named_imports: Vec<String> = Vec::new();
-        let mut code_sections: Vec<(String, String)> = Vec::new(); // (source_path, processed_content)
+            // Build a set of SOURCE file paths for internal import stripping
+            // INCLUDE node_modules to ensure they are treated as internal and stripped
+            let chunk_file_set: HashSet<PathBuf> =
+                chunk_files_vec.iter().map(|p| normalize_path(p)).collect();
 
-        let mut chunk_registry: HashMap<(String, String), String> = HashMap::new();
-        let mut chunk_counters: HashMap<String, usize> = HashMap::new();
+            // Determine entry file path for comparison (convert source path to compiled path)
+            // dynamic_entry: src/app/.../module.ts -> dist/src/app/.../module.js
+            let entry_compiled_path = {
+                let entry_rel = dynamic_entry
+                    .strip_prefix(root_dir)
+                    .unwrap_or(dynamic_entry);
+                let entry_dist = Path::new(&bundle_config.output_dir).join(entry_rel);
+                normalize_path(&entry_dist.with_extension("js"))
+            };
 
-        for (path, content) in &chunk_compiled {
-            let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+            // Collect named imports ONLY from entry file (like ngtsc output)
+            // Other files keep their imports inline
+            let mut hoisted_named_imports: Vec<String> = Vec::new();
+            let mut code_sections: Vec<(String, String)> = Vec::new(); // (source_path, processed_content)
 
-            if extension == "js" {
-                // Use preserve_exports for chunks so lazy-loaded modules export their symbols
-                let processed_content = process_bundle_file_preserve_exports(
-                    content,
-                    path,
-                    root_dir,
-                    &chunk_file_set,
-                    &mut chunk_registry,
-                    &mut chunk_counters,
-                    &bundle_config,
-                )
-                .unwrap_or_else(|_| content.clone());
+            let mut chunk_registry: HashMap<(String, String), String> = HashMap::new();
+            let mut chunk_counters: HashMap<String, usize> = HashMap::new();
+            let mut files_map_entries = Vec::new();
 
-                // Format path as source path (like ngtsc output): src/app/... instead of dist/src/app/...
+            for (path, content) in &chunk_compiled {
+                if path.to_string_lossy().contains("checkbox") {
+                    eprintln!("[BundlerDebug] Chunk compiled file: {:?}", path);
+                }
+                let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+
+                if extension == "js" {
+                    // Log raw content for checkbox
+                    if path.to_string_lossy().contains("checkbox") {
+                        use std::io::Write;
+                        let mut f = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open("/Users/truong/Desktop/rust-compiler/debug_bundler.txt")
+                            .unwrap();
+                        writeln!(
+                            f,
+                            "[Bundler] Raw Content for {}: {:.2000}",
+                            path.display(),
+                            content
+                        )
+                        .ok();
+                    }
+
+                    // Use preserve_exports for chunks so lazy-loaded modules export their symbols
+                    let processed_content = process_bundle_file_preserve_exports(
+                        content,
+                        path,
+                        root_dir,
+                        &chunk_file_set,
+                        &mut chunk_registry,
+                        &mut chunk_counters,
+                        &bundle_config,
+                    )
+                    .unwrap_or_else(|_| content.clone());
+
+                    // Format path as source path (like ngtsc output): src/app/... instead of dist/src/app/...
+                    let relative_path_str = path
+                        .strip_prefix(root_dir)
+                        .unwrap_or(path)
+                        .to_string_lossy()
+                        .to_string();
+                    let source_path = relative_path_str
+                        .strip_prefix(&format!("{}/", bundle_config.output_dir))
+                        .unwrap_or(&relative_path_str)
+                        .replace(".js", ".ts");
+
+                    static IMPORT_STMT_RE: once_cell::sync::Lazy<regex::Regex> =
+                        once_cell::sync::Lazy::new(|| {
+                            // Allow optional indentation (\s*) at the start of the line
+                            regex::Regex::new(r#"(?m)^\s*import\s+[\s\S]*?;"#).unwrap()
+                        });
+
+                    let mut file_named_imports = Vec::new();
+
+                    // Log content start for debugging to file
+                    {
+                        use std::io::Write;
+                        let mut f = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open("/Users/truong/Desktop/rust-compiler/debug_bundler.txt")
+                            .unwrap();
+                        writeln!(f, "[Bundler] Processing: {}", source_path).ok();
+                        if processed_content.contains("checkbox") {
+                            writeln!(f, "[Bundler] Content Snippet: {:.100}", processed_content)
+                                .ok();
+                        }
+                    }
+
+                    // We need to remove imports from the content and put them in file_named_imports
+                    // But to preserve line numbers/structure for source maps (ideally), we'd replace them with newlines.
+                    // For now, let's just collect them and then strip them.
+
+                    let mut code = processed_content.to_string();
+
+                    // Find matches
+                    let mut matches_ranges = Vec::new();
+                    for cap in IMPORT_STMT_RE.captures_iter(&processed_content) {
+                        let cf = cap.get(0).unwrap(); // Full match
+                        let text = cf.as_str().trim();
+                        // Ignore dynamic imports which might look like function calls, but regex ^import ensures statement start
+                        // Also double check it's not "import("
+                        if !text.contains("import(") {
+                            // println!("[Bundler] Hoisting import from {}: {}", source_path, text);
+                            file_named_imports.push(text.to_string());
+                            matches_ranges.push(cf.range());
+                        } else {
+                            // println!("[Bundler] Skipped dynamic-like import in {}: {}", source_path, text);
+                        }
+                    }
+
+                    // Remove collected imports from code, replacing with newlines to preserve line count if possible, or just empty
+                    // working backwards to invalidate indices
+                    matches_ranges.sort_by(|a, b| b.start.cmp(&a.start));
+                    for range in matches_ranges {
+                        code.replace_range(range, "");
+                    }
+
+                    let trimmed_code = code.trim().to_string();
+
+                    // Add named imports to hoisted list
+                    hoisted_named_imports.extend(file_named_imports);
+
+                    // Add code section without named imports
+                    code_sections.push((source_path, trimmed_code));
+                }
+
                 let relative_path_str = path
                     .strip_prefix(root_dir)
                     .unwrap_or(path)
                     .to_string_lossy()
                     .to_string();
-                let source_path = relative_path_str
-                    .strip_prefix(&format!("{}/", bundle_config.output_dir))
-                    .unwrap_or(&relative_path_str)
-                    .replace(".js", ".ts");
+                // parallel_compile already outputs to 'dist/' via out_dir setting
+                files_map_entries.push((relative_path_str, content.clone()));
+            }
 
-                // Check if this is the entry file - only hoist imports from entry file
-                let is_entry_file = normalize_path(path) == entry_compiled_path;
+            // Build final chunk content: header + entry file comment + hoisted imports (from entry) + code sections
+            // Get entry file source path for comment
+            let entry_source_path = dynamic_entry
+                .strip_prefix(root_dir)
+                .unwrap_or(dynamic_entry)
+                .to_string_lossy()
+                .to_string();
 
-                if is_entry_file {
-                    // Separate named imports from code for entry file only
-                    let mut file_named_imports = Vec::new();
-                    let mut code_lines = Vec::new();
+            // Add entry file comment after header
+            chunk_content.push_str(&format!("// {}\n", entry_source_path));
 
-                    for line in processed_content.lines() {
-                        let trimmed = line.trim();
-                        // Named import pattern: starts with `import {` or `import{`, contains `}`, contains `from`
-                        let is_named_import = (trimmed.starts_with("import {")
-                            || trimmed.starts_with("import{"))
-                            && trimmed.contains('}')
-                            && trimmed.contains(" from ");
-
-                        if is_named_import {
-                            file_named_imports.push(line.to_string());
-                        } else {
-                            code_lines.push(line.to_string());
-                        }
-                    }
-
-                    // Add entry's named imports to hoisted list
-                    hoisted_named_imports.extend(file_named_imports);
-
-                    // Add code section without named imports
-                    let code_without_imports = code_lines.join("\n");
-                    code_sections.push((source_path, code_without_imports));
-                } else {
-                    // Non-entry files: keep everything as-is
-                    code_sections.push((source_path, processed_content));
+            // Deduplicate and add named imports (hoisted from entry)
+            let mut seen_imports: HashSet<String> = HashSet::new();
+            for import_line in &hoisted_named_imports {
+                if seen_imports.insert(import_line.clone()) {
+                    chunk_content.push_str(import_line);
+                    chunk_content.push_str("\n");
                 }
             }
 
-            let relative_path_str = path
-                .strip_prefix(root_dir)
-                .unwrap_or(path)
-                .to_string_lossy()
-                .to_string();
-            // parallel_compile already outputs to 'dist/' via out_dir setting
-            files_map.insert(relative_path_str, content.clone());
-        }
-
-        // Add chunk imports to collector
-        for (specifier, _) in chunk_registry.keys() {
-            external_import_collector.insert(specifier.clone());
-        }
-
-        // Build final chunk content: header + entry file comment + hoisted imports (from entry) + code sections
-        // Get entry file source path for comment
-        let entry_source_path = dynamic_entry
-            .strip_prefix(root_dir)
-            .unwrap_or(dynamic_entry)
-            .to_string_lossy()
-            .to_string();
-
-        // Add entry file comment after header
-        chunk_content.push_str(&format!("// {}\n", entry_source_path));
-
-        // Deduplicate and add named imports (hoisted from entry)
-        let mut seen_imports: HashSet<String> = HashSet::new();
-        for import_line in &hoisted_named_imports {
-            if seen_imports.insert(import_line.clone()) {
-                chunk_content.push_str(import_line);
+            // Add blank line after imports if there are any
+            if !hoisted_named_imports.is_empty() {
                 chunk_content.push_str("\n");
             }
-        }
 
-        // Add blank line after imports if there are any
-        if !hoisted_named_imports.is_empty() {
-            chunk_content.push_str("\n");
-        }
+            // Add code sections with their file comments
+            for (source_path, code) in &code_sections {
+                chunk_content.push_str(&format!("// {}\n", source_path));
+                chunk_content.push_str(code);
+                chunk_content.push_str("\n\n");
+            }
 
-        // Add code sections with their file comments
-        for (source_path, code) in &code_sections {
-            chunk_content.push_str(&format!("// {}\n", source_path));
-            chunk_content.push_str(code);
-            chunk_content.push_str("\n\n");
-        }
+            // Hashing logic
+            let hash = format!("{:016x}", xxh3_64(chunk_content.as_bytes()));
+            let short_hash = &hash[0..8].to_uppercase();
+            let hashed_name = format!("chunk-{}.js", short_hash);
 
-        // Hashing logic
-        let hash = format!("{:016x}", xxh3_64(chunk_content.as_bytes()));
-        let short_hash = &hash[0..8].to_uppercase();
-
-        let hashed_name = format!("chunk-{}.js", short_hash);
-        chunks.insert(hashed_name.clone(), chunk_content);
-
-        // Store the full relative source path for import resolution
-        let source_path = dynamic_entry
-            .strip_prefix(root_dir)
-            .unwrap_or(dynamic_entry)
-            .to_string_lossy()
-            .to_string();
-        chunk_names.insert(hashed_name.clone(), source_path);
-
-        lazy_map.insert(dynamic_entry.clone(), hashed_name.clone());
-
-        // Map all source files in this chunk to the hashed name
-        for file_path in &chunk_files_vec {
-            let rel_path = file_path
+            // Store the full relative source path for import resolution
+            let source_path = dynamic_entry
                 .strip_prefix(root_dir)
-                .unwrap_or(file_path)
+                .unwrap_or(dynamic_entry)
                 .to_string_lossy()
                 .to_string();
-            module_to_chunk.insert(rel_path, hashed_name.clone());
+
+            let mut relative_file_paths = Vec::new();
+            for file_path in &chunk_files_vec {
+                let rel_path = file_path
+                    .strip_prefix(root_dir)
+                    .unwrap_or(file_path)
+                    .to_string_lossy()
+                    .to_string();
+                relative_file_paths.push(rel_path);
+            }
+
+            let mut external_imports = Vec::new();
+            for (specifier, _) in chunk_registry.keys() {
+                external_imports.push(specifier.clone());
+            }
+
+            eprintln!(
+                "[Rust] Chunk {} ({} files) took {}ms",
+                chunk_name,
+                chunk_files_vec.len(),
+                chunk_start.elapsed().as_millis()
+            );
+
+            Ok(Some(ChunkData {
+                hashed_name,
+                source_path,
+                content: chunk_content,
+                dynamic_entry: dynamic_entry.to_path_buf(),
+                relative_file_paths,
+                external_imports,
+                files_map_entries,
+            }))
+        })
+        .collect::<Result<Vec<Option<ChunkData>>>>()?;
+
+    // Consolidate results into HashMaps
+    for result in chunk_results.into_iter().flatten() {
+        chunks.insert(result.hashed_name.clone(), result.content);
+        chunk_names.insert(result.hashed_name.clone(), result.source_path);
+        lazy_map.insert(result.dynamic_entry.clone(), result.hashed_name.clone());
+
+        for rel_path in result.relative_file_paths {
+            module_to_chunk.insert(rel_path, result.hashed_name.clone());
+        }
+
+        for import in result.external_imports {
+            external_import_collector.insert(import);
+        }
+
+        for (path, content) in result.files_map_entries {
+            files_map.insert(path, content);
         }
     }
 
@@ -2156,6 +2687,10 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
     let import_regex = regex::Regex::new(r#"(from\s+['"])([\.\/][^'"]+)(['"])"#).unwrap();
     let dynamic_import_regex =
         regex::Regex::new(r#"(import\s*\(\s*['"])([^'"]+)(['"]\s*\))"#).unwrap();
+    let template_regex = regex::Regex::new(r#"(templateUrl\s*:\s*['"])([^'"]+)(['"])"#).unwrap();
+    let style_url_regex = regex::Regex::new(r#"(styleUrl\s*:\s*['"])([^'"]+)(['"])"#).unwrap();
+    let style_urls_regex =
+        regex::Regex::new(r#"(styleUrls\s*:\s*\[\s*['"])([^'"]+)(['"]\s*\])"#).unwrap();
 
     for (path, content) in &compiled_contents {
         // Strip internal imports and rewrite external ones with unique aliases
@@ -2218,7 +2753,7 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
                         let abs_target = root_dir.join(&joined);
 
                         if let Some(hashed) = lazy_map.get(&abs_target) {
-                            return format!("{}./{}{}", prefix, hashed, suffix);
+                            return format!("{}/{}{}", prefix, hashed, suffix);
                         }
 
                         let mut path_str = abs_target.to_string_lossy().to_string();
@@ -2226,13 +2761,13 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
                         let with_ts = PathBuf::from(path_str);
 
                         if let Some(hashed) = lazy_map.get(&with_ts) {
-                            return format!("{}./{}{}", prefix, hashed, suffix);
+                            return format!("{}/{}{}", prefix, hashed, suffix);
                         }
 
                         if abs_target.exists() {
                             if let Ok(canon) = abs_target.canonicalize() {
                                 if let Some(hashed) = lazy_map.get(&canon) {
-                                    return format!("{}./{}{}", prefix, hashed, suffix);
+                                    return format!("{}/{}{}", prefix, hashed, suffix);
                                 }
                             }
                         }
@@ -2242,7 +2777,7 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
                         let norm_ts = PathBuf::from(norm_path_str);
 
                         if let Some(hashed) = lazy_map.get(&norm_ts) {
-                            return format!("{}./{}{}", prefix, hashed, suffix);
+                            return format!("{}/{}{}", prefix, hashed, suffix);
                         }
 
                         caps[0].to_string()
@@ -2253,12 +2788,7 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
                 .to_string();
 
             // Rewrite templateUrl and styleUrl
-            let template_regex =
-                regex::Regex::new(r#"(templateUrl\s*:\s*['"])([^'"]+)(['"])"#).unwrap();
-            let style_url_regex =
-                regex::Regex::new(r#"(styleUrl\s*:\s*['"])([^'"]+)(['"])"#).unwrap();
-            let style_urls_regex =
-                regex::Regex::new(r#"(styleUrls\s*:\s*\[\s*['"])([^'"]+)(['"]\s*\])"#).unwrap();
+            // Regexes are now defined outside the loop
 
             rewritten_content = template_regex
                 .replace_all(&rewritten_content, |caps: &regex::Captures| {
@@ -2493,9 +3023,14 @@ fn inline_css_imports(
     root_dir: &std::path::Path,
     current_file: &std::path::Path,
 ) -> String {
-    let import_re = regex::Regex::new(r#"@import\s+['"]([^'"]+)['"];"#).unwrap();
-    let url_re =
-        regex::Regex::new(r#"url\s*\(\s*(?:'([^']*)'|"([^"]*)"|([^'"\s)]+))\s*\)"#).unwrap();
+    static IMPORT_RE: once_cell::sync::Lazy<regex::Regex> =
+        once_cell::sync::Lazy::new(|| regex::Regex::new(r#"@import\s+['"]([^'"]+)['"];"#).unwrap());
+    static URL_RE: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| {
+        regex::Regex::new(r#"url\s*\(\s*(?:'([^']*)'|"([^"]*)"|([^'"\s)]+))\s*\)"#).unwrap()
+    });
+
+    let import_re = &IMPORT_RE;
+    let url_re = &URL_RE;
 
     let mut processed_lines = Vec::new();
 
@@ -2703,7 +3238,7 @@ mod tests {
         );
 
         // 1. Build Main Graph
-        let (main_static, main_dynamic, _) =
+        let (main_static, main_dynamic, _, _) =
             build_import_graph(&root_dir.join("main.ts"), &root_dir, None).unwrap();
 
         assert!(main_static.contains(&root_dir.join("main.ts")));
@@ -2719,7 +3254,7 @@ mod tests {
         // We need to resolve path for shared.ts and main.ts to match those in ignored set
         // main_static contains absolute paths.
 
-        let (lazy_static, _, _) =
+        let (lazy_static, _, _, _) =
             build_import_graph(lazy_entry, &root_dir, Some(&main_static)).unwrap();
 
         assert!(lazy_static.contains(&root_dir.join("lazy.ts")));

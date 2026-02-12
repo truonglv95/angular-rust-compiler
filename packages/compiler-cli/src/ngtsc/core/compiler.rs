@@ -5,13 +5,16 @@ use crate::ngtsc::file_system::{AbsoluteFsPath, FileSystem};
 use crate::ngtsc::metadata::{
     DecoratorMetadata, DirectiveMetadata, MetadataReader, OxcMetadataReader,
 };
+use crate::ngtsc::translator::src::api::import_generator::{ImportGenerator, ImportRequest};
 use crate::ngtsc::translator::src::import_manager::import_manager::EmitterImportManager;
 use angular_compiler::ml_parser::tags::TagDefinition;
 use angular_compiler::ml_parser::{
     html_tags::get_html_tag_definition, parser::Parser as HtmlParser,
 };
 use angular_compiler::output::abstract_emitter::{AbstractEmitterVisitor, EmitterVisitorContext};
+use angular_compiler::output::output_ast::Expression;
 use angular_compiler::output::output_ast::ExpressionTrait;
+use angular_compiler::render3::r3_hmr_compiler::{compile_hmr_initializer, R3HmrMetadata};
 use angular_compiler::render3::r3_injector_compiler::{compile_injector, R3InjectorMetadata};
 use angular_compiler::render3::r3_module_compiler::{
     compile_ng_module, R3NgModuleMetadata, R3NgModuleMetadataCommon, R3NgModuleMetadataKind,
@@ -21,23 +24,64 @@ use angular_compiler::render3::util::R3Reference;
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-fn expression_to_string(expr: &angular_compiler::output::output_ast::Expression) -> String {
-    let mut ctx = EmitterVisitorContext::create_root();
-    let mut import_manager = EmitterImportManager::new();
-    let mut visitor = AbstractEmitterVisitor::new(false);
-
-    // Visit expression to populate imports
-    expr.visit_expression(&mut visitor, &mut ctx);
-
-    // If it's an ExternalExpr, we need special handling to alias it
-    // But AbstractEmitterVisitor doesn't use ImportManager directly.
-    // We need to customize how ExternalExpr is printed or pre-process it.
-    // For now, let's try to use the import manager to resolve it.
-
-    ctx.to_source()
+fn resolve_expression(
+    expr: &mut Expression,
+    map: &HashMap<String, (String, String)>,
+    import_manager: &mut EmitterImportManager,
+) {
+    match expr {
+        Expression::ReadVar(e) => {
+            if let Some((module, imported_name)) = map.get(&e.name) {
+                let req = ImportRequest {
+                    export_module_specifier: module.clone(),
+                    export_symbol_name: Some(imported_name.clone()),
+                    requested_file: (),
+                    unsafe_alias_override: None,
+                };
+                let new_expr = import_manager.add_import(req);
+                *expr = new_expr;
+            } else {
+            }
+        }
+        Expression::LiteralArray(e) => {
+            for entry in &mut e.entries {
+                resolve_expression(entry, map, import_manager);
+            }
+        }
+        Expression::LiteralMap(e) => {
+            for entry in &mut e.entries {
+                resolve_expression(&mut entry.value, map, import_manager);
+            }
+        }
+        Expression::InvokeFn(e) => {
+            resolve_expression(&mut e.fn_, map, import_manager);
+            for arg in &mut e.args {
+                resolve_expression(arg, map, import_manager);
+            }
+        }
+        Expression::Instantiate(e) => {
+            resolve_expression(&mut e.class_expr, map, import_manager);
+            for arg in &mut e.args {
+                resolve_expression(arg, map, import_manager);
+            }
+        }
+        Expression::BinaryOp(e) => {
+            resolve_expression(&mut e.lhs, map, import_manager);
+            resolve_expression(&mut e.rhs, map, import_manager);
+        }
+        Expression::Conditional(e) => {
+            resolve_expression(&mut e.condition, map, import_manager);
+            resolve_expression(&mut e.true_case, map, import_manager);
+            if let Some(false_case) = &mut e.false_case {
+                resolve_expression(false_case, map, import_manager);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Helper to convert expression to string, with basic handling for raw ExternalExpr usage
@@ -185,7 +229,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
             let ret = Parser::new(&allocator, &content, source_type).parse();
 
             if !ret.errors.is_empty() {
-                for error in ret.errors {
+                for _error in ret.errors {
                     // eprintln!("DEBUG: Error parsing {:?}: {:?}", path, error);
                 }
                 return Err(format!("Failed to parse {:?}", path));
@@ -325,6 +369,8 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
 
                     if hmr_id == Some(target_id) {
                         // We found our target!
+                        // We found our target!
+
                         // 1. We need to parse the file to get class declarations for compile_ivy
                         let source_path = AbsoluteFsPath::from(src_file.as_path());
                         if let Ok(source_content) = fs.read_file(&source_path) {
@@ -333,26 +379,106 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                             let parser = Parser::new(&allocator, &source_content, source_type);
                             let parse_result = parser.parse();
 
+                            if !parse_result.errors.is_empty() {
+                                if !parse_result.errors.is_empty() {}
+                            }
+
                             if parse_result.errors.is_empty() {
                                 let mut import_manager = EmitterImportManager::new();
                                 let _ = import_manager.get_or_generate_alias("@angular/core");
 
+                                // Collect local dependencies specifically for HMR to:
+                                // 1. Pass as arguments to UpdateMetadata (local_deps)
+                                // 2. Register in ImportManager so it reuses them instead of aliasing (i6.Dep -> Dep)
+                                // 3. Build a mapping to verify/resolve expressions in metadata (providers etc)
+                                let mut local_deps: Vec<String> = Vec::new();
+                                let mut local_name_to_module: HashMap<String, (String, String)> =
+                                    HashMap::new();
+                                for stmt in &parse_result.program.body {
+                                    if let oxc_ast::ast::Statement::ImportDeclaration(decl) = stmt {
+                                        if decl.import_kind
+                                            == oxc_ast::ast::ImportOrExportKind::Type
+                                        {
+                                            continue;
+                                        }
+                                        let module_name = decl.source.value.as_str();
+                                        // Skip @angular/core
+                                        if module_name == "@angular/core" {
+                                            continue;
+                                        }
+
+                                        if let Some(specifiers) = &decl.specifiers {
+                                            for spec in specifiers {
+                                                if let oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(s) = spec {
+                                                     if s.import_kind == oxc_ast::ast::ImportOrExportKind::Type { continue; }
+
+                                                     let local_name = s.local.name.as_str();
+                                                     let imported_name = match &s.imported {
+                                                         oxc_ast::ast::ModuleExportName::IdentifierName(id) => id.name.as_str(),
+                                                         oxc_ast::ast::ModuleExportName::IdentifierReference(id) => id.name.as_str(),
+                                                         oxc_ast::ast::ModuleExportName::StringLiteral(lit) => lit.value.as_str(),
+                                                     };
+
+                                                     if local_name != "Component" && local_name != "i0" {
+                                                         local_deps.push(local_name.to_string());
+                                                         local_name_to_module.insert(local_name.to_string(), (module_name.to_string(), imported_name.to_string()));
+                                                         import_manager.add_local_import(module_name, imported_name, local_name);
+                                                     }
+                                             }
+                                            }
+                                        }
+                                    }
+                                }
                                 let (compiled_results, component_name) = match directive {
-                                    DecoratorMetadata::Directive(dir) => {
-                                        let results = if dir.t2.is_component {
-                                            component_handler.compile_ivy(
-                                                &directive,
-                                                find_class_decl(
-                                                    &parse_result.program,
-                                                    &dir.t2.name,
-                                                ),
-                                                Some(&mut import_manager),
-                                            )
+                                    DecoratorMetadata::Directive(_) => {
+                                        // Clone directive to resolve expressions
+                                        let mut directive_clone = (*directive).clone();
+
+                                        if let DecoratorMetadata::Directive(ref mut dir_clone) =
+                                            directive_clone
+                                        {
+                                            match &mut dir_clone.providers {
+                                                Some(providers) => {
+                                                    resolve_expression(
+                                                        providers,
+                                                        &local_name_to_module,
+                                                        &mut import_manager,
+                                                    );
+                                                }
+                                                None => {}
+                                            }
+                                        }
+                                        let results = if let DecoratorMetadata::Directive(dir) =
+                                            &directive_clone
+                                        {
+                                            if dir.t2.is_component {
+                                                component_handler.compile_ivy(
+                                                    &directive_clone,
+                                                    find_class_decl(
+                                                        &parse_result.program,
+                                                        &dir.t2.name,
+                                                    ),
+                                                    Some(&mut import_manager),
+                                                )
+                                            } else {
+                                                directive_handler.compile_ivy(
+                                                    &directive_clone,
+                                                    Some(&mut import_manager),
+                                                )
+                                            }
                                         } else {
-                                            directive_handler
-                                                .compile_ivy(&directive, Some(&mut import_manager))
+                                            vec![]
                                         };
-                                        (results, dir.t2.name.clone())
+
+                                        // Extract name from directive_clone
+                                        let name = if let DecoratorMetadata::Directive(dir) =
+                                            &directive_clone
+                                        {
+                                            dir.t2.name.clone()
+                                        } else {
+                                            "".to_string()
+                                        };
+                                        (results, name)
                                     }
                                     _ => (vec![], "".to_string()),
                                 };
@@ -366,40 +492,26 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                     let imports_map = import_manager.get_imports_map();
                                     let namespace_count = imports_map.len();
 
-                                    // Collect                                    // manual parse
-                                    let mut local_deps: Vec<String> = Vec::new();
-                                    // manual parse
-                                    for stmt in &parse_result.program.body {
-                                        if let oxc_ast::ast::Statement::ImportDeclaration(decl) =
-                                            stmt
-                                        {
-                                            if decl.import_kind
-                                                == oxc_ast::ast::ImportOrExportKind::Type
-                                            {
-                                                continue;
-                                            }
-                                            // Skip all @angular/core imports as they are usually aliased or erased
-                                            if decl.source.value.as_str() == "@angular/core" {
-                                                continue;
-                                            }
-                                            if let Some(specifiers) = &decl.specifiers {
-                                                for spec in specifiers {
-                                                    if let oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(s) = spec {
-                                                        if s.import_kind == oxc_ast::ast::ImportOrExportKind::Type {
-                                                            continue;
-                                                        }
-                                                        let name = s.local.name.as_str();
-                                                        // Skip Angular core imports
-                                                        if name != "Component" && name != "i0" {
-                                                            local_deps.push(name.to_string());
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
+                                    // local_deps are already collected before compile_ivy
+                                    // local_deps are already collected before compile_ivy
                                     // Sort local_deps to ensure deterministic order matching handler.rs
                                     local_deps.sort();
+
+                                    // Generate top-level imports for the HMR module
+                                    // This replaces reliance on ɵɵnamespaces which requires runtime coordination
+                                    let mut imports_code = String::new();
+
+                                    // Sort by module name to ensure deterministic order regardless of alias assignment order
+                                    let mut imports_list: Vec<_> = imports_map.iter().collect();
+                                    imports_list.sort_by_key(|(module, _)| *module);
+
+                                    for (module, alias) in &imports_list {
+                                        imports_code.push_str(&format!(
+                                            "import * as {} from '{}';\n",
+                                            alias, module
+                                        ));
+                                    }
+                                    code.push_str(&imports_code);
 
                                     // Build function signature
                                     // export default function Component_UpdateMetadata(Component, ɵɵnamespaces, Dep1, Dep2, ...) {
@@ -413,18 +525,12 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                         params.join(", ")
                                     ));
 
-                                    // Add namespace extraction: const ɵhmr0 = ɵɵnamespaces[0];
-                                    let mut imports_list: Vec<_> = imports_map.iter().collect();
-                                    imports_list.sort_by_key(|(_, alias)| *alias);
-
-                                    for (i, (_, alias)) in imports_list.iter().enumerate() {
-                                        code.push_str(&format!(
-                                            "    const {} = ɵɵnamespaces[{}];\n",
-                                            alias, i
-                                        ));
-                                    }
+                                    // We no longer need to extract from ɵɵnamespaces inside the function
+                                    // since we have top-level imports with the same aliases.
 
                                     // Add field setters: Component.ɵfac = ...; Component.ɵcmp = ...;
+                                    // With deterministic alias assignment, namespace refs (i0.Symbol, i1.Symbol, etc.)
+                                    // are now consistent across compilations, so we use initialized directly.
                                     for result in &compiled_results {
                                         if let Some(init) = &result.initializer {
                                             code.push_str(&format!(
@@ -440,6 +546,23 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                     }
 
                                     code.push_str("}\n");
+
+                                    // DEBUG LOGGING
+                                    use std::io::Write;
+                                    if let Ok(mut file) = std::fs::OpenOptions::new()
+                                        .create(true)
+                                        .append(true)
+                                        .open("/Users/truong/Desktop/rust-compiler/hmr_debug.log")
+                                    {
+                                        let _ =
+                                            writeln!(file, "DEBUG: Imports Map: {:?}", imports_map);
+                                        let _ =
+                                            writeln!(file, "DEBUG: HMR Code Generated:\n{}", code);
+                                        let _ = writeln!(
+                                            file,
+                                            "--------------------------------------------------"
+                                        );
+                                    }
 
                                     // Determine output path (use .hmr.js suffix)
                                     let mut out_path = src_file.clone();
@@ -553,7 +676,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                             let _ = import_manager.get_or_generate_alias("@angular/core");
 
                             for directive in directives {
-                                let (compiled_results, directive_name) = match directive {
+                                let (mut compiled_results, directive_name) = match directive {
                                     DecoratorMetadata::Directive(dir) => {
                                         let results = if dir.t2.is_component {
                                             component_handler.compile_ivy(&directive, find_class_decl(&parse_result.program, &dir.t2.name), Some(&mut import_manager))
@@ -606,6 +729,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                         ];
                                         (results, inj.name.clone())
                                     }
+
                                     DecoratorMetadata::NgModule(ngm) => {
                                         use angular_compiler::output::output_ast::{Expression, LiteralArrayExpr};
 
@@ -735,6 +859,103 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                     }
                                 };
 
+                                // HMR Logic
+                                if self.options.hmr {
+                                     // Check if it's a component (only components support HMR)
+                                     if let DecoratorMetadata::Directive(dir) = directive {
+                                         if dir.t2.is_component {
+                                              use angular_compiler::output::output_ast::{Expression, ReadVarExpr};
+
+                                              // Prepare metadata
+                                              // Resolve all imports first to ensure we have aliases
+                                              let mut hmr_namespace_dependencies = Vec::new();
+                                              // Sort imports to ensure deterministic order matching UpdateMetadata generation
+                                              let mut imports_list: Vec<_> = import_manager.get_imports_map().into_iter().collect();
+                                              // Sort by module name (a.0) to ensure deterministic order (aliases a.1 can vary)
+                                              imports_list.sort_by(|a, b| a.0.cmp(&b.0));
+
+                                              for (_, alias) in imports_list {
+                                                  hmr_namespace_dependencies.push(Expression::ReadVar(ReadVarExpr {
+                                                      name: alias.clone(),
+                                                      type_: None,
+                                                      source_span: None,
+                                                  }));
+                                              }
+
+                                              // Collect local dependencies from source imports (same logic as UpdateMetadata)
+                                              let mut hmr_local_dep_names: Vec<String> = Vec::new();
+                                              for stmt in &parse_result.program.body {
+                                                  if let oxc_ast::ast::Statement::ImportDeclaration(decl) = stmt {
+                                                      if decl.import_kind == oxc_ast::ast::ImportOrExportKind::Type {
+                                                          continue;
+                                                      }
+                                                      // Skip @angular/core imports
+                                                      if decl.source.value.as_str() == "@angular/core" {
+                                                          continue;
+                                                      }
+                                                      if let Some(specifiers) = &decl.specifiers {
+                                                          for spec in specifiers {
+                                                              if let oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(s) = spec {
+                                                                  if s.import_kind == oxc_ast::ast::ImportOrExportKind::Type {
+                                                                      continue;
+                                                                  }
+                                                                  let name = s.local.name.as_str();
+                                                                  if name != "Component" && name != "i0" {
+                                                                      hmr_local_dep_names.push(name.to_string());
+                                                                  }
+                                                              }
+                                                          }
+                                                      }
+                                                  }
+                                              }
+                                              // Sort for deterministic order matching UpdateMetadata
+                                              hmr_local_dep_names.sort();
+
+                                              // Convert names to ReadVar expressions
+                                              let hmr_local_dependencies: Vec<Expression> = hmr_local_dep_names
+                                                  .iter()
+                                                  .map(|name| Expression::ReadVar(ReadVarExpr {
+                                                      name: name.clone(),
+                                                      type_: None,
+                                                      source_span: None,
+                                                  }))
+                                                  .collect();
+
+                                              let hmr_meta = R3HmrMetadata {
+                                                  type_: Expression::ReadVar(ReadVarExpr {
+                                                      name: dir.t2.name.clone(),
+                                                      type_: None,
+                                                      source_span: None,
+                                                  }),
+                                                  class_name: dir.t2.name.clone(),
+                                                  file_path: src_file.to_string_lossy().to_string(),
+                                                  namespace_dependencies: hmr_namespace_dependencies,
+                                                  local_dependencies: hmr_local_dependencies,
+                                                  hmr_id: dir.hmr_id.clone().unwrap_or_else(|| "default".to_string()),
+                                              };
+
+                                              let hmr_expr = compile_hmr_initializer(&hmr_meta);
+
+                                              // Convert to string
+                                              let mut hmr_imports = Vec::new();
+                                              let hmr_init_str = expression_to_string_with_imports(&hmr_expr, &mut hmr_imports)
+                                                    .replace("@angular/core.", "i0."); // Use alias
+
+
+                                              // Push to results
+                                              compiled_results.push(crate::ngtsc::transform::src::api::CompileResult {
+                                                  name: "ɵhmr_init".to_string(),
+                                                  initializer: Some(hmr_init_str),
+                                                  statements: vec![],
+                                                  type_desc: "void".to_string(),
+                                                  deferrable_imports: None,
+                                                  diagnostics: Vec::new(),
+                                                  additional_imports: hmr_imports,
+                                              });
+                                         }
+                                     }
+                                }
+
                                 // Collect diagnostics
                                 for r in &compiled_results {
                                     diagnostics.extend(r.diagnostics.iter().map(|d| crate::ngtsc::core::Diagnostic {
@@ -758,6 +979,10 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                 // Merge results if multiple (e.g. fac and cmp)
                                 for res in &compiled_results {
                                     if res.name == "ɵhmr_init" {
+                                        if let Some(init) = &res.initializer {
+                                            trailing_statements.push_str(init);
+                                            trailing_statements.push_str(";\n");
+                                        }
                                         continue;
                                     }
                                     for stmt in &res.statements {
@@ -820,6 +1045,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                 // Only transform if we have something valid (definitions or fac)
                                 if !definitions_arena.is_empty() || fac_initializer != "null" {
                                     // eprintln!("DEBUG: parse_result trivias count: {}", parse_result.trivias.comments().count());
+                                    eprintln!("[CompilerDebug] Calling transform_component_ast for {}. definitions: {}, imports: {:?}", directive_name, definitions_arena.len(), additional_imports);
                                     let failed = super::ast_transformer::transform_component_ast(
                                         &allocator,
                                         &mut parse_result.program,
@@ -841,6 +1067,9 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                 ..oxc_codegen::CodegenOptions::default()
                             });
                             let mut code = codegen.build(&parse_result.program).code;
+                            if code.contains("CheckboxTestComponent") {
+                                eprintln!("[CompilerDebug] Generated code for CheckboxTestComponent:\n{}", &code[..std::cmp::min(code.len(), 1000)]);
+                            }
 
                             // Replace placeholders with real expressions
                             for prop in &failed_properties {
@@ -1054,7 +1283,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
             .find(|r| r.name == "ɵcmp" || r.name == "ɵdir");
 
         if let Some(r) = main_result {
-            if let Some(initializer) = &r.initializer {
+            if let Some(_initializer) = &r.initializer {
                 // Logic here
             }
         }

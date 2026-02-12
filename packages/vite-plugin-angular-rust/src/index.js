@@ -4,8 +4,8 @@
  * ESM Mode: Serves individual compiled files directly from memory.
  * Entry point: src/main.ts (resolved to compiled dist/src/main.js)
  */
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
@@ -108,15 +108,86 @@ if (import.meta.hot) {
     return preamble + code;
 }
 
+/**
+ * Rewrite Angular/RxJS imports from bare specifiers to Vite's optimized deps paths.
+ * This ensures lazy-loaded chunks use the same module instances as the main bundle.
+ * 
+ * Input patterns (bare specifiers in bundleCache):
+ *   '@angular/core' → '/node_modules/.vite/deps/@angular_core.js'
+ *   '@angular/material/checkbox' → '/node_modules/.vite/deps/@angular_material_checkbox.js'
+ *   'rxjs' → '/node_modules/.vite/deps/rxjs.js'
+ */
+function rewriteToViteDeps(code, metadata) {
+    // Rewrite Angular bare specifiers: '@angular/<pkg>' or '@angular/<pkg>/<subpkg>'
+    code = code.replace(
+
+        /['"]@angular\/([^'"]+)['"]/g,
+        (match, suffix) => {
+            const pkgName = `@angular/${suffix}`;
+            if (metadata?.optimized?.[pkgName]) {
+                 const entry = metadata.optimized[pkgName];
+                 const hash = metadata.browserHash || entry.fileHash;
+                 console.log('[Plugin] Injecting hash for', pkgName, hash);
+                 return `'/node_modules/.vite/deps/${entry.file}?ver=${hash}'`;
+            }
+            console.log('[Plugin] Metadata MISSING for', pkgName);
+            // Fallback (risky without hash)
+            const parts = suffix.split('/');
+            const viteName = `@angular_${parts.join('_')}`;
+            return `'/node_modules/.vite/deps/${viteName}.js'`;
+        }
+    );
+    
+    // Rewrite RxJS imports
+    code = code.replace(
+        /['"]rxjs(?:\/([^'"]+))?['"]/g,
+        (match, suffix) => {
+             const pkgName = suffix ? `rxjs/${suffix}` : 'rxjs';
+             if (metadata?.optimized?.[pkgName]) {
+                 const entry = metadata.optimized[pkgName];
+                 const hash = metadata.browserHash || entry.fileHash;
+                 console.log('[Plugin] Injecting hash for', pkgName, hash);
+                 return `'/node_modules/.vite/deps/${entry.file}?ver=${hash}'`;
+            }
+            return match; // fallback to original if not found
+        }
+    );
+    
+    return code;
+}
+
 export default function angularRustPlugin(options = {}) {
-    let bundleCache = null;
+    // Use pre-built bundle from serve.mjs Worker thread if provided
+    let bundleCache = options.bundleResult || null;
     let compiler = null;
-    let projectRoot = process.cwd();
+    let projectRoot = options.configFile && fs.existsSync(options.configFile)
+        ? path.dirname(options.configFile)
+        : process.cwd();
     let globalStyles = [];
     let isBundling = false;
 
+    /** When true: no full bundle upfront; compile each .ts on-demand when Vite requests it. */
+    const lazyCompile = options.lazyCompile === true;
+    /** Cache for lazy compile: absolute path -> compiled JS code. */
+    const lazyCompileCache = new Map();
+
     let lastChunkMap = {}; // Cache for handling stale chunk requests during HMR
     let hmrPendingUpdates = new Set(); // Track components with pending HMR updates
+
+    /** Init compiler and projectRoot from config (no full bundle). Used in lazy mode. */
+    function ensureCompiler() {
+        if (compiler) return;
+        const defaultBindingPath = path.resolve(
+            path.dirname(new URL(import.meta.url).pathname),
+            '../../binding/index.js'
+        );
+        const bindingPath = options.bindingPath || defaultBindingPath;
+        compiler = require(bindingPath);
+        compiler = new compiler.Compiler();
+        if (options.configFile && fs.existsSync(options.configFile)) {
+            projectRoot = path.dirname(options.configFile);
+        }
+    }
 
     const getBundle = async (force = false) => {
         if (bundleCache && !force) return bundleCache;
@@ -148,7 +219,9 @@ export default function angularRustPlugin(options = {}) {
             // console.log(`[rustBundlePlugin] Compiling project...`);
             const startTime = Date.now();
             // Force HMR enabled for dev server bundle
+            console.time('RustBundle');
             const result = compiler.bundle(configFile, true);
+            console.timeEnd('RustBundle');
 
             // Stats Output - check for --verbose flag
             const isVerbose = process.argv.includes('--verbose');
@@ -224,6 +297,11 @@ export default function angularRustPlugin(options = {}) {
                 // Match /styles.css, allow query params but skip ?import
                 if ((url === '/styles.css' || url.startsWith('/styles.css?')) && !url.includes('?import')) {
                     try {
+                        if (lazyCompile) {
+                            // Lazy mode: no pre-built styles; let Vite serve or next()
+                            next();
+                            return;
+                        }
                         if (!bundleCache) await getBundle();
                         const content = bundleCache.stylesCss || bundleCache.styles_css;
                         if (content) {
@@ -236,77 +314,26 @@ export default function angularRustPlugin(options = {}) {
                     }
                 }
 
+                // Serve lazy-loaded chunks at root path (like Angular CLI)
+                // In lazy mode there are no pre-built chunks; dynamic imports are .ts compiled on-demand
+                // Serve lazy-loaded chunks at root path (like Angular CLI)
+                // REMOVED: Middleware logic moved to load() hook to allow Vite transformation
+                // This fix ensures that imports in chunks (e.g. from @angular/core) are correctly
+                // versioned by Vite's import analysis plugin, preventing 504 errors.
+
                 // Handle @ng/component metadata URL for HMR
                 // This is called by ɵɵgetReplaceMetadataURL(id, t, import.meta.url) from @angular/core
                 // URL format: /@ng/component?c=<encoded_component_id>&t=<timestamp>
                 // Vite may prefix with /@id/, so we handle both patterns
+                // [REMOVED] @ng/component middleware - moved to resolveId/load hooks
+                // to allow Vite to transform imports (e.g. @angular/core -> /@fs/.../node_modules/...)
+                /*
                 if (url.includes('@ng/component?') || url.includes('@ng/component%3F')) {
-                    try {
-                        const urlObj = new URL(url, 'http://localhost');
-                        const componentId = urlObj.searchParams.get('c');
-                        const timestamp = urlObj.searchParams.get('t');
-                        
-                        if (componentId) {
-                            // Component ID format: "src/app/path/file.ts@ComponentName"
-                            const decodedId = decodeURIComponent(componentId);
-                            const [filePath, className] = decodedId.split('@');
-                            
-
-                            
-                            // Always compile and return UpdateMetadata function when requested
-                            // Angular's ɵɵreplaceMetadata will handle whether to apply based on component state
-                            
-                            // Re-compile the component with hmr_id to generate UpdateMetadata callback
-                            if (compiler) {
-                                try {
-                                    // Find the original TS file
-                                    let targetTsFile = path.resolve(projectRoot, filePath);
-                                    if (!fs.existsSync(targetTsFile)) {
-                                        targetTsFile = path.resolve(projectRoot, filePath.replace(/^src\/app\//, 'src/'));
-                                    }
-                                    
-                                    if (fs.existsSync(targetTsFile)) {
-                                        const content = fs.readFileSync(targetTsFile, 'utf8');
-
-                                        
-                                        // Compile with hmrId to generate the UpdateMetadata callback
-                                        // This produces output like ngtsc: export default function Component_UpdateMetadata(...)
-                                        const result = compiler.compile(targetTsFile, content, { 
-                                            hmr: true,
-                                            hmrId: decodedId,  // This triggers HMR callback generation
-                                            rootDir: projectRoot 
-                                        });
-                                        
-
-                                        
-                                        if (result.code && !result.code.includes('/* Error')) {
-                                            // The compiled code with hmr_id should contain the UpdateMetadata function
-                                            // Return it as default export
-                                            res.setHeader('Content-Type', 'application/javascript');
-                                            res.end(result.code);
-                                            // Clear pending update
-                                            hmrPendingUpdates.delete(decodedId);
-                                            return;
-                                        } else {
-
-                                        }
-                                    } else {
-
-                                    }
-                                } catch (compileError) {
-
-                                }
-                            }
-                            
-                            // Fallback: return empty module
-                            res.setHeader('Content-Type', 'application/javascript');
-                            res.end('// HMR compile fallback\n');
-                            return;
-                        }
-                    } catch (e) {
-                        console.error('[Middleware] Failed to handle @ng/component:', e);
-                    }
+                     // ... logic moved to load() ...
+                     next();
+                     return;
                 }
+                */
 
                 // polyfills.js is now handled as virtual module via resolveId/load hooks
                 // This allows Vite to properly resolve and cache dependencies like zone.js
@@ -345,6 +372,69 @@ export default function angularRustPlugin(options = {}) {
                      }
                      console.warn(`[Middleware] Asset not found: ${relativePath}`);
                 }
+                // Handle @ng/component HMR requests (middleware workaround)
+                if (req.url && (req.url.includes('@ng/component') || req.url.includes('angular:component'))) {
+                     try {
+                         // Parse query params
+                         // req.url might be full path or relative
+                         const urlStr = 'http://localhost' + req.url;
+                         const urlObj = new URL(urlStr);
+                         const componentId = urlObj.searchParams.get('c');
+                         
+                         if (componentId) {
+                             ensureCompiler();
+                             if (!lazyCompile && !bundleCache) await getBundle();
+                             
+                             const decodedId = decodeURIComponent(componentId);
+                             const [filePath, className] = decodedId.split('@');
+                             
+                             if (compiler) {
+                                  // Find original file
+                                  let targetTsFile = path.resolve(projectRoot, filePath);
+                                  if (!fs.existsSync(targetTsFile)) {
+                                      // path.resolve might fail if filePath is relative to src but projected differently? 
+                                      // Try removing src/app prefix if needed or rely on projectRoot
+                                  }
+                                  
+                                  if (fs.existsSync(targetTsFile)) {
+                                      const content = fs.readFileSync(targetTsFile, 'utf8');
+                                      const result = compiler.compile(targetTsFile, content, { 
+                                          hmr: true,
+                                          hmrId: decodedId, 
+                                          rootDir: projectRoot 
+                                      });
+                                      
+                                      if (result.code && !result.code.includes('/* Error')) {
+                                          let finalCode = result.code;
+                                          
+                                          // Transform imports to be browser-compatible
+                                          // Resolve relative imports to absolute URL paths
+                                          // Use /@id/ prefix for bare imports - this is Vite's convention
+                                          
+                                          // Only rewrite relative paths so browser can resolve; leave bare
+                                          // specifiers (@angular/core, etc.) so Vite resolves once (one URL with ?v=).
+                                          finalCode = finalCode.replace(/((?:import|export)\s+[\s\S]*?from\s+['"])([^'"]+)(['"])/g, (match, prefix, specifier, suffix) => {
+                                              if (specifier.startsWith('.')) {
+                                                  const rawDir = path.dirname(filePath);
+                                                  const relativeBase = rawDir.startsWith('/') ? rawDir : '/' + rawDir;
+                                                  const resolved = path.posix.join(relativeBase, specifier);
+                                                  return `${prefix}${resolved}${suffix}`;
+                                              }
+                                              return match;
+                                          });
+
+                                          res.setHeader('Content-Type', 'application/javascript');
+                                          res.end(finalCode);
+                                          return;
+                                      }
+                                  }
+                             }
+                         }
+                     } catch (e) {
+                         console.error('[Middleware] HMR Serve Error:', e);
+                     }
+                }
+
                 next();
             });
         },
@@ -365,7 +455,19 @@ export default function angularRustPlugin(options = {}) {
                     return [];
                 }
 
-                // Incremental compilation
+                // Lazy mode: invalidate cache for this file (and parent .ts if html/css) so next request re-compiles
+                if (lazyCompile) {
+                    const normalizedFile = path.normalize(file);
+                    lazyCompileCache.delete(normalizedFile);
+                    if (file.endsWith('.html') || file.endsWith('.css') || file.endsWith('.scss')) {
+                        const baseTs = file.replace(/\.(html|css|scss)$/, '.ts');
+                        if (fs.existsSync(baseTs)) lazyCompileCache.delete(path.normalize(baseTs));
+                    }
+                    // Let Vite invalidate the module so browser re-requests and we re-compile
+                    return modules;
+                }
+
+                // Incremental compilation (bundled mode)
                 if (bundleCache) {
                     const mainBundleName = bundleCache.bundleName || bundleCache.bundle_name || 'bundle.js';
                     const mainVirtualId = `\0${mainBundleName}`;
@@ -470,6 +572,84 @@ export default function angularRustPlugin(options = {}) {
         }, // Close handleHotUpdate
 
         async load(id) {
+            console.log('[Plugin] load hook called for id:', id);
+            // Handle /chunk-*.js at root path (lazy-loaded chunks). In lazy mode there are no pre-built chunks.
+            // Match both absolute paths (from resolveId) and relative paths
+            const chunkMatch = id.match(/(?:^|[\/\\])chunk-([A-F0-9]+)\.js$/i);
+            if (chunkMatch) {
+                if (lazyCompile) return null;
+                const chunkName = 'chunk-' + chunkMatch[1] + '.js';
+                console.log('[Plugin] Loading chunk:', chunkName, 'from id:', id);
+                if (!bundleCache) await getBundle();
+                if (bundleCache?.chunks?.[chunkName]) {
+                    let content = bundleCache.chunks[chunkName];
+                    content = content.replace(/(\?v=[a-f0-9]+)/g, '');
+                    
+                    let metadata = null;
+                    try {
+                        const metadataPath = path.resolve(projectRoot, 'node_modules/.vite/deps/_metadata.json');
+                        if (fs.existsSync(metadataPath)) {
+                            metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+                        }
+                    } catch (e) {
+                        console.warn('[Plugin] Failed to read metadata.json:', e);
+                    }
+
+                    // Rewrite Angular/RxJS imports to use Vite's optimized deps
+                    // This ensures chunks use the same module instances as main bundle
+                    content = rewriteToViteDeps(content, metadata);
+                    return content;
+                }
+                console.error('[Plugin] Chunk not found:', chunkName);
+                console.error('[Plugin] bundleCache:', !!bundleCache, 'chunks:', !!bundleCache?.chunks);
+                if (bundleCache?.chunks) console.error('[Plugin] Available:', Object.keys(bundleCache.chunks).slice(0, 5));
+                return null;
+            }
+
+            // Handle @ng/component HMR virtual module
+            if (id.startsWith('\0virtual:angular-component')) {
+                try {
+                    ensureCompiler();
+                    // Extract query from ID: \0virtual:angular-component?c=...
+                    const queryStr = id.split('?')[1] || '';
+                    const params = new URLSearchParams(queryStr);
+                    const componentId = params.get('c');
+                    
+                    if (componentId) {
+                        const decodedId = decodeURIComponent(componentId);
+                        const [filePath, className] = decodedId.split('@');
+
+                        if (compiler) {
+                            // Find the original TS file
+                            let targetTsFile = path.resolve(projectRoot, filePath);
+                            if (!fs.existsSync(targetTsFile)) {
+                                targetTsFile = path.resolve(projectRoot, filePath.replace(/^src\/app\//, 'src/'));
+                            }
+                            
+                            if (fs.existsSync(targetTsFile)) {
+                                const content = fs.readFileSync(targetTsFile, 'utf8');
+                                
+                                // Compile with hmrId to generate the UpdateMetadata callback
+                                const result = compiler.compile(targetTsFile, content, { 
+                                    hmr: true,
+                                    hmrId: decodedId, 
+                                    rootDir: projectRoot 
+                                });
+                                
+                                if (result.code && !result.code.includes('/* Error')) {
+                                    hmrPendingUpdates.delete(decodedId);
+                                    return result.code;
+                                }
+                            }
+                        }
+                        return '// HMR compile fallback (compiler error or file not found)\nexport default function() {}';
+                    }
+                } catch (e) {
+                    console.error('[Plugin] Failed to load @ng/component:', e);
+                    return '// HMR error \nexport default function() {}';
+                }
+            }
+
             // Handle surgical HMR update request
             if (id.includes('hmr_id=')) {
                 const [cleanId, query] = id.split('?');
@@ -484,6 +664,7 @@ export default function angularRustPlugin(options = {}) {
                     filePath = path.resolve(projectRoot, filePath.startsWith('/') ? filePath.slice(1) : filePath);
                 }
                 
+                ensureCompiler();
                 if (fs.existsSync(filePath)) {
                     const content = fs.readFileSync(filePath, 'utf8');
                     const result = compiler.compile(filePath, content, { 
@@ -497,9 +678,50 @@ export default function angularRustPlugin(options = {}) {
                 }
             }
 
-            if (!bundleCache) await getBundle();
+            // --- Lazy compile: compile .ts on-demand, no full bundle ---
+            if (lazyCompile && id.endsWith('.ts') && !id.includes('node_modules')) {
+                ensureCompiler();
+                const filePath = path.isAbsolute(id) ? id : path.resolve(projectRoot, id.startsWith('/') ? id.slice(1) : id);
+                const normalizedPath = path.normalize(filePath);
+                let code = lazyCompileCache.get(normalizedPath);
+                if (!code && fs.existsSync(filePath)) {
+                    const content = fs.readFileSync(filePath, 'utf8');
+                    const result = compiler.compile(filePath, content, { hmr: true, root_dir: projectRoot });
+                    if (result.code && !result.code.includes('/* Error')) {
+                        code = result.code.replace(/(\?v=[a-f0-9]+)/g, '');
+                        lazyCompileCache.set(normalizedPath, code);
+                    }
+                }
+                if (code) {
+                    const relPath = path.relative(projectRoot, filePath).replace(/\\/g, '/');
+                    if (relPath.endsWith('main.ts')) {
+                        code = injectMainPreamble(code, projectRoot, globalStyles);
+                    }
+                    return { code, map: null };
+                }
+            }
 
-            // Handle polyfills virtual module - Vite will resolve zone.js etc to cached deps
+            // Polyfills in lazy mode: build from angular.json (no full bundle)
+            if (lazyCompile && id === '\0angular:polyfills') {
+                ensureCompiler();
+                try {
+                    const configPath = path.resolve(projectRoot, 'angular.json');
+                    if (fs.existsSync(configPath)) {
+                        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+                        const project = Object.values(config.projects)[0];
+                        const polyfills = project?.architect?.build?.options?.polyfills || [];
+                        if (Array.isArray(polyfills) && polyfills.length > 0) {
+                            const lines = polyfills.map((p) => `import '${typeof p === 'string' ? p : p.input}';`).join('\n');
+                            return lines;
+                        }
+                    }
+                } catch (e) {}
+                return '// No polyfills configured';
+            }
+
+            if (!lazyCompile && !bundleCache) await getBundle();
+
+            // Handle polyfills virtual module - Vite will resolve zone.js etc to cached deps (bundled mode)
             if (id === '\0angular:polyfills') {
                 const content = bundleCache?.polyfillsJs || bundleCache?.polyfills_js;
                 if (content) {
@@ -632,18 +854,63 @@ export default function angularRustPlugin(options = {}) {
             }
         },
 
+
+
         async resolveId(id, importer) {
+
             const cleanId = id.split('?')[0];
 
             // Virtual modules are self-resolving
             if (cleanId.startsWith('\0')) return cleanId;
+
+            // Handle chunk imports at root path (served via middleware)
+            // These are lazy-loaded chunks like /chunk-XXXXXX.js
+            if (cleanId.match(/^\/chunk-[a-zA-Z0-9]+\.js$/i)) {
+                // Return as absolute path (pseudo-file) so Vite can resolve node_modules relative to project root
+                const fakePath = path.resolve(projectRoot, cleanId.slice(1));
+                console.log('[Plugin] resolveId resolving chunk:', cleanId, '->', fakePath);
+                return { id: fakePath, external: false };
+            }
+
+            // Handle @ng/component HMR requests (virtual module)
+            if (id.includes('@ng/component')) {
+                // Use a cleaner virtual ID: \0angular:component
+                // Extract query params from the original ID
+                const queryIndex = id.indexOf('?');
+                const query = queryIndex !== -1 ? id.slice(queryIndex) : '';
+                return {
+                    id: '\0virtual:angular-component' + query,
+                    moduleSideEffects: true
+                };
+            }
 
             // Handle polyfills.js as virtual module - let Vite resolve dependencies like zone.js
             if (cleanId === '/polyfills.js' || cleanId === 'polyfills.js') {
                 return '\0angular:polyfills';
             }
 
-            if (!bundleCache) await getBundle();
+            // Lazy mode: resolve .ts to absolute path so load() can compile on-demand (no getBundle)
+            if (lazyCompile) {
+                ensureCompiler();
+                const rawId = id.split('?')[0];
+                let resolvedPath;
+                if (importer) {
+                    const importerPath = importer.startsWith('\0') ? path.join(projectRoot, importer.slice(1).replace(/^dist\//, '').replace(/\.js$/, '.ts')) : importer;
+                    resolvedPath = path.resolve(path.dirname(importerPath), rawId);
+                } else {
+                    resolvedPath = path.resolve(projectRoot, rawId.startsWith('/') ? rawId.slice(1) : rawId);
+                }
+                let normalized = path.normalize(resolvedPath);
+                if (!normalized.endsWith('.ts') && fs.existsSync(normalized + '.ts')) {
+                    normalized = normalized + '.ts';
+                }
+                if (normalized.endsWith('.ts') && fs.existsSync(normalized) && !normalized.includes('node_modules')) {
+                    const query = id.includes('?') ? '?' + id.split('?')[1] : '';
+                    return normalized + query;
+                }
+            }
+
+            if (!lazyCompile && !bundleCache) await getBundle();
 
             // Handle dynamic bundle name (e.g., main.js) explicitly
             const bundleName = bundleCache.bundleName || bundleCache.bundle_name || 'bundle.js';
@@ -812,14 +1079,21 @@ export default function angularRustPlugin(options = {}) {
                 // console.log('[Vite Transform] ID:', id);
                 global.transformCount++;
             }
-            if (id.includes('node_modules') && id.includes('@angular')) {
-                 // console.log('[Vite Transform] Saw Angular file:', id);
+
+            // Bypass Vite's strict version check for optimized deps by renaming ?v= to ?ver=
+            // This fixes 504 errors when server state doesn't match disk metadata
+            if (id.includes('node_modules/.vite/deps')) {
+                code = code.replace(/(\?v=[a-f0-9]+)/g, (match) => match.replace('?v=', '?ver='));
             }
-            // Link Angular libraries from node_modules
-            if (id.includes('node_modules') && !id.endsWith('.css') && !id.endsWith('.scss')) {
+
+            // Link .mjs files (Raw Angular modules)
+            if (id.endsWith('.mjs') && (id.includes('@angular') || id.includes('rxjs'))) {
                  if (code.includes('ɵɵngDeclare')) {
                      try {
+                        ensureCompiler();
+                        console.time('RustLink: ' + id);
                         let result = compiler.linkFile(id, code);
+                        console.timeEnd('RustLink: ' + id);
                         if (result.startsWith('/* Linker Error')) {
                             console.error(`[Linker] Linker Error for ${id}:`, result);
                             return null;
@@ -832,256 +1106,66 @@ export default function angularRustPlugin(options = {}) {
                     }
                 }
             }
-            return null;
-        },
-
-        async load(id) {
-            // Handle surgical HMR update request
-            if (id.includes('hmr_id=')) {
-                const [cleanId, query] = id.split('?');
-                const params = new URLSearchParams(query);
-                const hmrId = params.get('hmr_id');
-                
-                // Path normalization
-                let filePath = cleanId;
-                if (filePath.startsWith('/@fs/')) {
-                    filePath = filePath.slice(5);
-                } else if (!path.isAbsolute(filePath)) {
-                    filePath = path.resolve(projectRoot, filePath.startsWith('/') ? filePath.slice(1) : filePath);
-                }
-                
-                if (fs.existsSync(filePath)) {
-                    const content = fs.readFileSync(filePath, 'utf8');
-                    const result = compiler.compile(filePath, content, { 
-                        hmr: true, 
-                        hmrId: hmrId,
-                        root_dir: projectRoot
-                    });
-                    if (result.code) {
-                        return result.code;
+            if (id.includes('node_modules') && id.includes('@angular')) {
+                 // console.log('[Vite Transform] Saw Angular file:', id);
+            }
+            // Link Angular libraries from node_modules
+            if (id.includes('node_modules') && !id.endsWith('.css') && !id.endsWith('.scss')) {
+                 if (code.includes('ɵɵngDeclare')) {
+                     try {
+                        ensureCompiler();
+                        console.time('RustLink: ' + id);
+                        let result = compiler.linkFile(id, code);
+                        console.timeEnd('RustLink: ' + id);
+                        if (result.startsWith('/* Linker Error')) {
+                            console.error(`[Linker] Linker Error for ${id}:`, result);
+                            return null;
+                        }
+                        if (result !== code) {
+                            return `/* LINKED BY RUST LINKER */\n${result}`;
+                        }
+                    } catch (e) {
+                         console.error(`[Linker] Exception for ${id}:`, e);
                     }
                 }
             }
 
-            if (!bundleCache) await getBundle();
 
-            // Handle polyfills virtual module - Vite will resolve zone.js etc to cached deps
-            if (id === '\0angular:polyfills') {
-                const content = bundleCache?.polyfillsJs || bundleCache?.polyfills_js;
-                if (content) {
-                    // Return raw imports - Vite will transform them to use optimized deps
-                    // e.g., import 'zone.js' -> import '/@fs/.../vite/deps/zone__js.js?v=...'
-                    return content;
-                }
-                return '// No polyfills configured';
-            }
-
-            // Handle .ts files - intercept before Vite's native transform
-            // id can be absolute path (from Vite) or request path
-            if (id.endsWith('.ts') && !id.includes('node_modules')) {
-                // Normalize to relative path from project root
-                let relPath;
-                if (path.isAbsolute(id)) {
-                    // Absolute path like /Users/.../demo-app/src/main.ts
-                    relPath = path.relative(projectRoot, id);
-                } else if (id.startsWith('/')) {
-                    // Request path like /src/app/app.ts
-                    relPath = id.slice(1); // Remove leading /
+            // Manually resolve bare Angular imports in lazy chunks (fixes "Failed to resolve module specifier" error)
+            if (id.includes('chunk-') && code.includes('@angular')) {
+                // Regex matches:
+                // 1. from "@angular/..."
+                // 2. import "@angular/..."
+                const regex = /(?:import|from)\s+['"]@angular\/([^'"]+)['"]/g;
+                
+                const newCode = code.replace(regex, (match, pkg) => {
+                     try {
+                         // Resolve to absolute path on disk using projectRoot to find node_modules
+                         const resolved = require.resolve(`@angular/${pkg}`, { paths: [projectRoot] });
+                         // Prefix with /@fs for Vite to serve it
+                         const prefix = match.split(/['"]/)[0];
+                         return `${prefix}'/@fs${resolved}'`;
+                     } catch (e) {
+                         // console.warn('[Plugin] Failed to manually resolve:', `@angular/${pkg}`, 'from', projectRoot);
+                         return match;
+                     }
+                });
+                
+                if (newCode !== code) {
+                    return { code: newCode, map: null };
                 } else {
-                    relPath = id;
-                }
-                
-                // Try multiple key formats to find compiled code
-                // In dev mode, prefer rawFiles (has imports intact) over files (imports stripped for bundling)
-                const jsKey = 'dist/' + relPath.replace(/\.ts$/, '.js');
-                const tsKey = relPath; // source key like src/app/app.ts
-                const jsKeyNoPrefix = relPath.replace(/\.ts$/, '.js');
-                
-                // rawFiles preserves imports for dev mode ES module resolution
-                const rawFiles = bundleCache?.rawFiles || bundleCache?.raw_files;
-                const processedFiles = bundleCache?.files;
-                
-                // Prefer raw files (imports intact) for dev mode, else fall back to processed files
-                let code = rawFiles?.[jsKey] || 
-                           rawFiles?.[tsKey] || 
-                           rawFiles?.[jsKeyNoPrefix] ||
-                           processedFiles?.[jsKey] || 
-                           processedFiles?.[tsKey] || 
-                           processedFiles?.[jsKeyNoPrefix];
-                
-                
-                if (code) {
-                    // Strip version hashes - Vite will add fresh ones
-                    code = code.replace(/(\?v=[a-f0-9]+)/g, '');
-                    // For main.js, inject styles and HMR bootstrap
-                    if (relPath.endsWith('main.ts')) {
-                        code = injectMainPreamble(code, projectRoot, globalStyles);
-                    }
-                    return { code, map: null };
-                }
-            }
-
-
-            // Handle styles.css (served as raw file)
-            if (id.endsWith('styles.css')) {
-                const key = path.relative(projectRoot, id);
-                if (key === 'styles.css') {
-                    const content = bundleCache.stylesCss || bundleCache.styles_css;
-                    if (content) {
-                        return content;
-                    }
-                }
-            }
-
-            if (id.startsWith('\0')) {
-                // Check if it's a chunk
-                if (id.startsWith('\0Chunk:')) {
-                    const chunkKeyRaw = id.slice(7); // Remove '\0Chunk:'
-
-                    // Strip query params (e.g. &t=...) introduced by dynamic imports
-                    // Handle both ? and & as separators for robustness
-                    const chunkKey = chunkKeyRaw.split('&')[0].split('?')[0]; 
-
-                    if (bundleCache?.chunks?.[chunkKey]) {
-                         // Strip version hashes - Vite will add fresh ones
-                         let chunkContent = bundleCache.chunks[chunkKey];
-                         chunkContent = chunkContent.replace(/(\?v=[a-f0-9]+)/g, '');
-                         return chunkContent;
-                    } else {
-                        console.error(`[Plugin] Chunk not found in cache: ${chunkKey}`);
-                        if (bundleCache.chunks) {
-                            console.error('[Plugin] Available chunks:', Object.keys(bundleCache.chunks));
-                        }
-                    }
-                }
-
-                const key = id.slice(1);
-
-                // Handle dynamic bundle (monolithic bundle)
-                const bundleName = bundleCache.bundleName || bundleCache.bundle_name || 'bundle.js';
-                if (key === bundleName) {
-                    let content = bundleCache.bundleJs || bundleCache.bundle_js;
-                    if (content) {
-                         // Strip version hashes from import paths - Vite will add fresh ones
-                         // This prevents stale hashes from previous builds causing duplicate module loads
-                         content = content.replace(/(\?v=[a-f0-9]+)/g, '');
-                         
-                         // Inject HMR preamble for bundled mode
-                         content = injectMainPreamble(content, projectRoot, globalStyles);
-                         
-                         return content;
-                    }
-                }
-
-                if (key === 'styles.css') {
-                    const content = bundleCache.stylesCss || bundleCache.styles_css;
-                    if (content) {
-                        return content;
-                    }
-                }
-                
-                if (bundleCache?.files?.[key]) {
-                    let code = bundleCache.files[key];
-
-                    // For main.js, inject styles and HMR bootstrap
-                    if (key.endsWith('main.js')) {
-                        let preamble = '';
-
-                        // Suppress NG0912 warnings
-                        preamble += `
-(function() {
-  const originalWarn = console.warn;
-  console.warn = function(...args) {
-    if (typeof args[0] === 'string' && args[0].includes('NG0912')) return;
-    originalWarn.apply(console, args);
-  };
-})();
-`;
-
-                        // Inject global styles (Only for non-bundled mode)
-                        try {
-                            const isBundled = bundleCache.bundleJs || bundleCache.bundle_js;
-                            if (!isBundled) {
-                                const configPath = path.resolve(projectRoot, 'angular.json');
-                                if (fs.existsSync(configPath)) {
-                                    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-                                    const projectKey = Object.keys(config.projects)[0];
-                                    const project = config.projects[projectKey];
-                                    const styles = project?.architect?.build?.options?.styles || [];
-                                    
-                                    styles.forEach(style => {
-                                        let stylePath = typeof style === 'string' ? style : style.input;
-                                        if (stylePath.startsWith('node_modules/')) {
-                                            let currentDir = projectRoot;
-                                            let foundPath = null;
-                                            let depth = 0;
-                                            while (depth < 10) {
-                                                const tryPath = path.resolve(currentDir, stylePath);
-                                                if (fs.existsSync(tryPath)) {
-                                                    foundPath = tryPath;
-                                                    break;
-                                                }
-                                                const parent = path.dirname(currentDir);
-                                                if (parent === currentDir) break;
-                                                currentDir = parent;
-                                                depth++;
-                                            }
-                                            if (foundPath) {
-                                                preamble += `import '${foundPath}';\n`;
-                                            }
-                                        } else {
-                                            preamble += `import '/${stylePath}';\n`;
-                                        }
-                                    });
-                                }
-                            }
-                        } catch (e) {
-                            // Ignore style injection errors
-                        }
-
-                        // Add HMR bootstrap wrapper
-                        if (!code.includes('const __hmrBootstrap')) {
-                            code = code.replace(/bootstrapApplication\s*\(/, '__hmrBootstrap(');
-                            code += `
-async function __hmrBootstrap(...args) {
-  if (window.__ngAppRef) {
-    try {
-      const ref = await window.__ngAppRef;
-      if (ref) {
-        console.log('[HMR] Destroying old app...');
-        ref.destroy();
-      }
-    } catch(e) { console.error('[HMR] Cleanup error:', e); }
-  }
-  
-  let root = document.querySelector('app-root');
-  if (!root) {
-    root = document.createElement('app-root');
-    document.body.appendChild(root);
-  } else {
-    root.innerHTML = '';
-  }
-  
-  const promise = bootstrapApplication(...args);
-  window.__ngAppRef = promise;
-  return promise;
-}
-
-if (import.meta.hot) {
-  import.meta.hot.accept();
-}
-`;
-                        }
-
-                        return preamble + code;
-                    }
-
-                    return code;
+                     // Log if we missed it
+                     const idx = code.indexOf('@angular');
+                     if (idx !== -1) {
+                         console.log('[Plugin] Failed to regex match @angular in:', id);
+                         console.log('Snippet:', code.substring(Math.max(0, idx - 50), idx + 50));
+                     }
                 }
             }
 
             return null;
         },
+
 
         async transformIndexHtml(html) {
             await getBundle();

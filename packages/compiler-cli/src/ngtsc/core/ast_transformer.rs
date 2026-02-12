@@ -31,6 +31,10 @@ pub fn transform_component_ast<'a>(
     definitions: &[(&str, &str)],
     additional_imports: &[(String, String)],
 ) -> Vec<FailedProperty> {
+    eprintln!(
+        "[AST Transformer] Starting transformation for {}",
+        component_name
+    );
     // 1. Remove Angular decorators from the class
     remove_angular_decorators(program, component_name);
 
@@ -41,7 +45,7 @@ pub fn transform_component_ast<'a>(
         imports.push(("i0".to_string(), "@angular/core".to_string()));
     }
 
-    ensure_imports(allocator, program, &imports);
+    ensure_imports(allocator, program, &imports, component_name);
 
     // 3. Add hoisted statements to program body (after all imports)
     add_hoisted_statements(allocator, program, hoisted_statements);
@@ -136,6 +140,7 @@ fn add_trailing_statements<'a>(
 
 /// Remove Angular decorators (@Component, @Directive, etc.) from class declarations
 pub fn remove_angular_decorators<'a>(program: &mut Program<'a>, class_name: &str) {
+    eprintln!("[AST Transformer] Removing decorators for {}", class_name);
     for stmt in &mut program.body {
         match stmt {
             Statement::ExportDefaultDeclaration(export_decl) => {
@@ -652,10 +657,20 @@ fn ensure_imports<'a>(
     allocator: &'a Allocator,
     program: &mut Program<'a>,
     imports: &[(String, String)],
+    component_name: &str,
 ) {
     let ast = AstBuilder::new(allocator);
+    eprintln!(
+        "[AST Transformer] ensure_imports for {}. Imports count: {}",
+        component_name,
+        imports.len()
+    );
 
     for (alias, module_path) in imports {
+        eprintln!(
+            "[AST Transformer] Checking import {} from {} for {}",
+            alias, module_path, component_name
+        );
         if let Some(symbol_name) = alias.strip_prefix("named:") {
             // Handle Named Import: import { Symbol } from 'module_path';
             let has_import = program.body.iter().any(|stmt| {
@@ -725,6 +740,10 @@ fn ensure_imports<'a>(
             });
 
             if !has_import {
+                eprintln!(
+                    "[AST Transformer] Inserting namespace import {} from {}",
+                    alias, module_path
+                );
                 // Create: import * as alias from 'module_path';
                 let local = ast.binding_identifier(SPAN, ast.atom(alias));
                 let import_namespace = ast.import_namespace_specifier(SPAN, local);
@@ -760,11 +779,16 @@ fn ensure_imports<'a>(
 }
 
 /// Ensure import * as i0 from '@angular/core' exists
-fn ensure_angular_core_import<'a>(allocator: &'a Allocator, program: &mut Program<'a>) {
+fn ensure_angular_core_import<'a>(
+    allocator: &'a Allocator,
+    program: &mut Program<'a>,
+    component_name: &str,
+) {
     ensure_imports(
         allocator,
         program,
         &[("i0".to_string(), "@angular/core".to_string())],
+        component_name,
     );
 }
 

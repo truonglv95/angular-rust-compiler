@@ -347,6 +347,7 @@ impl Compiler {
         content: String,
         options: Option<CompileOptions>,
     ) -> CompileResult {
+        let start_time = std::time::Instant::now();
         // Extract hmr_id from options first (before moving options)
         let hmr_id_option = options.as_ref().and_then(|o| o.hmr_id.as_ref().cloned());
 
@@ -441,6 +442,11 @@ impl Compiler {
         // 9. Write to cache
         self.write_compiler_cache(&hash, &result);
 
+        eprintln!(
+            "[Rust Compile] {}ms for {}",
+            start_time.elapsed().as_millis(),
+            filename
+        );
         result
     }
 
@@ -618,7 +624,8 @@ impl Compiler {
         use angular_compiler_cli::bundler::bundle_project;
         use std::path::Path;
 
-        match bundle_project(Path::new(&project_path), hmr.unwrap_or(false)) {
+        let start_time = std::time::Instant::now();
+        let result = match bundle_project(Path::new(&project_path), hmr.unwrap_or(false)) {
             Ok(res) => NapiBundleResult {
                 bundle_js: res.bundle_js,
                 bundle_name: res.bundle_name,
@@ -650,6 +657,8 @@ impl Compiler {
                     external_imports: Vec::new(),
                 }
             }
-        }
+        };
+        eprintln!("[Rust Bundle] {}ms", start_time.elapsed().as_millis());
+        result
     }
 }

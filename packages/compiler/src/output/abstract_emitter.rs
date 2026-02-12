@@ -354,9 +354,9 @@ impl o::ExpressionVisitor for AbstractEmitterVisitor {
         expr: &o::InvokeFunctionExpr,
         context: &mut dyn std::any::Any,
     ) -> Box<dyn std::any::Any> {
-        // Special handling for import_with_vite_ignore to inject magic comment
+        // Special handling for __vite_ignore_import to inject magic comment
         if let o::Expression::ReadVar(check_var) = &*expr.fn_ {
-            if check_var.name == "import_with_vite_ignore" {
+            if check_var.name == "__vite_ignore_import" {
                 {
                     let ctx = context.downcast_mut::<EmitterVisitorContext>().unwrap();
                     ctx.print(Some(expr), "import(/* @vite-ignore */ ", false);

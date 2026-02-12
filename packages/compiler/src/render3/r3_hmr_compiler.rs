@@ -7,8 +7,8 @@ use crate::output::output_ast::dynamic_type;
 use crate::output::output_ast::{
     ArrowFunctionBody, ArrowFunctionExpr, BinaryOperator, BinaryOperatorExpr, DeclareFunctionStmt,
     DeclareVarStmt, DynamicImportExpr, Expression, ExternalExpr, ExternalReference, FnParam,
-    InvokeFunctionExpr, LiteralArrayExpr, LiteralExpr, LiteralValue, ReadKeyExpr, ReadPropExpr,
-    ReadVarExpr, Statement, StmtModifier, WritePropExpr,
+    InvokeFunctionExpr, LiteralArrayExpr, LiteralExpr, LiteralValue, ParenthesizedExpr,
+    ReadKeyExpr, ReadPropExpr, ReadVarExpr, Statement, StmtModifier, WritePropExpr,
 };
 
 use super::r3_identifiers::Identifiers as R3;
@@ -388,8 +388,14 @@ pub fn compile_hmr_initializer(meta: &R3HmrMetadata) -> Expression {
         source_span: None,
     });
 
+    let wrapped_iife = Expression::Parens(ParenthesizedExpr {
+        expr: Box::new(iife),
+        type_: None,
+        source_span: None,
+    });
+
     Expression::InvokeFn(InvokeFunctionExpr {
-        fn_: Box::new(iife),
+        fn_: Box::new(wrapped_iife),
         args: vec![],
         type_: None,
         source_span: None,
