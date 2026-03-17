@@ -324,16 +324,13 @@ impl<D: Clone, A: Clone, S: Clone, R: Clone> TraitCompiler<D, A, S, R> {
                     .iter()
                     .any(|r: &CompileResult| r.name == result.name)
                 {
-                    if result.name == "ɵhmr_init" {
-                        eprintln!("[TraitCompiler] Pushing ɵhmr_init for class {}", class_name);
-                    }
+                    if result.name == "ɵhmr_init" {}
                     results.push(result);
                 }
             }
         }
 
         if results.is_empty() {
-            eprintln!("[TraitCompiler] No results for class {}", class_name);
             None
         } else {
             // eprintln!("[TraitCompiler] Returning {} results for class {}", results.len(), class_name);

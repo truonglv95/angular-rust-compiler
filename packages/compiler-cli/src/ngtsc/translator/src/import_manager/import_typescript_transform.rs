@@ -10,8 +10,8 @@ pub struct TransformationContext; // Placeholder
 pub struct SourceFile; // Placeholder
 
 pub fn create_ts_transform_for_import_manager<'a, A, TFile>(
-    manager: &'a mut ImportManager<'a, A, TFile>,
-    extra_statements_for_files: Option<HashMap<String, Vec<A::Statement>>>,
+    _manager: &'a mut ImportManager<'a, A, TFile>,
+    _extra_statements_for_files: Option<HashMap<String, Vec<A::Statement>>>,
 ) ->  impl FnMut(&TransformationContext, TFile) -> TFile + 'a
 where
     A: AstFactory,
@@ -64,7 +64,7 @@ where
         Self { manager, extra_statements }
     }
 
-    pub fn transform(&mut self, source_file: &mut TFile) {
+    pub fn transform(&mut self, _source_file: &mut TFile) {
         // This would require `finalize` to be public on ImportManager or accessible.
         // And `ImportManager` logic to be fully implemented.
 

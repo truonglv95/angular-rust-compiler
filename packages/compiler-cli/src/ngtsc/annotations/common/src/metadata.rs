@@ -77,7 +77,7 @@ pub fn extract_class_metadata(
     ctor_params: Option<&[super::di::CtorParameter]>,
     prop_decorators: &[(String, Vec<Decorator>)],
     is_core: bool,
-    annotate_for_closure: bool,
+    _annotate_for_closure: bool,
 ) -> Option<R3ClassMetadata> {
     // Filter to Angular decorators
     let angular_decorators: Vec<DecoratorMetadata> = decorators

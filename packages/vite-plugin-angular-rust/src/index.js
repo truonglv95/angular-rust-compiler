@@ -10,6 +10,31 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
+// Helper function to resolve the cache directory dynamically based on projectRoot
+// Helper function to resolve the cache directory dynamically based on projectRoot
+function resolveCacheDir(projectRoot) {
+    let version = 'unknown';
+    let projectName = 'default-app';
+    try {
+        const pkgPath = path.resolve(projectRoot, 'node_modules/@angular/core/package.json');
+        if (fs.existsSync(pkgPath)) {
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+            if (pkg.version) version = pkg.version;
+        }
+    } catch (e) {}
+    try {
+        const angularJsonPath = path.resolve(projectRoot, 'angular.json');
+        if (fs.existsSync(angularJsonPath)) {
+            const angularJson = JSON.parse(fs.readFileSync(angularJsonPath, 'utf8'));
+            if (angularJson.projects) {
+                const ObjectKeys = Object.keys(angularJson.projects);
+                if (ObjectKeys.length > 0) projectName = ObjectKeys[0];
+            }
+        }
+    } catch (e) {}
+    return path.resolve(projectRoot, `.angular/cache/${version}/${projectName}`);
+}
+
 // Helper function to inject styles and HMR code into main.js
 function injectMainPreamble(code, projectRoot, globalStyles) {
     let preamble = `
@@ -109,16 +134,51 @@ if (import.meta.hot) {
 }
 
 export default function angularRustPlugin(options = {}) {
-    let bundleCache = null;
+    let bundleCache = options.precompiledFiles ? {
+        files: options.precompiledFiles,
+        rawFiles: options.rawFiles,
+        chunks: options.chunks,
+        chunkNames: options.chunkNames,
+        moduleToChunk: options.moduleToChunk,
+        bundleJs: options.bundleJs,
+        bundleName: options.bundleName,
+        stylesCss: options.stylesCss,
+        polyfillsJs: options.polyfillsJs,
+        externalImports: options.externalImports
+    } : null;
     let compiler = null;
     let projectRoot = process.cwd();
     let globalStyles = [];
-    let isBundling = false;
+    // If a bundlePromise is passed, the plugin waits on it instead of calling
+    // compiler.bundle() internally. This enables the parallel scan+compile flow
+    // in serve.mjs: Vite starts immediately while the bundle runs in a worker.
+    let isBundling = !!options.bundlePromise;
+    if (options.bundlePromise) {
+        options.bundlePromise.then((result) => {
+            bundleCache = result;
+            isBundling = false;
+        }).catch((err) => {
+            console.error('[angularRustPlugin] bundlePromise rejected:', err);
+            isBundling = false;
+        });
+    }
 
     let lastChunkMap = {}; // Cache for handling stale chunk requests during HMR
     let hmrPendingUpdates = new Set(); // Track components with pending HMR updates
 
+    const initCompiler = async () => {
+        if (compiler) return;
+        const defaultBindingPath = path.resolve(
+            path.dirname(new URL(import.meta.url).pathname),
+            '../../binding/index.js'
+        );
+        const bindingPath = options.bindingPath || defaultBindingPath;
+        const binding = require(bindingPath);
+        compiler = new binding.Compiler();
+    };
+
     const getBundle = async (force = false) => {
+        await initCompiler();
         if (bundleCache && !force) return bundleCache;
         if (isBundling) {
             while (isBundling) await new Promise(r => setTimeout(r, 50));
@@ -127,17 +187,7 @@ export default function angularRustPlugin(options = {}) {
 
         isBundling = true;
         try {
-            if (!compiler) {
-                // Default to relative path from plugin location to binding
-                const defaultBindingPath = path.resolve(
-                    path.dirname(new URL(import.meta.url).pathname),
-                    '../../binding/index.js'
-                );
-                const bindingPath = options.bindingPath || defaultBindingPath;
-                // console.log(`[Plugin Debug] Resolved binding path: ${bindingPath}`);
-                compiler = require(bindingPath);
-                compiler = new compiler.Compiler();
-            }
+            // Compiler is now initialized via initCompiler()
 
             let configFile = options.configFile || path.resolve(projectRoot, 'angular.json');
             if (!fs.existsSync(configFile)) {
@@ -147,8 +197,11 @@ export default function angularRustPlugin(options = {}) {
 
             // console.log(`[rustBundlePlugin] Compiling project...`);
             const startTime = Date.now();
-            // Force HMR enabled for dev server bundle
-            const result = compiler.bundle(configFile, true);
+            // Use the provided rebundleFn (persistent Worker) when available for incremental builds,
+            // otherwise fall back to the local compiler instance.
+            const result = options.rebundleFn
+                ? await options.rebundleFn()
+                : compiler.bundle(configFile, true);
 
             // Stats Output - check for --verbose flag
             const isVerbose = process.argv.includes('--verbose');
@@ -167,9 +220,21 @@ export default function angularRustPlugin(options = {}) {
                     throw new Error('Compilation failed');
                 }
             }
-
             bundleCache = result;
-            bundleCache = result;
+            
+            // HMR Debug logging
+            if (result.chunks) {
+                for (const [name, content] of Object.entries(result.chunks)) {
+                    if (content.includes('ButtonToggleOverviewExample')) {
+                        console.log(`[HMR VITE DEBUG] Found ButtonToggleOverviewExample in chunk ${name}`);
+                        if (content.includes('typeof ngDevMode === "undefined"')) {
+                            console.log(`[HMR VITE DEBUG] Chunk ${name} contains HMR IIFE logic!`);
+                        } else {
+                            console.log(`[HMR VITE DEBUG] Chunk ${name} is MISSING HMR IIFE logic!`);
+                        }
+                    }
+                }
+            }
 
             // Save chunk map for HMR fallback
             if (result.chunkNames && Object.keys(result.chunkNames).length > 0) {
@@ -181,7 +246,7 @@ export default function angularRustPlugin(options = {}) {
             // Save external imports to cache file for Vite optimization
             const externalImports = result.externalImports || result.external_imports || [];
             if (externalImports.length > 0) {
-                const cacheDir = path.resolve(projectRoot, '.angular/cache/rust-compiler');
+                const cacheDir = resolveCacheDir(projectRoot);
                 if (!fs.existsSync(cacheDir)) {
                     fs.mkdirSync(cacheDir, { recursive: true });
                 }
@@ -257,45 +322,44 @@ export default function angularRustPlugin(options = {}) {
                             // Angular's ɵɵreplaceMetadata will handle whether to apply based on component state
                             
                             // Re-compile the component with hmr_id to generate UpdateMetadata callback
-                            if (compiler) {
-                                try {
-                                    // Find the original TS file
-                                    let targetTsFile = path.resolve(projectRoot, filePath);
-                                    if (!fs.existsSync(targetTsFile)) {
-                                        targetTsFile = path.resolve(projectRoot, filePath.replace(/^src\/app\//, 'src/'));
-                                    }
-                                    
-                                    if (fs.existsSync(targetTsFile)) {
-                                        const content = fs.readFileSync(targetTsFile, 'utf8');
-
-                                        
-                                        // Compile with hmrId to generate the UpdateMetadata callback
-                                        // This produces output like ngtsc: export default function Component_UpdateMetadata(...)
-                                        const result = compiler.compile(targetTsFile, content, { 
-                                            hmr: true,
-                                            hmrId: decodedId,  // This triggers HMR callback generation
-                                            rootDir: projectRoot 
-                                        });
-                                        
-
-                                        
-                                        if (result.code && !result.code.includes('/* Error')) {
-                                            // The compiled code with hmr_id should contain the UpdateMetadata function
-                                            // Return it as default export
-                                            res.setHeader('Content-Type', 'application/javascript');
-                                            res.end(result.code);
-                                            // Clear pending update
-                                            hmrPendingUpdates.delete(decodedId);
-                                            return;
-                                        } else {
-
-                                        }
-                                    } else {
-
-                                    }
-                                } catch (compileError) {
-
+                            try {
+                                await initCompiler();
+                                // Find the original TS file
+                                let targetTsFile = path.resolve(projectRoot, filePath);
+                                if (!fs.existsSync(targetTsFile)) {
+                                    targetTsFile = path.resolve(projectRoot, filePath.replace(/^src\/app\//, 'src/'));
                                 }
+                                
+                                if (fs.existsSync(targetTsFile)) {
+                                    const content = fs.readFileSync(targetTsFile, 'utf8');
+
+                                    
+                                    // Compile with hmrId to generate the UpdateMetadata callback
+                                    // This produces output like ngtsc: export default function Component_UpdateMetadata(...)
+                                    const result = compiler.compile(targetTsFile, content, { 
+                                        hmr: true,
+                                        hmrId: decodedId,  // This triggers HMR callback generation
+                                        rootDir: projectRoot 
+                                    });
+                                    
+
+                                    
+                                    if (result.code && !result.code.includes('/* Error')) {
+                                        // The compiled code with hmr_id should contain the UpdateMetadata function
+                                        // Return it as default export
+                                        res.setHeader('Content-Type', 'application/javascript');
+                                        res.end(result.code);
+                                        // Clear pending update
+                                        hmrPendingUpdates.delete(decodedId);
+                                        return;
+                                    } else {
+                                        console.error(`[HMR] Compiler returned error for ${targetTsFile}:`, result?.code?.substring(0, 300));
+                                    }
+                                } else {
+                                    console.error(`[HMR] File not found: ${targetTsFile} (from filePath: ${filePath})`);
+                                }
+                            } catch (compileError) {
+                                console.error(`[HMR] Compile error for ${filePath}:`, compileError);
                             }
                             
                             // Fallback: return empty module
@@ -372,6 +436,8 @@ export default function angularRustPlugin(options = {}) {
                     const relPath = path.relative(projectRoot, file);
                     let targetTsFile = file;
 
+
+
                     // For html/css, find parent .ts (component)
                     if (file.endsWith('.html') || file.endsWith('.css') || file.endsWith('.scss')) {
                         const baseName = file.replace(/\.(html|css|scss)$/, '.ts');
@@ -388,7 +454,29 @@ export default function angularRustPlugin(options = {}) {
                     if (fs.existsSync(targetTsFile)) {
                         const content = fs.readFileSync(targetTsFile, 'utf8');
                         try {
+                            await initCompiler();
+                            
 
+
+                            // IF it's a TS file, we need a full re-bundle to update bundleCache.bundle_js
+                            // Otherwise, when Vite reloads, it will serve old content from the pre-bundled string.
+                            if (file === targetTsFile) {
+                                console.log(`[HMR] TS change detected in ${relPath}. Performing full project re-bundle...`);
+                                const startTime = Date.now();
+                                const configFile = options.configFile || path.resolve(projectRoot, 'angular.json');
+                                // Use persistent-worker rebundleFn when available (preserves incremental state)
+                                if (options.rebundleFn) {
+                                    bundleCache = await options.rebundleFn();
+                                } else {
+                                    bundleCache = await compiler.bundle(configFile, true);
+                                }
+                                console.log(`[HMR] Re-bundle complete in ${Date.now() - startTime}ms. Triggering full reload.`);
+                                
+                                server.ws.send({ type: 'full-reload', path: '*' });
+                                return [];
+                            }
+
+                            // Incremental surgical path for HTML/CSS/SCSS
                             const result = compiler.compile(targetTsFile, content, { 
                                 hmr: true,
                                 root_dir: projectRoot 
@@ -396,7 +484,7 @@ export default function angularRustPlugin(options = {}) {
 
                             
                             if (result.code && !result.code.includes('/* Error')) {
-                                fs.appendFileSync('/tmp/debug_hmr.log', '\n[HMR DEBUG] Raw Rust Output:\n' + result.code + '\n-----------------------------------\n');
+                                // fs.appendFileSync('/tmp/debug_hmr.log', '\n[HMR DEBUG] Raw Rust Output:\n' + result.code + '\n-----------------------------------\n');
                                 const relTsPath = path.relative(projectRoot, targetTsFile).replace(/\\/g, '/');
                                 const key = 'dist/' + relTsPath.replace(/\.ts$/, '.js');
                                 
@@ -430,35 +518,18 @@ export default function angularRustPlugin(options = {}) {
                                         }
                                     });
                                     
-                                    // UPDATE CHUNK CONTENT DIRECTLY instead of clearing cache
-                                    // This allows the browser to fetch the old chunk hash with NEW content
-
-                                    
-                                    // Find which chunk this file belongs to
-                                    const moduleToChunk = bundleCache.moduleToChunk || {};
-                                    const chunkName = moduleToChunk[relTsPath];
-                                    
-                                    if (chunkName && bundleCache.chunks) {
-                                        // Update the chunk with new compiled code
-                                        bundleCache.chunks[chunkName] = result.code;
-
-                                        
-                                        // Invalidate only this specific chunk in Vite's module graph
-                                        const chunkVirtualId = '\0Chunk:' + chunkName;
-                                        const chunkMod = server.moduleGraph.getModuleById(chunkVirtualId);
-                                        if (chunkMod) {
-                                            server.moduleGraph.invalidateModule(chunkMod);
-
-                                        }
+                                    // Invalidate the virtual main bundle so it can be re-served if needed
+                                    const mainVirtualId = '\0VirtualNative:main';
+                                    const mainVirtualMod = server.moduleGraph.getModuleById(mainVirtualId);
+                                    if (mainVirtualMod) {
+                                        server.moduleGraph.invalidateModule(mainVirtualMod);
                                     }
-                                    
-                                    // DO NOT clear bundleCache! Keep it so chunk requests can be served.
-                                    // The updated files[key] and chunks[chunkName] have the new content.
 
-                                    // Return empty array to SILENTLY update
-                                    // Vite will NOT trigger module invalidation or page reload
-
-                                    return [];
+                                    // For HTML/CSS/SCSS, we return [] because we've sent a custom HMR event
+                                    // that handles surgical replacement without a full reload.
+                                    if (file !== targetTsFile) {
+                                        return [];
+                                    }
                                 }
                             }
                         } catch (e) {
@@ -643,6 +714,14 @@ export default function angularRustPlugin(options = {}) {
                 return '\0angular:polyfills';
             }
 
+            // Handle @ng/component HMR requests – Angular calls ɵɵgetReplaceMetadataURL() which
+            // returns a URL like /@ng/component?c=<id>&t=<timestamp>. Vite intercepts this import
+            // and routes it through resolveId/load. We preserve the full id so load can parse it.
+            if (id.includes('@ng/component')) {
+                // Preserve the query string (c= and t= params) in the virtual module ID
+                return '\0' + id;
+            }
+
             if (!bundleCache) await getBundle();
 
             // Handle dynamic bundle name (e.g., main.js) explicitly
@@ -819,6 +898,7 @@ export default function angularRustPlugin(options = {}) {
             if (id.includes('node_modules') && !id.endsWith('.css') && !id.endsWith('.scss')) {
                  if (code.includes('ɵɵngDeclare')) {
                      try {
+                        await initCompiler();
                         let result = compiler.linkFile(id, code);
                         if (result.startsWith('/* Linker Error')) {
                             console.error(`[Linker] Linker Error for ${id}:`, result);
@@ -836,6 +916,48 @@ export default function angularRustPlugin(options = {}) {
         },
 
         async load(id) {
+            // Handle @ng/component HMR metadata requests.
+            // Angular calls ɵɵgetReplaceMetadataURL() which triggers a dynamic import of a URL like
+            // "@ng/component?c=<file>@<ClassName>&t=<timestamp>". Vite resolves this as a virtual
+            // module ID: "\0@ng/component?c=..." or "\0dist/.../component?c=...".
+            if (id.startsWith('\0') && id.includes('@ng/component')) {
+                try {
+                    const queryStart = id.indexOf('?');
+                    if (queryStart !== -1) {
+                        const params = new URLSearchParams(id.slice(queryStart + 1));
+                        const componentId = params.get('c');
+                        if (componentId) {
+                            const decodedId = decodeURIComponent(componentId);
+                            const [filePath] = decodedId.split('@');
+                            await initCompiler();
+                            let targetTsFile = path.resolve(projectRoot, filePath);
+                            if (!fs.existsSync(targetTsFile)) {
+                                targetTsFile = path.resolve(projectRoot, filePath.replace(/^src\/app\//, 'src/'));
+                            }
+                            if (fs.existsSync(targetTsFile)) {
+                                const content = fs.readFileSync(targetTsFile, 'utf8');
+                                const result = compiler.compile(targetTsFile, content, {
+                                    hmr: true,
+                                    hmrId: decodedId,
+                                    rootDir: projectRoot
+                                });
+                                if (result.code && !result.code.includes('/* Error')) {
+                                    return { code: result.code, map: null };
+                                } else {
+                                    console.error('[HMR Load] Compiler error for', targetTsFile, result?.code?.substring(0, 200));
+                                }
+                            } else {
+                                console.error('[HMR Load] File not found:', targetTsFile);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('[HMR Load] Error handling @ng/component:', e);
+                }
+                // Return empty module as fallback so Angular doesn't block
+                return { code: 'export default function(){}', map: null };
+            }
+
             // Handle surgical HMR update request
             if (id.includes('hmr_id=')) {
                 const [cleanId, query] = id.split('?');
@@ -908,7 +1030,6 @@ export default function angularRustPlugin(options = {}) {
                            processedFiles?.[jsKey] || 
                            processedFiles?.[tsKey] || 
                            processedFiles?.[jsKeyNoPrefix];
-                
                 
                 if (code) {
                     // Strip version hashes - Vite will add fresh ones

@@ -112,7 +112,7 @@ pub struct TemplateDeclaration {
 }
 
 impl TemplateDeclaration {
-    pub fn inline(content: impl Into<String>) -> Self {
+    pub fn inline(_content: impl Into<String>) -> Self {
         Self {
             is_inline: true,
             preserve_whitespaces: false,
@@ -148,7 +148,7 @@ pub fn extract_template(
     class_name: &str,
     declaration: &TemplateDeclaration,
     template_content: &str,
-    options: &ExtractTemplateOptions,
+    _options: &ExtractTemplateOptions,
 ) -> ParsedTemplateWithSource {
     let parsed = ParsedComponentTemplate::new(template_content);
 
@@ -173,7 +173,7 @@ pub fn extract_template(
 pub fn parse_template_declaration(
     template: Option<&str>,
     template_url: Option<&str>,
-    preserve_whitespaces: bool,
+    _preserve_whitespaces: bool,
 ) -> TemplateDeclaration {
     if let Some(url) = template_url {
         TemplateDeclaration::external(url, url)

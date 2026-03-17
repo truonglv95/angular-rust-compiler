@@ -12,3 +12,4 @@ pub mod abstract_js_emitter;
 pub mod output_ast;
 pub mod output_jit;
 pub mod output_jit_trusted_types;
+pub mod oxc_emitter;

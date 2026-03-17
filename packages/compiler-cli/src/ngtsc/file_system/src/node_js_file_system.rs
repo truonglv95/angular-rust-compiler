@@ -118,6 +118,7 @@ impl PathManipulation for NodeJSPathManipulation {
 
 pub struct NodeJSReadonlyFileSystem {
     base: NodeJSPathManipulation,
+    #[allow(dead_code)]
     case_sensitive: Option<bool>,
 }
 

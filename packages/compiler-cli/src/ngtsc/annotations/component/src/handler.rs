@@ -27,7 +27,7 @@ use angular_compiler::render3::r3_template_transform::{
 };
 use angular_compiler::render3::view::api::{
     DeclarationListEmitMode, R3ComponentDeferMetadata, R3ComponentMetadata, R3ComponentTemplate,
-    R3DirectiveMetadata, R3HostMetadata, R3LifecycleMetadata, R3TemplateDependencyMetadata,
+    R3DirectiveMetadata, R3TemplateDependencyMetadata,
 };
 
 use indexmap::IndexMap;
@@ -809,7 +809,7 @@ impl ComponentDecoratorHandler {
         let mut deps = Vec::new();
         for param in &dir.constructor_params {
             let type_name = param.type_name.clone().unwrap_or("Object".to_string());
-            let mut token_expr = if let Some(attr) = &param.attribute {
+            let token_expr = if let Some(attr) = &param.attribute {
                 Expression::Literal(angular_compiler::output::output_ast::LiteralExpr {
                     value: angular_compiler::output::output_ast::LiteralValue::String(attr.clone()),
                     type_: None,
@@ -950,6 +950,55 @@ impl ComponentDecoratorHandler {
         compiled.expression.visit_expression(&mut emitter, context);
 
         let initializer = ctx.to_source();
+
+        // AST-Native path: produce OXC AST code via OxcEmitter + oxc_codegen
+        // This code is guaranteed parseable by OXC, eliminating the re-parsing
+        // cascade fallback in ast_transformer::create_static_property.
+        let initializer_ast_code = {
+            let ast_allocator = oxc_allocator::Allocator::default();
+            let oxc_emitter = angular_compiler::output::oxc_emitter::OxcEmitter::with_imports(
+                &ast_allocator,
+                imports_map.clone(),
+            );
+            // Use std::panic::catch_unwind to gracefully handle any unimplemented
+            // expression types in OxcEmitter without breaking the existing pipeline
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let oxc_expr = oxc_emitter.emit_expression(&compiled.expression);
+                // Wrap expression in a minimal program to serialize via codegen
+                let mut body = oxc_allocator::Vec::new_in(&ast_allocator);
+                body.push(oxc_ast::ast::Statement::ExpressionStatement(
+                    oxc_allocator::Box::new_in(
+                        oxc_ast::ast::ExpressionStatement {
+                            span: oxc_span::Span::default(),
+                            expression: oxc_expr,
+                        },
+                        &ast_allocator,
+                    ),
+                ));
+                let program = oxc_ast::ast::Program {
+                    span: oxc_span::Span::default(),
+                    source_type: oxc_span::SourceType::mjs(),
+                    source_text: "",
+                    comments: oxc_allocator::Vec::new_in(&ast_allocator),
+                    hashbang: None,
+                    directives: oxc_allocator::Vec::new_in(&ast_allocator),
+                    body,
+                    scope_id: std::cell::Cell::new(None),
+                };
+                let codegen = oxc_codegen::Codegen::new();
+                let mut code = codegen.build(&program).code;
+                // Strip trailing semicolon and newline to get bare expression
+                code = code.trim_end().to_string();
+                if code.ends_with(';') {
+                    code.pop();
+                }
+                code
+            }));
+            match result {
+                Ok(code) => Some(code),
+                Err(_) => None,
+            }
+        };
 
         // Emit statements (hoisted statements)
         let mut emitted_statements = vec![];
@@ -1621,6 +1670,7 @@ impl ComponentDecoratorHandler {
             CompileResult {
                 name: "ɵfac".to_string(),
                 initializer: Some(factory_initializer),
+                initializer_ast_code: None,
                 statements: vec![],
                 type_desc: "Factory".to_string(),
                 deferrable_imports: None,
@@ -1630,6 +1680,7 @@ impl ComponentDecoratorHandler {
             CompileResult {
                 name: "ɵcmp".to_string(),
                 initializer: Some(initializer),
+                initializer_ast_code,
                 statements: emitted_statements,
                 type_desc: "ComponentDef".to_string(),
                 deferrable_imports: None,
@@ -1643,12 +1694,14 @@ impl ComponentDecoratorHandler {
             results.push(CompileResult {
                 name: "ɵhmr_init".to_string(),
                 initializer: None,
+                initializer_ast_code: None,
                 statements: vec![hmr_init], // The IIFE statement
                 type_desc: "HmrInit".to_string(),
                 deferrable_imports: None,
                 diagnostics: vec![],
                 additional_imports, // Reuse imports as HMR might use them
             });
+        } else {
         }
 
         results

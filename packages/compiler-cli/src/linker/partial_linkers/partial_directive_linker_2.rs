@@ -601,8 +601,8 @@ impl<TExpression: AstNode> PartialLinker<TExpression> for PartialDirectiveLinker
         meta_obj: &AstObject<TExpression>,
         _source_url: &str,
         _version: &str,
-        target_name: Option<&str>,
-        imports: Option<&std::collections::HashMap<String, String>>,
+        _target_name: Option<&str>,
+        _imports: Option<&std::collections::HashMap<String, String>>,
         class_metadata: Option<&AstObject<TExpression>>,
     ) -> o::Expression {
         match self.to_r3_directive_metadata(meta_obj, class_metadata) {

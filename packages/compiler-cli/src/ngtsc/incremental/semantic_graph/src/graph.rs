@@ -49,7 +49,7 @@ impl SemanticGraph {
         let mut affected = HashSet::new();
 
         // Get all symbols affected by changes (transitively)
-        let affected_symbols = self.current.get_affected_symbols(changed_symbols);
+        let _affected_symbols = self.current.get_affected_symbols(changed_symbols);
 
         // Collect files containing affected symbols
         for file in self.current.files() {

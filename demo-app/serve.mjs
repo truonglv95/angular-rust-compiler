@@ -1,4 +1,4 @@
-import { createServer } from 'vite';
+import { createServer } from 'rolldown-vite';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -16,15 +16,32 @@ const require = createRequire(import.meta.url);
 if (!isMainThread) {
   try {
     const { angularJsonPath, bindingPath, hmr } = workerData;
-    console.log(`[Worker] hmr flag received: ${hmr} (type: ${typeof hmr})`);
     const binding = require(bindingPath);
     const compiler = new binding.Compiler();
-    const result = compiler.bundle(angularJsonPath, hmr);
-    parentPort.postMessage({ type: 'success', result });
+    console.error(`[Worker] Compiler instantiated. Listening for bundle requests...`);
+
+    // Handle bundle requests from the main thread
+    parentPort.on('message', (msg) => {
+      if (msg.type === 'bundle') {
+        const t0 = Date.now();
+        try {
+          const result = compiler.bundle(angularJsonPath, hmr);
+          console.error(`[Worker] compiler.bundle took: ${Date.now() - t0}ms`);
+          parentPort.postMessage({ type: 'success', result, reqId: msg.reqId });
+        } catch (err) {
+          parentPort.postMessage({ type: 'error', message: err.message, reqId: msg.reqId });
+        }
+      }
+    });
+
+    // Signal ready — do NOT call process.exit(), worker stays alive for rebundles
+    parentPort.postMessage({ type: 'ready' });
   } catch (err) {
     parentPort.postMessage({ type: 'error', message: err.message });
+    process.exit(1);
   }
-  process.exit(0);
+  // Worker thread ends here — main thread code below is never reached in worker context
+  // because isMainThread is false in the main() guard at the bottom of this file.
 }
 
 // --- Main Thread Logic Starts Here ---
@@ -160,10 +177,33 @@ function canPackageBeOptimized(pkgName) {
 const autoExcluded = dependencies.filter((pkg) => !canPackageBeOptimized(pkg));
 const packagesToPreBundle = dependencies.filter((pkg) => !autoExcluded.includes(pkg));
 
-const externalImportsCachePath = path.resolve(
-  __dirname,
-  '.angular/cache/rust-compiler/external-imports.json',
-);
+function resolveCacheDir(projectRoot) {
+  let version = 'unknown';
+  let projectName = 'default-app';
+  try {
+    const pkgPath = path.resolve(projectRoot, 'node_modules/@angular/core/package.json');
+    if (fs.existsSync(pkgPath)) {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      if (pkg.version) version = pkg.version;
+    }
+  } catch (e) {}
+
+  try {
+    const angularJsonPath = path.resolve(projectRoot, 'angular.json');
+    if (fs.existsSync(angularJsonPath)) {
+      const angularJson = JSON.parse(fs.readFileSync(angularJsonPath, 'utf8'));
+      if (angularJson.projects) {
+        const keys = Object.keys(angularJson.projects);
+        if (keys.length > 0) projectName = keys[0];
+      }
+    }
+  } catch (e) {}
+
+  return path.resolve(projectRoot, `.angular/cache/${version}/${projectName}`);
+}
+
+const cacheDirBase = resolveCacheDir(__dirname);
+const externalImportsCachePath = path.join(cacheDirBase, 'external-imports.json');
 let cachedExternalImports = [];
 if (fs.existsSync(externalImportsCachePath)) {
   try {
@@ -171,7 +211,7 @@ if (fs.existsSync(externalImportsCachePath)) {
   } catch (e) {}
 }
 
-function angularLinkerEsbuildPlugin() {
+function angularLinkerRolldownPlugin() {
   const getLinker = () => {
     const bindingPath = path.resolve(__dirname, '../packages/binding/index.js');
     return new (require(bindingPath).Compiler)();
@@ -180,46 +220,89 @@ function angularLinkerEsbuildPlugin() {
 
   return {
     name: 'angular-linker',
-    setup(build) {
-      build.onLoad({ filter: /node_modules\/.*\.(mjs|js)$/ }, async (args) => {
-        if (
-          args.path.includes('/cjs/') ||
-          args.path.includes('/commonjs/') ||
-          args.path.includes('/lib/')
-        )
-          return null;
-        const contents = await fs.promises.readFile(args.path, 'utf8');
-        if (!contents.includes('ɵɵngDeclare')) return null;
-        try {
-          if (!linker) linker = getLinker();
-          const linked = linker.linkFile(args.path, contents);
-          if (linked && linked !== contents && !linked.startsWith('/* Linker Error')) {
-            return { contents: `/* LINKED BY ESBUILD PLUGIN */\n${linked}`, loader: 'js' };
-          }
-        } catch (e) {}
+    enforce: 'pre',
+    async transform(code, id) {
+      // console.log(`[Linker] Checking: ${id}`);
+      if (!id.includes('node_modules') || (!id.endsWith('.mjs') && !id.endsWith('.js'))) {
         return null;
-      });
+      }
+      if (id.includes('/cjs/') || id.includes('/commonjs/') || id.includes('/lib/')) {
+        return null; // Skip CommonJS
+      }
+      if (!code.includes('ɵɵngDeclare')) {
+        return null;
+      }
+      try {
+        if (!linker) linker = getLinker();
+        const linked = linker.linkFile(id, code);
+        if (linked && linked !== code && !linked.startsWith('/* Linker Error')) {
+          return { code: `/* LINKED BY ROLLDOWN PLUGIN */\n${linked}`, map: null };
+        }
+      } catch (e) {
+        console.error('[Angular Linker Rolldown Error]', e);
+      }
+      return null;
     },
   };
 }
 
-async function startServer(finalPackagesToPreBundle) {
+async function startServer(finalPackagesToPreBundle, result, bundlePromise, rebundleFn) {
   const isBundled = process.argv.includes('--bundled');
+  const isHmr = process.argv.includes('--hmr');
   const bold = (s) => `\x1b[1m${s}\x1b[22m`;
   const cyan = (s) => `\x1b[36m${s}\x1b[39m`;
   const green = (s) => `\x1b[32m${s}\x1b[39m`;
   const dim = (s) => `\x1b[2m${s}\x1b[22m`;
 
+  // Base plugin options
+  const pluginOptions = {
+    configFile: path.resolve(__dirname, 'angular.json'),
+    skipStats: true,
+    hmr: isHmr,
+    ...(rebundleFn ? { rebundleFn } : {}),
+  };
+
+  // If we already have a compiled result, pass it as precompiled data
+  if (result) {
+    Object.assign(pluginOptions, {
+      precompiledFiles: result.files || result.compiled_files,
+      rawFiles: result.rawFiles || result.raw_files,
+      chunks: result.chunks,
+      chunkNames: result.chunkNames || result.chunk_names,
+      moduleToChunk: result.moduleToChunk || result.module_to_chunk,
+      bundleJs: result.bundleJs || result.bundle_js,
+      bundleName: result.bundleName || result.bundle_name,
+      stylesCss: result.stylesCss || result.styles_css,
+      polyfillsJs: result.polyfillsJs || result.polyfills_js,
+      externalImports: result.externalImports || result.external_imports,
+    });
+  } else if (bundlePromise) {
+    // Parallel mode: plugin waits on the promise, Vite starts immediately with correct deps
+    pluginOptions.bundlePromise = bundlePromise.then((r) => ({
+      files: r.files || r.compiled_files,
+      rawFiles: r.rawFiles || r.raw_files,
+      chunks: r.chunks,
+      chunkNames: r.chunkNames || r.chunk_names,
+      moduleToChunk: r.moduleToChunk || r.module_to_chunk,
+      bundleJs: r.bundleJs || r.bundle_js,
+      bundleName: r.bundleName || r.bundle_name,
+      stylesCss: r.stylesCss || r.styles_css,
+      polyfillsJs: r.polyfillsJs || r.polyfills_js,
+      externalImports: r.externalImports || r.external_imports,
+    }));
+  }
+
   const server = await createServer({
     configFile: false,
     root: __dirname,
+    cacheDir: path.join(cacheDirBase, 'vite'),
     appType: 'custom',
     server: { port: 4300, host: true, strictPort: true, clearScreen: false },
     optimizeDeps: {
       include: finalPackagesToPreBundle,
       entries: [],
       exclude: ['primeicons'],
-      esbuildOptions: { target: 'es2020', plugins: [angularLinkerEsbuildPlugin()] },
+      rolldownOptions: { plugins: [angularLinkerRolldownPlugin()] },
     },
     plugins: [
       {
@@ -276,7 +359,7 @@ async function startServer(finalPackagesToPreBundle) {
           };
         },
       },
-      angularRust({ configFile: path.resolve(__dirname, 'angular.json'), skipStats: true }),
+      angularRust(pluginOptions),
     ],
   });
 
@@ -286,43 +369,81 @@ async function startServer(finalPackagesToPreBundle) {
   console.log(`${dim('Watch mode enabled. Watching for file changes...')}`);
 }
 
+// Persistent compiler worker singleton.
+// Created once at startup; reused for all subsequent HMR re-bundles.
+let _persistentWorker = null;
+let _persistentWorkerPromise = null;
+let _reqIdCounter = 0;
+const _pendingRequests = new Map(); // reqId → { resolve, reject }
+
+function getPersistentWorker(angularJsonPath, bindingPath, isHmr) {
+  if (_persistentWorker) return _persistentWorker;
+
+  _persistentWorker = new Worker(__filename, {
+    stdout: true,
+    stderr: true,
+    workerData: { angularJsonPath, bindingPath, hmr: isHmr },
+  });
+  _persistentWorker.stdout.pipe(process.stdout);
+  _persistentWorker.stderr.pipe(process.stderr);
+
+  _persistentWorker.on('message', (msg) => {
+    if (msg.type === 'ready') return; // Initial ready signal, ignore
+    const pending = _pendingRequests.get(msg.reqId);
+    if (!pending) return;
+    _pendingRequests.delete(msg.reqId);
+    if (msg.type === 'success') pending.resolve(msg.result);
+    else pending.reject(new Error(msg.message));
+  });
+
+  _persistentWorker.on('error', (err) => {
+    // Reject all pending and clear
+    for (const [, p] of _pendingRequests) p.reject(err);
+    _pendingRequests.clear();
+    _persistentWorker = null;
+  });
+
+  _persistentWorker.on('exit', (code) => {
+    for (const [, p] of _pendingRequests) p.reject(new Error(`Worker exited with code ${code}`));
+    _pendingRequests.clear();
+    _persistentWorker = null;
+  });
+
+  return _persistentWorker;
+}
+
+function sendBundleRequest(angularJsonPath, bindingPath, isHmr) {
+  return new Promise((resolve, reject) => {
+    const reqId = ++_reqIdCounter;
+    _pendingRequests.set(reqId, { resolve, reject });
+    const worker = getPersistentWorker(angularJsonPath, bindingPath, isHmr);
+    worker.postMessage({ type: 'bundle', reqId });
+  });
+}
+
 async function main() {
   const isColorSupported = !(process.env.NO_COLOR || process.env.TERM === 'dumb');
   const bold = (s) => (isColorSupported ? `\x1b[1m${s}\x1b[22m` : s);
   console.log(`${bold('Starting Angular Rust Dev Server...')}`);
 
-  const spinner = createSpinner('Building...');
+  const angularJsonPath = path.resolve(__dirname, 'angular.json');
+  const bindingPath = path.resolve(__dirname, '../packages/binding/index.js');
+  const isHmr = process.argv.includes('--hmr');
+
+  const spinner = createSpinner('Compiling...');
   const startTime = Date.now();
 
   try {
-    const isHmr = process.argv.includes('--hmr');
-    const worker = new Worker(__filename, {
-      stdout: true,
-      stderr: true,
-      workerData: {
-        angularJsonPath: path.resolve(__dirname, 'angular.json'),
-        bindingPath: path.resolve(__dirname, '../packages/binding/index.js'),
-        hmr: isHmr,
-      },
-    });
-    worker.stdout.pipe(process.stdout);
-    worker.stderr.pipe(process.stderr);
-
-    const result = await new Promise((resolve, reject) => {
-      worker.on('message', (msg) => {
-        if (msg.type === 'success') resolve(msg.result);
-        else reject(new Error(msg.message));
-      });
-      worker.on('error', reject);
-      worker.on('exit', (code) => {
-        if (code !== 0) reject(new Error(`Worker stopped with exit code ${code}`));
-      });
-    });
+    const t_worker_init = Date.now();
+    // Use the persistent worker for the initial bundle
+    const result = await sendBundleRequest(angularJsonPath, bindingPath, isHmr);
+    console.log(`[Main] Initial bundle done in ${Date.now() - t_worker_init}ms`);
 
     const duration = Date.now() - startTime;
     spinner.stop();
     printBuildStats(result, duration);
 
+    // Use 100% accurate externalImports from the bundle result — no scan needed
     if (result && result.externalImports) {
       cachedExternalImports = result.externalImports;
       const cacheDir = path.dirname(externalImportsCachePath);
@@ -333,14 +454,20 @@ async function main() {
     const finalPackagesToPreBundle = [
       ...new Set([...packagesToPreBundle, ...cachedExternalImports]),
     ];
-    await startServer(finalPackagesToPreBundle);
+
+    // Pass a rebundle function to the server so HMR uses the SAME compiler instance
+    await startServer(finalPackagesToPreBundle, result, null, () =>
+      sendBundleRequest(angularJsonPath, bindingPath, isHmr),
+    );
   } catch (err) {
     spinner.stop(`\x1b[31m✖\x1b[0m Build failed: ${err.message}`);
     process.exit(1);
   }
 }
 
-main().catch((err) => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});
+if (isMainThread) {
+  main().catch((err) => {
+    console.error('Fatal error:', err);
+    process.exit(1);
+  });
+}

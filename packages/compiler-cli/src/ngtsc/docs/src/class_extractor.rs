@@ -9,7 +9,7 @@ pub struct ClassExtractor;
 
 impl ClassExtractor {
     /// Extract class entry from AST node.
-    pub fn extract(name: &str, source_file: &str, line: usize) -> ClassEntry {
+    pub fn extract(name: &str, _source_file: &str, _line: usize) -> ClassEntry {
         ClassEntry {
             base: DocEntry::new(name, EntryType::Class),
             members: Vec::new(),

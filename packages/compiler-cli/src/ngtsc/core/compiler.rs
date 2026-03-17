@@ -23,22 +23,7 @@ use oxc_parser::Parser;
 use oxc_span::SourceType;
 use std::collections::HashSet;
 use std::path::PathBuf;
-
-fn expression_to_string(expr: &angular_compiler::output::output_ast::Expression) -> String {
-    let mut ctx = EmitterVisitorContext::create_root();
-    let mut import_manager = EmitterImportManager::new();
-    let mut visitor = AbstractEmitterVisitor::new(false);
-
-    // Visit expression to populate imports
-    expr.visit_expression(&mut visitor, &mut ctx);
-
-    // If it's an ExternalExpr, we need special handling to alias it
-    // But AbstractEmitterVisitor doesn't use ImportManager directly.
-    // We need to customize how ExternalExpr is printed or pre-process it.
-    // For now, let's try to use the import manager to resolve it.
-
-    ctx.to_source()
-}
+use std::sync::Arc;
 
 /// Helper to convert expression to string, with basic handling for raw ExternalExpr usage
 /// which is common in hardcoded compiler paths.
@@ -46,7 +31,7 @@ fn expression_to_string_with_imports(
     expr: &angular_compiler::output::output_ast::Expression,
     additional_imports: &mut Vec<(String, String)>,
 ) -> String {
-    use angular_compiler::output::output_ast::{Expression, ExternalExpr};
+    use angular_compiler::output::output_ast::Expression;
 
     match expr {
         Expression::External(ext) => {
@@ -130,15 +115,15 @@ pub enum CompilationTicketKind {
     Incremental,
 }
 
-pub struct CompilationTicket<'a, T: FileSystem> {
+pub struct CompilationTicket<T: FileSystem> {
     pub kind: CompilationTicketKind,
     pub options: NgCompilerOptions,
-    pub fs: &'a T,
+    pub fs: Arc<T>,
 }
 
-pub struct NgCompiler<'a, T: FileSystem> {
+pub struct NgCompiler<T: FileSystem> {
     pub options: NgCompilerOptions,
-    pub fs: &'a T,
+    pub fs: Arc<T>,
     pub is_core: bool,
 }
 
@@ -149,8 +134,8 @@ pub struct CompilationResult {
     pub diagnostics: Vec<crate::ngtsc::core::Diagnostic>,
 }
 
-impl<'a, T: FileSystem> NgCompiler<'a, T> {
-    pub fn new(ticket: CompilationTicket<'a, T>) -> Self {
+impl<T: FileSystem> NgCompiler<T> {
+    pub fn new(ticket: CompilationTicket<T>) -> Self {
         NgCompiler {
             options: ticket.options,
             fs: ticket.fs,
@@ -185,7 +170,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
             let ret = Parser::new(&allocator, &content, source_type).parse();
 
             if !ret.errors.is_empty() {
-                for error in ret.errors {
+                for _error in ret.errors {
                     // eprintln!("DEBUG: Error parsing {:?}: {:?}", path, error);
                 }
                 return Err(format!("Failed to parse {:?}", path));
@@ -202,6 +187,35 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                             continue;
                         }
 
+                        if self.options.hmr {
+                            let abs_path_obj = std::path::Path::new(abs_path.as_str());
+                            let class_name = dir.t2.name.clone();
+                            if let Some(root_dir) = &self.options.root_dir {
+                                let root_path = std::path::Path::new(root_dir);
+                                // Use plain forward slashes (no URL encoding) to match what
+                                // Angular's ɵɵgetReplaceMetadataURL() sends as the 'c' param:
+                                // "src/app/path/file.ts@ClassName"
+                                let relative_path =
+                                    if let Ok(rel) = abs_path_obj.strip_prefix(root_path) {
+                                        rel.to_string_lossy().replace('\\', "/")
+                                    } else {
+                                        abs_path_obj
+                                            .file_name()
+                                            .unwrap_or_default()
+                                            .to_string_lossy()
+                                            .to_string()
+                                    };
+                                dir.hmr_id = Some(format!("{}@{}", relative_path, class_name));
+                            } else {
+                                let file_name = abs_path_obj
+                                    .file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .to_string();
+                                dir.hmr_id = Some(format!("{}@{}", file_name, class_name));
+                            }
+                        }
+
                         let template_str = if let Some(comp) = &dir.component {
                             if let Some(template) = &comp.template {
                                 Some(template.clone())
@@ -215,7 +229,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                         // eprintln!("DEBUG: Successfully read template file: {}", template_path);
                                         Some(content)
                                     }
-                                    Err(e) => {
+                                    Err(_e) => {
                                         // eprintln!("DEBUG: Failed to read template file: {} (Error: {})", template_path, e);
                                         None
                                     }
@@ -281,8 +295,8 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
         compilation_result: &CompilationResult,
     ) -> Result<Vec<crate::ngtsc::core::Diagnostic>, String> {
         use oxc_ast::ast::*;
-        let mut result_diagnostics: Vec<crate::ngtsc::core::Diagnostic> = Vec::new();
-        let fs = self.fs;
+        let _result_diagnostics: Vec<crate::ngtsc::core::Diagnostic> = Vec::new();
+        let fs = self.fs.clone();
 
         let component_handler =
             crate::ngtsc::annotations::component::src::handler::ComponentDecoratorHandler::new();
@@ -364,7 +378,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
 
                                     // Collect namespace imports for the function parameters
                                     let imports_map = import_manager.get_imports_map();
-                                    let namespace_count = imports_map.len();
+                                    let _namespace_count = imports_map.len();
 
                                     // Collect                                    // manual parse
                                     let mut local_deps: Vec<String> = Vec::new();
@@ -476,7 +490,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                 let directives: Vec<&DecoratorMetadata> = directives_wrapper.into_iter().map(|w| w.0).collect();
 
                 // Setup output path
-                let mut out_path = if let Some(out_dir) = &self.options.out_dir {
+                let out_path = if let Some(out_dir) = &self.options.out_dir {
                     let absolute_project_root = if let Some(root_dir) = &self.options.root_dir {
                         let p = PathBuf::from(root_dir);
                         std::fs::canonicalize(&p).unwrap_or(p)
@@ -501,7 +515,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                     let out_file_path = p.with_extension("js");
                     out_file_path
                 } else {
-                    let mut p = PathBuf::from(&src_file);
+                    let p = PathBuf::from(&src_file);
                     let out_file_path = p.with_extension("js");
                     out_file_path
                 };
@@ -552,6 +566,8 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                             // Ensure @angular/core is always i0
                             let _ = import_manager.get_or_generate_alias("@angular/core");
 
+                            let mut global_trailing_statements = String::new();
+
                             for directive in directives {
                                 let (compiled_results, directive_name) = match directive {
                                     DecoratorMetadata::Directive(dir) => {
@@ -571,6 +587,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                         let results = vec![crate::ngtsc::transform::src::api::CompileResult {
                                             name: "ɵpipe".to_string(),
                                             initializer: Some(initializer),
+                                            initializer_ast_code: None,
                                             statements: vec![],
                                             type_desc: format!("i0.ɵɵPipeDeclaration<{}, '{}', {}>", pipe.name, pipe.pipe_name, pipe.is_standalone),
                                             deferrable_imports: None,
@@ -588,6 +605,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                             crate::ngtsc::transform::src::api::CompileResult {
                                                 name: "ɵfac".to_string(),
                                                 initializer: Some(fac_initializer),
+                                                initializer_ast_code: None,
                                                 statements: vec![],
                                                 type_desc: format!("i0.ɵɵFactoryDeclaration<{}, never>", inj.name),
                                                 deferrable_imports: None,
@@ -597,6 +615,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                             crate::ngtsc::transform::src::api::CompileResult {
                                                 name: "ɵprov".to_string(),
                                                 initializer: Some(prov_initializer),
+                                                initializer_ast_code: None,
                                                 statements: vec![],
                                                 type_desc: format!("i0.ɵɵInjectableDeclaration<{}>", inj.name),
                                                 deferrable_imports: None,
@@ -710,6 +729,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                         results.push(crate::ngtsc::transform::src::api::CompileResult {
                                             name: "ɵmod".to_string(),
                                             initializer: Some(mod_init),
+                                            initializer_ast_code: None,
                                             statements: vec![],
                                             type_desc: format!("i0.ɵɵNgModuleDeclaration<{}, never, never, never>", ngm.name),
                                             deferrable_imports: None,
@@ -724,6 +744,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                         results.push(crate::ngtsc::transform::src::api::CompileResult {
                                             name: "ɵinj".to_string(),
                                             initializer: Some(inj_init),
+                                            initializer_ast_code: None,
                                             statements: vec![],
                                             type_desc: format!("i0.ɵɵInjectorDeclaration<{}>", ngm.name),
                                             deferrable_imports: None,
@@ -757,11 +778,8 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
 
                                 // Merge results if multiple (e.g. fac and cmp)
                                 for res in &compiled_results {
-                                    if res.name == "ɵhmr_init" {
-                                        continue;
-                                    }
                                     for stmt in &res.statements {
-                                        if stmt.contains("setClassDebugInfo") || stmt.contains("setClassMetadata") {
+                                        if stmt.contains("setClassDebugInfo") || stmt.contains("setClassMetadata") || res.name == "ɵhmr_init" {
                                             trailing_statements.push_str(stmt);
                                             trailing_statements.push('\n');
                                         } else {
@@ -777,7 +795,12 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                 // Collect definitions (non-fac)
                                 let mut definitions_vec: Vec<(String, String)> = Vec::new();
                                 let mut additional_imports: Vec<(String, String)> = Vec::new();
-                                let mut last_def_name = "ɵcmp".to_string();
+
+                                last_def_name = compiled_results
+                                    .iter()
+                                    .last()
+                                    .map(|r| r.name.clone())
+                                    .unwrap_or_else(|| "ɵcmp".to_string());
 
                                 for res in &compiled_results {
                                     additional_imports.extend(res.additional_imports.clone());
@@ -787,11 +810,17 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                     // Special handling for ɵhmr_init
                                     if res.name == "ɵhmr_init" { continue; }
 
-                                    let init = res.initializer.as_deref().unwrap_or("null");
+                                    // Prefer OxcEmitter-generated code (initializer_ast_code) over
+                                    // string-based code (initializer). The AST code is guaranteed
+                                    // parseable by OXC, eliminating re-parsing fallbacks.
+                                    let init = if let Some(ast_code) = &res.initializer_ast_code {
+                                        ast_code.as_str()
+                                    } else {
+                                        res.initializer.as_deref().unwrap_or("null")
+                                    };
 
                                     let expr = format!("/*@__PURE__*/ {}", init);
                                     definitions_vec.push((res.name.clone(), expr));
-                                    last_def_name = res.name.clone();
                                 }
 
                                 // Add imports from ImportManager
@@ -806,7 +835,8 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                 let fac_initializer = compiled_results.iter().find(|r| r.name == "ɵfac").and_then(|r| r.initializer.as_deref()).unwrap_or(&fac_expr_str_default);
 
                                 let hoisted_statements_arena: &str = allocator.alloc_str(&hoisted_statements);
-                                let trailing_statements_arena: &str = allocator.alloc_str(&trailing_statements);
+                              // 5. We NO LONGER add trailing statements via AST to avoid `oxc_codegen` stripping out `/* @vite-ignore */` comments.
+    // They are appended manually around `codegen.build` in compiler.rs.
                                 let fac_expr_arena: &str = allocator.alloc_str(fac_initializer); // Use correct fac logic
 
                                 // Allocate definitions strings in arena
@@ -825,7 +855,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                         &mut parse_result.program,
                                         &directive_name,
                                         hoisted_statements_arena,
-                                        trailing_statements_arena,
+                                        "",
                                         fac_expr_arena, // fac
                                         &definitions_arena,
                                         &additional_imports,
@@ -833,6 +863,8 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
 
                                     failed_properties.extend(failed);
                                 }
+                                global_trailing_statements.push_str(&trailing_statements);
+                                global_trailing_statements.push('\n');
                             }
 
                             // Step 4: Codegen final JavaScript
@@ -855,6 +887,9 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                             code = code.replace("ɵUNIQUE_FAC", "ɵfac");
                             code = code.replace("ɵUNIQUE_DIR", &last_def_name);
 
+                            code.push('\n');
+                            code.push_str(&global_trailing_statements);
+
                             Some(code)
                         } else {
                             // Parse error
@@ -874,7 +909,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
 
                 FileResult {
                     path: src_file,
-                    diagnostics
+                    diagnostics,
                 }
             })
             .collect();
@@ -888,7 +923,7 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
         for directive in directives_without_source {
             self.process_directive_fallback(
                 &directive,
-                self.fs,
+                self.fs.as_ref(),
                 &mut component_files,
                 &mut result_diagnostics,
                 &compilation_result.files,
@@ -1039,35 +1074,11 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                 }
             }));
         }
-
-        // Wait, I can't easily change the `if let` structure without rewriting more lines.
-        // `compiled_results` is used in loop at line 592 (by reference).
-        // Then line 604 consumes it `into_iter`.
-
-        // Strategy:
-        // 1. Find main result by reference first.
-        // 2. If found, proceed.
-        // 3. Inside, iterate over `compiled_results` (which was not consumed if I change line 604 to `iter()`).
-
-        let main_result = compiled_results
-            .iter()
-            .find(|r| r.name == "ɵcmp" || r.name == "ɵdir");
-
-        if let Some(r) = main_result {
-            if let Some(initializer) = &r.initializer {
-                // Logic here
-            }
-        }
-
-        // BUT the replacement target is the `if let` block.
-        // So I will replace the `if let` block with the new logic.
-
-        // New block:
         let main_result_ref = compiled_results
             .iter()
             .find(|r| r.name == "ɵcmp" || r.name == "ɵdir");
         if let Some(main_res) = main_result_ref {
-            if let Some(initializer) = &main_res.initializer {
+            if let Some(_initializer) = &main_res.initializer {
                 let mut import_map: std::collections::HashMap<String, String> =
                     std::collections::HashMap::new();
 
@@ -1094,9 +1105,34 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                     match fs.read_file(&source_path) {
                         Ok(content) => {
                             let source_text = content.clone();
-                            let stripped = strip_angular_decorator(&source_text);
-                            // We strictly prepend the imports.
-                            // Emit all compilation results (fac, cmp, hmr, etc.)
+                            let allocator = oxc_allocator::Allocator::default();
+                            let source_type = oxc_span::SourceType::ts();
+
+                            let parser =
+                                oxc_parser::Parser::new(&allocator, &source_text, source_type);
+                            let mut parse_result = parser.parse();
+
+                            let stripped = if parse_result.errors.is_empty() {
+                                // 1. Remove decorators robustly using AST
+                                super::ast_transformer::remove_angular_decorators(
+                                    &mut parse_result.program,
+                                    &directive_name,
+                                );
+
+                                // Codegen to string
+                                let codegen = oxc_codegen::Codegen::new().with_options(
+                                    oxc_codegen::CodegenOptions {
+                                        single_quote: true,
+                                        ..oxc_codegen::CodegenOptions::default()
+                                    },
+                                );
+                                codegen.build(&parse_result.program).code
+                            } else {
+                                // Fallback to regex if parse fails
+                                strip_angular_decorator(&source_text)
+                            };
+
+                            // 2. Add compiled fields (ɵcmp, ɵfac) via string concatenation to preserve /*@__PURE__*/ comments
                             let mut compiled_fields = String::new();
                             for res in &compiled_results {
                                 if let Some(init) = &res.initializer {
@@ -1114,7 +1150,6 @@ impl<'a, T: FileSystem> NgCompiler<'a, T> {
                                     ));
                                 }
                             }
-
                             format!("{}\n{}\n\n{}", import_stmts, stripped, compiled_fields)
                         }
                         Err(_) => format!(
@@ -1196,23 +1231,6 @@ fn strip_angular_decorator(code: &str) -> String {
     }
 
     result
-}
-
-/// Extract import statements from code and return them separately
-fn extract_and_remove_imports(code: &str) -> (Vec<String>, String) {
-    let mut imports = Vec::new();
-    let mut remaining_lines = Vec::new();
-
-    for line in code.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("import ") {
-            imports.push(line.to_string());
-        } else {
-            remaining_lines.push(line);
-        }
-    }
-
-    (imports, remaining_lines.join("\n"))
 }
 
 fn find_class_decl<'a>(

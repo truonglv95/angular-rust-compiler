@@ -14,6 +14,7 @@ use angular_compiler::output::output_ast::{
     Expression, ExpressionTrait, ExternalExpr, ExternalReference, LiteralExpr, LiteralValue,
     ReadVarExpr,
 };
+use angular_compiler::output::oxc_emitter::OxcEmitter;
 use angular_compiler::render3::r3_factory::{
     compile_factory_function, DepsOrInvalid, FactoryTarget, R3ConstructorFactoryMetadata,
     R3DependencyMetadata, R3FactoryMetadata,
@@ -25,6 +26,7 @@ use angular_compiler::render3::view::api::{
 use angular_compiler::render3::view::compiler::compile_directive_from_metadata;
 use angular_compiler::template_parser::binding_parser::BindingParser;
 use std::any::Any;
+use std::collections::HashMap;
 
 pub struct DirectiveDecoratorHandler {
     #[allow(dead_code)]
@@ -51,8 +53,8 @@ impl DirectiveDecoratorHandler {
     /// Find class fields with Angular features.
     pub fn find_class_field_with_angular_features(
         &self,
-        member_names: &[String],
-        member_decorators: &[(String, Vec<String>)],
+        _member_names: &[String],
+        _member_decorators: &[(String, Vec<String>)],
     ) -> Option<String> {
         // Implementation remains same as before...
         // Simplified for brevity in this full replacement
@@ -135,10 +137,10 @@ impl DecoratorHandler<DirectiveHandlerData, DirectiveHandlerData, DirectiveSymbo
 
     fn compile_full(
         &self,
-        node: &ClassDeclaration,
+        _node: &ClassDeclaration,
         analysis: &DirectiveHandlerData,
         _resolution: Option<&()>,
-        constant_pool: &mut crate::ngtsc::transform::src::api::ConstantPool,
+        _constant_pool: &mut crate::ngtsc::transform::src::api::ConstantPool,
     ) -> Vec<CompileResult> {
         self.compile_ivy(analysis, None)
     }
@@ -149,7 +151,7 @@ impl DirectiveDecoratorHandler {
     pub fn compile_ivy(
         &self,
         analysis: &DirectiveMetadata,
-        external_import_manager: Option<&mut EmitterImportManager>,
+        _external_import_manager: Option<&mut EmitterImportManager>,
     ) -> Vec<CompileResult> {
         // ... (existing code)
         // Extract DirectiveMeta from DecoratorMetadata enum
@@ -432,7 +434,7 @@ impl DirectiveDecoratorHandler {
             .map(|(k, v)| (v.clone(), k.clone()))
             .collect();
 
-        let mut emitter = AbstractJsEmitterVisitor::with_imports(imports_map);
+        let mut emitter = AbstractJsEmitterVisitor::with_imports(imports_map.clone());
         let mut ctx = EmitterVisitorContext::create_root();
 
         // Emit Factory
@@ -454,10 +456,54 @@ impl DirectiveDecoratorHandler {
         }
         let dir_initializer = ctx.to_source();
 
+        // AST-Native path: produce OXC AST code via OxcEmitter + oxc_codegen
+        let emit_ast = |expr: &Expression, imports: &HashMap<String, String>| -> Option<String> {
+            let ast_allocator = oxc_allocator::Allocator::default();
+            let oxc_emitter = OxcEmitter::with_imports(&ast_allocator, imports.clone());
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let oxc_expr = oxc_emitter.emit_expression(expr);
+                let mut body = oxc_allocator::Vec::new_in(&ast_allocator);
+                body.push(oxc_ast::ast::Statement::ExpressionStatement(
+                    oxc_allocator::Box::new_in(
+                        oxc_ast::ast::ExpressionStatement {
+                            span: oxc_span::Span::default(),
+                            expression: oxc_expr,
+                        },
+                        &ast_allocator,
+                    ),
+                ));
+                let program = oxc_ast::ast::Program {
+                    span: oxc_span::Span::default(),
+                    source_type: oxc_span::SourceType::mjs(),
+                    source_text: "",
+                    comments: oxc_allocator::Vec::new_in(&ast_allocator),
+                    hashbang: None,
+                    directives: oxc_allocator::Vec::new_in(&ast_allocator),
+                    body,
+                    scope_id: std::cell::Cell::new(None),
+                };
+                let codegen = oxc_codegen::Codegen::new();
+                let mut code = codegen.build(&program).code;
+                code = code.trim_end().to_string();
+                if code.ends_with(';') {
+                    code.pop();
+                }
+                code
+            }));
+            match result {
+                Ok(code) => Some(code),
+                Err(_) => None,
+            }
+        };
+
+        let fac_ast_code = emit_ast(&compiled_fac.expression, &imports_map);
+        let dir_ast_code = emit_ast(&compiled_dir.expression, &imports_map);
+
         vec![
             CompileResult {
                 name: "ɵfac".to_string(),
                 initializer: Some(fac_initializer),
+                initializer_ast_code: fac_ast_code,
                 statements: vec![],
                 type_desc: "FactoryDef".to_string(),
                 deferrable_imports: None,
@@ -467,6 +513,7 @@ impl DirectiveDecoratorHandler {
             CompileResult {
                 name: "ɵdir".to_string(),
                 initializer: Some(dir_initializer),
+                initializer_ast_code: dir_ast_code,
                 statements: vec![],
                 type_desc: "DirectiveDef".to_string(),
                 deferrable_imports: None,

@@ -3,7 +3,7 @@ use crate::ngtsc::file_system::{
 };
 use std::collections::HashMap;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 pub struct CapturingFileSystem<T: FileSystem> {

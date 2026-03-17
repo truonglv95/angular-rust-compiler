@@ -26,6 +26,11 @@ lazy_static = "1.4"
 # NAPI-RS for Node.js bindings (optional)
 napi = { workspace = true, optional = true }
 napi-derive = { workspace = true, optional = true }
+oxc_allocator = "0.96.0"
+oxc_ast = "0.96.0"
+oxc_span = "0.96.0"
+oxc_semantic = "0.96.0"
+oxc_syntax = "0.96.0"
 
 [build-dependencies]
 napi-build = "2.1"

@@ -11,4 +11,6 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
   styleUrl: './component-sidenav.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ComponentSidenavComponent {}
+export class ComponentSidenavComponent {
+  test_hmr = 90;
+}

@@ -52,8 +52,8 @@ impl PathStrategy for NativeUtils {
         // But this is "Native".
         // Let's rely on cfg for minimal implementation or just use manual.
 
-        let from_path = Path::new(from);
-        let to_path = Path::new(to);
+        let _from_path = Path::new(from);
+        let _to_path = Path::new(to);
 
         // Very basic implementation:
         // common prefix...

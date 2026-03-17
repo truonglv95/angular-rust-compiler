@@ -14,7 +14,7 @@ use crate::ml_parser::ast as html;
 use crate::ml_parser::html_tags::get_html_tag_definition;
 use crate::ml_parser::tags::TagDefinition;
 use crate::ml_parser::tokens::{InterpolationToken, Token};
-use crate::parse_util::{ParseLocation, ParseSourceFile, ParseSourceSpan};
+use crate::parse_util::{ParseLocation, ParseSourceSpan};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};

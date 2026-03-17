@@ -12,4 +12,6 @@ import { RouterLink } from '@angular/router';
   styleUrl: './button.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ButtonTestComponent {}
+export class ButtonTestComponent {
+  version = 1;
+}

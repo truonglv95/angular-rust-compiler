@@ -1,5 +1,6 @@
 use crate::ngtsc::core::NgCompilerOptions;
 use std::path::Path;
+use std::sync::Arc;
 // use crate::compiler::CompilationResult; // Removed to resolve conflict with ngtsc::core::CompilationResult
 // Let's use the one from ngtsc::core if exported, or fully qualify.
 // Actually, let's remove this import and use the one NgCompiler uses.
@@ -12,15 +13,15 @@ use std::path::Path;
 use crate::ngtsc::core::{CompilationResult, CompilationTicket, CompilationTicketKind, NgCompiler};
 use crate::ngtsc::file_system::FileSystem;
 
-pub struct NgtscProgram<'a, T: FileSystem> {
+pub struct NgtscProgram<T: FileSystem> {
     root_names: Vec<String>,
     options: NgCompilerOptions,
-    compiler: NgCompiler<'a, T>,
+    compiler: NgCompiler<T>,
     result: Option<CompilationResult>,
 }
 
-impl<'a, T: FileSystem> NgtscProgram<'a, T> {
-    pub fn new(root_names: Vec<String>, options: NgCompilerOptions, fs: &'a T) -> Self {
+impl<T: FileSystem> NgtscProgram<T> {
+    pub fn new(root_names: Vec<String>, options: NgCompilerOptions, fs: Arc<T>) -> Self {
         let ticket = CompilationTicket {
             kind: CompilationTicketKind::Fresh,
             options: options.clone(),
@@ -38,7 +39,7 @@ impl<'a, T: FileSystem> NgtscProgram<'a, T> {
 
     pub fn load_ng_structure(&mut self, _path: &Path) -> Result<(), String> {
         // eprintln!("DEBUG: NgtscProgram::load_ng_structure called with {} root files", self.root_names.len());
-        for name in &self.root_names {
+        for _name in &self.root_names {
             // eprintln!("DEBUG: Root file: {}", name);
         }
         // We trigger analysis with the root files we know about

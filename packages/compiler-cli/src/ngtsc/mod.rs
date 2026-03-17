@@ -38,3 +38,4 @@ pub mod validation;
 pub mod xi18n;
 
 pub mod dependency;
+pub mod test_parser_hmr;

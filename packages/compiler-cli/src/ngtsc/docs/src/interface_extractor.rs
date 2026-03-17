@@ -21,7 +21,7 @@ impl InterfaceExtractor {
     }
 
     /// Extract interface member.
-    pub fn extract_member(name: &str, type_annotation: &str, optional: bool) -> MemberEntry {
+    pub fn extract_member(name: &str, type_annotation: &str, _optional: bool) -> MemberEntry {
         MemberEntry {
             name: name.to_string(),
             member_type: MemberType::Property,

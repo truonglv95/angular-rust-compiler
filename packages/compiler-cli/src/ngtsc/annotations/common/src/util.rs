@@ -173,7 +173,7 @@ pub fn read_base_class(extends_clause: Option<&str>) -> Option<String> {
 
 /// Check if a forward reference should be wrapped.
 pub fn is_expression_forward_reference(
-    ref_name: &str,
+    _ref_name: &str,
     context_position: usize,
     ref_position: usize,
 ) -> bool {
@@ -210,7 +210,7 @@ impl R3Reference {
 /// Convert a reference to an R3Reference.
 pub fn to_r3_reference(ref_name: &str, ref_module: Option<&str>) -> R3Reference {
     match ref_module {
-        Some(module) => {
+        Some(_module) => {
             R3Reference::new(format!("i0.importExpr({})", ref_name), ref_name.to_string())
         }
         None => R3Reference::same(ref_name),
@@ -223,7 +223,7 @@ pub fn wrap_type_reference(class_name: &str) -> R3Reference {
 }
 
 /// Resolve providers that require factory definitions.
-pub fn resolve_providers_requiring_factory(provider_names: &[String]) -> HashSet<String> {
+pub fn resolve_providers_requiring_factory(_provider_names: &[String]) -> HashSet<String> {
     // In full implementation, would analyze providers
     // For now, return empty set
     HashSet::new()

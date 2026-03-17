@@ -482,7 +482,7 @@ mod tests {
 
     #[test]
     fn test_has_preserve_whitespaces_attr() {
-        use crate::parse_util::{ParseLocation, ParseSourceFile, ParseSourceSpan};
+        use crate::parse_util::{ParseLocation, ParseSourceSpan};
 
         let location = ParseLocation::from_source(String::new(), "test.html".to_string(), 0, 0, 0);
         let span = ParseSourceSpan::new(location.clone(), location);

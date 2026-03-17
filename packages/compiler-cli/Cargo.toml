@@ -52,6 +52,8 @@ oxc_syntax = "0.96.0"
 oxc_codegen = "0.96.0"
 oxc_transformer = "0.96.0"
 glob = "0.3"
+ouroboros = "0.18.5"
+dashmap = "6.1.0"
 
 [build-dependencies]
 napi-build = "2.1"

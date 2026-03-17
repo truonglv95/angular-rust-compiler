@@ -168,6 +168,10 @@ pub struct CompileResult {
     /// None means no initializer (declaration only).
     pub initializer: Option<String>, // TODO: Replace with proper Expression type
 
+    /// Pre-built code produced by OxcEmitter + oxc_codegen (bypasses re-parsing).
+    /// When present, `ast_transformer` should use this instead of `initializer`.
+    pub initializer_ast_code: Option<String>,
+
     /// Additional statements to add alongside the field.
     pub statements: Vec<String>, // TODO: Replace with proper Statement type
 
@@ -189,6 +193,7 @@ impl CompileResult {
         Self {
             name: name.into(),
             initializer: None,
+            initializer_ast_code: None,
             statements: Vec::new(),
             type_desc: type_desc.into(),
             deferrable_imports: None,
@@ -356,11 +361,11 @@ pub trait DtsTransform {
     /// Transform a class declaration in a .d.ts file.
     fn transform_class(
         &self,
-        clazz: &oxc_ast::ast::Class<'_>,
-        elements: &[oxc_ast::ast::ClassElement<'_>],
-        reflector: &dyn ReflectionHost,
-        ref_emitter: &ReferenceEmitter,
-        imports: &mut ImportManager,
+        _clazz: &oxc_ast::ast::Class<'_>,
+        _elements: &[oxc_ast::ast::ClassElement<'_>],
+        _reflector: &dyn ReflectionHost,
+        _ref_emitter: &ReferenceEmitter,
+        _imports: &mut ImportManager,
     ) -> Option<oxc_ast::ast::Class<'_>> {
         None // Default: no transformation
     }

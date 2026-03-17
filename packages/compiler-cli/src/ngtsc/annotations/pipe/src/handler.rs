@@ -6,6 +6,14 @@ use crate::ngtsc::reflection::ClassDeclaration;
 use crate::ngtsc::transform::src::api::{
     AnalysisOutput, CompileResult, ConstantPool, DecoratorHandler, DetectResult, HandlerPrecedence,
 };
+use angular_compiler::output::abstract_emitter::EmitterVisitorContext;
+use angular_compiler::output::abstract_js_emitter::AbstractJsEmitterVisitor;
+use angular_compiler::output::output_ast::{ExpressionTrait, ReadVarExpr};
+use angular_compiler::output::oxc_emitter::OxcEmitter;
+use angular_compiler::render3::r3_pipe_compiler::{compile_pipe_from_metadata, R3PipeMetadata};
+use angular_compiler::render3::util::R3Reference;
+use std::any::Any;
+use std::collections::HashMap;
 
 /// Metadata extracted from @Pipe decorator
 #[derive(Debug, Clone)]
@@ -71,22 +79,89 @@ impl PipeDecoratorHandler {
     /// Compile pipe definition
     /// Generates: static ɵpipe = ɵɵdefinePipe({ name: 'pipeName', type: PipeClass, pure: true, standalone: true })
     pub fn compile_pipe(metadata: &PipeMetadata) -> CompileResult {
-        // Build initializer string like Angular does
-        let initializer = format!(
-            "i0.ɵɵdefinePipe({{ name: '{}', type: {}, pure: {}{} }})",
-            metadata.pipe_name,
-            metadata.name,
-            metadata.pure,
-            if metadata.standalone {
-                ", standalone: true"
-            } else {
-                ""
+        // 1. Prepare Metadata for Ivy Compiler
+        let type_ref = R3Reference {
+            value: angular_compiler::output::output_ast::Expression::ReadVar(ReadVarExpr {
+                name: metadata.name.clone(),
+                type_: None,
+                source_span: None,
+            }),
+            type_expr: angular_compiler::output::output_ast::Expression::ReadVar(ReadVarExpr {
+                name: metadata.name.clone(),
+                type_: None,
+                source_span: None,
+            }),
+        };
+
+        let r3_meta = R3PipeMetadata {
+            name: metadata.name.clone(),
+            type_: type_ref,
+            type_argument_count: 0,
+            pipe_name: Some(metadata.pipe_name.clone()),
+            deps: None, // Factory handles deps
+            pure: metadata.pure,
+            is_standalone: metadata.standalone,
+        };
+
+        // 2. Compile to Angular Output AST
+        let compiled = compile_pipe_from_metadata(&r3_meta);
+
+        // 3. Emit to String (Fallback/Traditional path)
+        let mut imports_map = HashMap::new();
+        imports_map.insert("@angular/core".to_string(), "i0".to_string());
+
+        let mut emitter = AbstractJsEmitterVisitor::with_imports(imports_map.clone());
+        let mut ctx = EmitterVisitorContext::create_root();
+        {
+            let context: &mut dyn Any = &mut ctx;
+            compiled.expression.visit_expression(&mut emitter, context);
+        }
+        let initializer = ctx.to_source();
+
+        // 4. AST-Native path: produce OXC AST code via OxcEmitter + oxc_codegen
+        let initializer_ast_code = {
+            let ast_allocator = oxc_allocator::Allocator::default();
+            let oxc_emitter = OxcEmitter::with_imports(&ast_allocator, imports_map);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let oxc_expr = oxc_emitter.emit_expression(&compiled.expression);
+                let mut body = oxc_allocator::Vec::new_in(&ast_allocator);
+                body.push(oxc_ast::ast::Statement::ExpressionStatement(
+                    oxc_allocator::Box::new_in(
+                        oxc_ast::ast::ExpressionStatement {
+                            span: oxc_span::Span::default(),
+                            expression: oxc_expr,
+                        },
+                        &ast_allocator,
+                    ),
+                ));
+                let program = oxc_ast::ast::Program {
+                    span: oxc_span::Span::default(),
+                    source_type: oxc_span::SourceType::mjs(),
+                    source_text: "",
+                    comments: oxc_allocator::Vec::new_in(&ast_allocator),
+                    hashbang: None,
+                    directives: oxc_allocator::Vec::new_in(&ast_allocator),
+                    body,
+                    scope_id: std::cell::Cell::new(None),
+                };
+                let codegen = oxc_codegen::Codegen::new();
+                let mut code = codegen.build(&program).code;
+                code = code.trim_end().to_string();
+                if code.ends_with(';') {
+                    code.pop();
+                }
+                code
+            }));
+            match result {
+                Ok(code) => Some(code),
+                Err(_) => None,
             }
-        );
+        };
 
         CompileResult {
             name: "ɵpipe".to_string(),
             initializer: Some(initializer),
+            initializer_ast_code,
             statements: vec![],
             type_desc: format!(
                 "i0.ɵɵPipeDeclaration<{}, \"{}\", {}>",

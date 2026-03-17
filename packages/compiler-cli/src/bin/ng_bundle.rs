@@ -105,7 +105,22 @@ fn run_build(project_arg: Option<String>) {
         .and_then(|t| t.options.as_ref());
 
     // Bundle using library
-    let result = match bundle_project(&project_path, false) {
+    let scan_cache = std::sync::Arc::new(dashmap::DashMap::new());
+    let ast_cache = std::sync::Arc::new(dashmap::DashMap::new());
+
+    let style_cache = std::sync::Arc::new(dashmap::DashMap::new());
+    let version_map = angular_compiler_cli::incremental::new_version_map();
+    let analysis_cache = angular_compiler_cli::incremental::new_analysis_cache();
+
+    let result = match bundle_project(
+        &project_path,
+        false,
+        &scan_cache,
+        &ast_cache,
+        &style_cache,
+        &version_map,
+        &analysis_cache,
+    ) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("Bundling failed: {}", e);

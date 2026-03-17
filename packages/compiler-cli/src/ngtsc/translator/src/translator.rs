@@ -429,7 +429,7 @@ fn map_binary_operator(op: o::BinaryOperator) -> Option<BinaryOperator> {
     }
 }
 
-fn map_binary_operator_assignment(op: o::BinaryOperator) -> Option<BinaryOperator> {
+fn map_binary_operator_assignment(_op: o::BinaryOperator) -> Option<BinaryOperator> {
     // Map assignments
     None
 }

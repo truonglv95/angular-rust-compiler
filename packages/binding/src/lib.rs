@@ -1,5 +1,10 @@
 #![deny(clippy::all)]
 
+use angular_compiler_cli::bundler::ScanCache;
+use angular_compiler_cli::cache::AstCache;
+use angular_compiler_cli::incremental::{
+    new_analysis_cache, new_version_map, AnalysisCache, FileVersionMap,
+};
 use angular_compiler_cli::ngtsc::core::NgCompilerOptions;
 use angular_compiler_cli::ngtsc::file_system::src::node_js_file_system::NodeJSFileSystem;
 use angular_compiler_cli::ngtsc::file_system::src::types::{
@@ -8,17 +13,19 @@ use angular_compiler_cli::ngtsc::file_system::src::types::{
 use angular_compiler_cli::ngtsc::file_system::FileSystem;
 use angular_compiler_cli::ngtsc::file_system::ReadonlyFileSystem;
 use angular_compiler_cli::ngtsc::program::NgtscProgram;
+use dashmap::DashMap;
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::Mutex;
 use xxhash_rust::xxh3::xxh3_64;
 
 // ============ Cache Configuration ============
-const CACHE_DIR_NAME: &str = ".angular/cache/rust-compiler";
+
 const COMPILER_CACHE_SUBDIR: &str = "compiler";
 const LINKER_CACHE_SUBDIR: &str = "linker";
 
@@ -89,7 +96,8 @@ fn get_cache_dir(subdir: &str) -> PathBuf {
         }
     }
 
-    let cache_dir = project_root.join(CACHE_DIR_NAME).join(subdir);
+    let config_file = project_root.join("angular.json");
+    let cache_dir = angular_compiler_cli::bundler::resolve_cache_dir(&config_file).join(subdir);
     if !cache_dir.exists() {
         let _ = fs::create_dir_all(&cache_dir);
     }
@@ -97,19 +105,20 @@ fn get_cache_dir(subdir: &str) -> PathBuf {
 }
 
 // ============ Cached Data Structures ============
-#[derive(Serialize, Deserialize)]
-struct CachedCompileResult {
-    code: String,
-    diagnostics: Vec<CachedDiagnostic>,
+#[napi(object)]
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Diagnostic {
+    pub file: Option<String>,
+    pub message: String,
+    pub code: u32,
+    pub start: Option<u32>,
+    pub length: Option<u32>,
 }
 
-#[derive(Serialize, Deserialize)]
-struct CachedDiagnostic {
-    file: Option<String>,
-    message: String,
-    code: u32,
-    start: Option<u32>,
-    length: Option<u32>,
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CompileResult {
+    pub code: String,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 #[napi(object)]
@@ -251,16 +260,7 @@ impl FileSystem for CapturingFileSystem {
 }
 
 #[napi(object)]
-pub struct Diagnostic {
-    pub file: Option<String>,
-    pub message: String,
-    pub code: u32,
-    pub start: Option<u32>,
-    pub length: Option<u32>,
-}
-
-#[napi(object)]
-pub struct CompileResult {
+pub struct NapiCompileResult {
     pub code: String,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -298,6 +298,13 @@ pub struct NapiBundleResult {
 pub struct Compiler {
     compiler_cache_dir: PathBuf,
     linker_cache_dir: PathBuf,
+    scan_cache: ScanCache,
+    ast_cache: AstCache,
+    style_cache: angular_compiler_cli::bundler::StyleCache,
+    /// Phase 1: per-file mtime+size version tracking
+    version_map: FileVersionMap,
+    /// Phase 3: per-file compiled JS output cache
+    analysis_cache: AnalysisCache,
 }
 
 #[napi]
@@ -307,37 +314,51 @@ impl Compiler {
         let compiler_cache_dir = get_cache_dir(COMPILER_CACHE_SUBDIR);
         let linker_cache_dir = get_cache_dir(LINKER_CACHE_SUBDIR);
 
-        // eprintln!(
-        //     "[Rust NGC] Cache dir: {}",
-        //     compiler_cache_dir.parent().unwrap().display()
-        // );
-
         Compiler {
             compiler_cache_dir,
             linker_cache_dir,
+            scan_cache: Arc::new(DashMap::new()),
+            ast_cache: Arc::new(DashMap::new()),
+            style_cache: Arc::new(DashMap::new()),
+            version_map: new_version_map(),
+            analysis_cache: new_analysis_cache(),
         }
     }
 
     /// Read cached compile result from disk
-    fn read_compiler_cache(&self, _hash: &str) -> Option<CompileResult> {
-        // CACHE DISABLED TEMPORARILY
+    fn read_compiler_cache(&self, hash: &str) -> Option<CompileResult> {
+        let cache_file = self.compiler_cache_dir.join(format!("{}.json", hash));
+        if cache_file.exists() {
+            if let Ok(content) = fs::read_to_string(&cache_file) {
+                if let Ok(result) = serde_json::from_str::<CompileResult>(&content) {
+                    return Some(result);
+                }
+            }
+        }
         None
     }
 
     /// Write compile result to disk cache
-    fn write_compiler_cache(&self, _hash: &str, _result: &CompileResult) {
-        // CACHE DISABLED TEMPORARILY
+    fn write_compiler_cache(&self, hash: &str, result: &CompileResult) {
+        let cache_file = self.compiler_cache_dir.join(format!("{}.json", hash));
+        if let Ok(content) = serde_json::to_string(result) {
+            let _ = fs::write(cache_file, content);
+        }
     }
 
     /// Read cached linker result from disk
-    fn read_linker_cache(&self, _hash: &str) -> Option<String> {
-        // CACHE DISABLED TEMPORARILY
+    fn read_linker_cache(&self, hash: &str) -> Option<String> {
+        let cache_file = self.linker_cache_dir.join(format!("{}.js", hash));
+        if cache_file.exists() {
+            return fs::read_to_string(cache_file).ok();
+        }
         None
     }
 
     /// Write linker result to disk cache
-    fn write_linker_cache(&self, _hash: &str, _result: &str) {
-        // CACHE DISABLED TEMPORARILY
+    fn write_linker_cache(&self, hash: &str, result: &str) {
+        let cache_file = self.linker_cache_dir.join(format!("{}.js", hash));
+        let _ = fs::write(cache_file, result);
     }
 
     #[napi]
@@ -346,7 +367,7 @@ impl Compiler {
         filename: String,
         content: String,
         options: Option<CompileOptions>,
-    ) -> CompileResult {
+    ) -> NapiCompileResult {
         // Extract hmr_id from options first (before moving options)
         let hmr_id_option = options.as_ref().and_then(|o| o.hmr_id.as_ref().cloned());
 
@@ -363,12 +384,15 @@ impl Compiler {
         // 2. Check cache (skip cache for hmr_id compiles to ensure fresh UpdateMetadata)
         if hmr_id_option.is_none() {
             if let Some(cached) = self.read_compiler_cache(&hash) {
-                return cached;
+                return NapiCompileResult {
+                    code: cached.code,
+                    diagnostics: cached.diagnostics,
+                };
             }
         }
 
         // 3. Setup Capturing FileSystem
-        let fs = CapturingFileSystem::new();
+        let fs = Arc::new(CapturingFileSystem::new());
         let abs_filename_str = fs.resolve(&[&filename]).to_string();
         let abs_filename = AbsoluteFsPath::from(Path::new(&abs_filename_str));
         fs.write_file(&abs_filename, content.as_bytes(), None).ok();
@@ -391,12 +415,12 @@ impl Compiler {
 
         // 5. Create Program
         let root_names = vec![abs_filename_str.clone()];
-        let mut program = NgtscProgram::new(root_names, ng_options, &fs);
+        let mut program = NgtscProgram::new(root_names, ng_options, fs.clone());
 
         // 6. Load NG Structure
         let mut diagnostics = Vec::new();
         if let Err(e) = program.load_ng_structure(Path::new("/")) {
-            return CompileResult {
+            return NapiCompileResult {
                 code: format!("/* Error loading: {} */", e),
                 diagnostics: vec![],
             };
@@ -416,7 +440,7 @@ impl Compiler {
                 }
             }
             Err(e) => {
-                return CompileResult {
+                return NapiCompileResult {
                     code: format!("/* Error emitting: {} */", e),
                     diagnostics: vec![],
                 };
@@ -441,7 +465,10 @@ impl Compiler {
         // 9. Write to cache
         self.write_compiler_cache(&hash, &result);
 
-        result
+        NapiCompileResult {
+            code: result.code,
+            diagnostics: result.diagnostics,
+        }
     }
 
     #[napi]
@@ -477,7 +504,7 @@ impl Compiler {
         }
 
         // 1. Setup Capturing FileSystem & Root Names
-        let fs = CapturingFileSystem::new();
+        let fs = Arc::new(CapturingFileSystem::new());
         let mut root_names = Vec::new();
         let mut file_map = HashMap::new();
 
@@ -515,7 +542,7 @@ impl Compiler {
         // Ensure we compile all inputs - default behavior is sufficient
 
         // 3. Create Program (ONCE)
-        let mut program = NgtscProgram::new(root_names.clone(), options, &fs);
+        let mut program = NgtscProgram::new(root_names.clone(), options, fs.clone());
 
         // 4. Load NG Structure
         let mut global_diagnostics = Vec::new();
@@ -618,7 +645,15 @@ impl Compiler {
         use angular_compiler_cli::bundler::bundle_project;
         use std::path::Path;
 
-        match bundle_project(Path::new(&project_path), hmr.unwrap_or(false)) {
+        match bundle_project(
+            Path::new(&project_path),
+            hmr.unwrap_or(false),
+            &self.scan_cache,
+            &self.ast_cache,
+            &self.style_cache,
+            &self.version_map,
+            &self.analysis_cache,
+        ) {
             Ok(res) => NapiBundleResult {
                 bundle_js: res.bundle_js,
                 bundle_name: res.bundle_name,
@@ -649,6 +684,22 @@ impl Compiler {
                     module_to_chunk: HashMap::new(),
                     external_imports: Vec::new(),
                 }
+            }
+        }
+    }
+    /// Fast pre-scan: returns external package specifiers found in the project's import graph.
+    /// Uses OXC static analysis only — no Angular compilation — so it's typically ~1-2s.
+    /// Use this to seed Vite's `optimizeDeps.include` before calling `bundle()` in parallel.
+    #[napi]
+    pub fn scan_external_imports(&self, project_path: String) -> Vec<String> {
+        use angular_compiler_cli::bundler::scan_external_imports;
+        use std::path::Path;
+
+        match scan_external_imports(Path::new(&project_path), None) {
+            Ok(imports) => imports,
+            Err(e) => {
+                eprintln!("[scan_external_imports] Error: {}", e);
+                vec![]
             }
         }
     }

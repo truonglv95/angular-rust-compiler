@@ -8,7 +8,24 @@ use crate::ngtsc::reflection::ClassDeclaration;
 use crate::ngtsc::transform::src::api::{
     AnalysisOutput, CompileResult, DecoratorHandler, DetectResult, HandlerPrecedence,
 };
-use angular_compiler::render3::r3_identifiers::Identifiers;
+use angular_compiler::output::abstract_emitter::EmitterVisitorContext;
+use angular_compiler::output::abstract_js_emitter::AbstractJsEmitterVisitor;
+use angular_compiler::output::output_ast::{ExpressionTrait, ReadVarExpr};
+use angular_compiler::output::oxc_emitter::OxcEmitter;
+use angular_compiler::render3::r3_factory::{
+    compile_factory_function, FactoryTarget, R3ConstructorFactoryMetadata,
+    R3FactoryMetadata as R3FacMeta,
+};
+use angular_compiler::render3::r3_injector_compiler::{
+    compile_injector, R3InjectorMetadata as R3InjMeta,
+};
+use angular_compiler::render3::r3_module_compiler::{
+    compile_ng_module, R3NgModuleMetadata as R3ModuleMeta, R3NgModuleMetadataCommon,
+    R3NgModuleMetadataGlobal, R3NgModuleMetadataKind, R3SelectorScopeMode,
+};
+use angular_compiler::render3::util::R3Reference;
+use std::any::Any;
+use std::collections::HashMap;
 
 /// NgModule analysis data.
 #[derive(Debug, Clone)]
@@ -222,31 +239,128 @@ impl DecoratorHandler<NgModuleAnalysis, NgModuleAnalysis, NgModuleSymbol, NgModu
         _resolution: Option<&NgModuleResolution>,
         _constant_pool: &mut crate::ngtsc::transform::src::api::ConstantPool,
     ) -> Vec<CompileResult> {
-        let meta = &analysis.module_meta;
+        let mut imports_map = HashMap::new();
+        imports_map.insert("@angular/core".to_string(), "i0".to_string());
 
-        // Use R3Identifiers
-        let define_ng_module_name = Identifiers::define_ng_module().name.unwrap_or_default();
-        let define_injector_name = Identifiers::define_injector().name.unwrap_or_default();
+        let type_ref = R3Reference {
+            value: angular_compiler::output::output_ast::Expression::ReadVar(ReadVarExpr {
+                name: analysis.module_meta.type_ref.clone(),
+                type_: None,
+                source_span: None,
+            }),
+            type_expr: angular_compiler::output::output_ast::Expression::ReadVar(ReadVarExpr {
+                name: analysis.module_meta.type_ref.clone(),
+                type_: None,
+                source_span: None,
+            }),
+        };
 
-        // Generate ɵmod definition
-        let mod_def = format!("{}({{ type: {} }})", define_ng_module_name, meta.type_ref);
+        // 1. Compile NgModule (ɵmod)
+        let r3_module_meta = R3ModuleMeta::Global(R3NgModuleMetadataGlobal {
+            common: R3NgModuleMetadataCommon {
+                kind: R3NgModuleMetadataKind::Global,
+                type_: type_ref.clone(),
+                selector_scope_mode: R3SelectorScopeMode::Inline,
+                schemas: None,
+                id: None,
+            },
+            bootstrap: Vec::new(),
+            declarations: Vec::new(),
+            public_declaration_types: None,
+            imports: Vec::new(),
+            include_import_types: true,
+            exports: Vec::new(),
+            contains_forward_decls: false,
+        });
+        let compiled_mod = compile_ng_module(&r3_module_meta);
 
-        // Generate ɵinj definition
-        println!("DEBUG: define_injector_name = '{}'", define_injector_name);
-        println!("DEBUG: define_ng_module_name = '{}'", define_ng_module_name);
-        let inj_def = format!("{}({{}})", define_injector_name);
-        println!("DEBUG: inj_def = '{}'", inj_def);
+        // 2. Compile Injector (ɵinj)
+        let r3_inj_meta = R3InjMeta {
+            name: analysis.module_meta.type_ref.clone(),
+            type_: type_ref.clone(),
+            providers: None,
+            imports: Vec::new(),
+        };
+        let compiled_inj = compile_injector(&r3_inj_meta);
 
-        // Generate factory
-        let fac_def = format!(
-            "function {}Factory(t) {{ return new (t || {})(); }}",
-            analysis.factory_meta.name, analysis.factory_meta.name
-        );
+        // 3. Compile Factory (ɵfac)
+        let r3_fac_meta = R3FacMeta::Constructor(R3ConstructorFactoryMetadata {
+            name: analysis.module_meta.type_ref.clone(),
+            type_: type_ref,
+            type_argument_count: 0,
+            target: FactoryTarget::NgModule,
+            deps: None,
+        });
+        let compiled_fac = compile_factory_function(&r3_fac_meta);
+
+        // Helper for emitting AST
+        let emit_ast = |expr: &angular_compiler::output::output_ast::Expression,
+                        imports: &HashMap<String, String>|
+         -> Option<String> {
+            let ast_allocator = oxc_allocator::Allocator::default();
+            let oxc_emitter = OxcEmitter::with_imports(&ast_allocator, imports.clone());
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let oxc_expr = oxc_emitter.emit_expression(expr);
+                let mut body = oxc_allocator::Vec::new_in(&ast_allocator);
+                body.push(oxc_ast::ast::Statement::ExpressionStatement(
+                    oxc_allocator::Box::new_in(
+                        oxc_ast::ast::ExpressionStatement {
+                            span: oxc_span::Span::default(),
+                            expression: oxc_expr,
+                        },
+                        &ast_allocator,
+                    ),
+                ));
+                let program = oxc_ast::ast::Program {
+                    span: oxc_span::Span::default(),
+                    source_type: oxc_span::SourceType::mjs(),
+                    source_text: "",
+                    comments: oxc_allocator::Vec::new_in(&ast_allocator),
+                    hashbang: None,
+                    directives: oxc_allocator::Vec::new_in(&ast_allocator),
+                    body,
+                    scope_id: std::cell::Cell::new(None),
+                };
+                let codegen = oxc_codegen::Codegen::new();
+                let mut code = codegen.build(&program).code;
+                code = code.trim_end().to_string();
+                if code.ends_with(';') {
+                    code.pop();
+                }
+                code
+            }));
+            match result {
+                Ok(code) => Some(code),
+                Err(_) => None,
+            }
+        };
+
+        // Helper for emitting String fallback
+        let emit_string = |expr: &angular_compiler::output::output_ast::Expression,
+                           imports: &HashMap<String, String>|
+         -> String {
+            let mut emitter = AbstractJsEmitterVisitor::with_imports(imports.clone());
+            let mut ctx = EmitterVisitorContext::create_root();
+            {
+                let context: &mut dyn Any = &mut ctx;
+                expr.visit_expression(&mut emitter, context);
+            }
+            ctx.to_source()
+        };
+
+        let mod_initializer = emit_string(&compiled_mod.expression, &imports_map);
+        let inj_initializer = emit_string(&compiled_inj.expression, &imports_map);
+        let fac_initializer = emit_string(&compiled_fac.expression, &imports_map);
+
+        let mod_ast_code = emit_ast(&compiled_mod.expression, &imports_map);
+        let inj_ast_code = emit_ast(&compiled_inj.expression, &imports_map);
+        let fac_ast_code = emit_ast(&compiled_fac.expression, &imports_map);
 
         vec![
             CompileResult {
                 name: "ɵmod".to_string(),
-                initializer: Some(mod_def),
+                initializer: Some(mod_initializer),
+                initializer_ast_code: mod_ast_code,
                 statements: vec![],
                 type_desc: "NgModuleDef".to_string(),
                 deferrable_imports: None,
@@ -255,7 +369,8 @@ impl DecoratorHandler<NgModuleAnalysis, NgModuleAnalysis, NgModuleSymbol, NgModu
             },
             CompileResult {
                 name: "ɵinj".to_string(),
-                initializer: Some(inj_def),
+                initializer: Some(inj_initializer),
+                initializer_ast_code: inj_ast_code,
                 statements: vec![],
                 type_desc: "InjectorDef".to_string(),
                 deferrable_imports: None,
@@ -264,7 +379,8 @@ impl DecoratorHandler<NgModuleAnalysis, NgModuleAnalysis, NgModuleSymbol, NgModu
             },
             CompileResult {
                 name: "ɵfac".to_string(),
-                initializer: Some(fac_def),
+                initializer: Some(fac_initializer),
+                initializer_ast_code: fac_ast_code,
                 statements: vec![],
                 type_desc: "Factory".to_string(),
                 deferrable_imports: None,

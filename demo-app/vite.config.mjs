@@ -91,7 +91,9 @@ export default defineConfig({
     port: 4300,
   },
   optimizeDeps: {
-    exclude: angularPackages,
+    // We intentionally do not exclude angular packages anymore
+    // because Rolldown needs to process them with our angular-linker plugin
+    // exclude: angularPackages,
     include: optimizeDepsInclude,
   },
 });

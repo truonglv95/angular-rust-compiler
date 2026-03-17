@@ -194,7 +194,7 @@ impl TscPlugin for NgTscPlugin {
     fn setup_compilation(
         &mut self,
         program: &Program,
-        old_program: Option<&Program>,
+        _old_program: Option<&Program>,
     ) -> CompilationSetupResult {
         if self.host.is_none() || self.options.is_none() {
             panic!("Lifecycle error: setupCompilation() before wrapHost().");
@@ -217,7 +217,7 @@ impl TscPlugin for NgTscPlugin {
         }
     }
 
-    fn get_diagnostics(&self, file: Option<&str>) -> Vec<Diagnostic> {
+    fn get_diagnostics(&self, _file: Option<&str>) -> Vec<Diagnostic> {
         // In the TS implementation, this delegates to compiler.getDiagnostics()
         // or compiler.getDiagnosticsForFile()
         Vec::new()

@@ -44,7 +44,7 @@ pub fn absolute_from(path: &str) -> AbsoluteFsPath {
     fs.resolve(&[path])
 }
 
-pub fn absolute_from_source_file(sf: &oxc_ast::ast::Program) -> AbsoluteFsPath {
+pub fn absolute_from_source_file(_sf: &oxc_ast::ast::Program) -> AbsoluteFsPath {
     // Rust doesn't have the same "patching" capability as JS objects (Sybmol patch).
     // We assume we can get the filename from the source file or it's passed separately.
     // The Oxc Program doesn't carry filename usually.

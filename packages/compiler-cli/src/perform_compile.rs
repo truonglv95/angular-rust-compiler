@@ -9,6 +9,7 @@ use crate::ngtsc::program::NgtscProgram;
 use crate::transformers::api::{CompilerOptions, Diagnostic, DiagnosticCategory};
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Emit flags for controlling output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -286,9 +287,9 @@ pub fn perform_compilation(
         root_names.len()
     );
 
-    let fs = NodeJSFileSystem::new();
+    let fs = Arc::new(NodeJSFileSystem::new());
     let ng_options = NgCompilerOptions::default();
-    let mut program = NgtscProgram::new(root_names.clone(), ng_options, &fs);
+    let mut program = NgtscProgram::new(root_names.clone(), ng_options, fs.clone());
 
     let mut diagnostics = Vec::new();
 
@@ -365,7 +366,7 @@ pub fn perform_compilation_simple(
 ) -> PerformCompileResult {
     println!("Performing compilation...");
 
-    let fs = NodeJSFileSystem::new();
+    let fs = Arc::new(NodeJSFileSystem::new());
 
     // Parse tsconfig.json and discover files automatically
     let (root_names, options) = if let Some(p) = project {
@@ -409,7 +410,7 @@ pub fn perform_compilation_simple(
         (vec![], NgCompilerOptions::default())
     };
 
-    let mut program = NgtscProgram::new(root_names, options, &fs);
+    let mut program = NgtscProgram::new(root_names, options, fs.clone());
 
     let mut diagnostics = Vec::new();
 

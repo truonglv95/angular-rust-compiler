@@ -2,7 +2,7 @@ use super::compiler::*;
 use crate::constant_pool::ConstantPool;
 use crate::core::{ChangeDetectionStrategy, ViewEncapsulation};
 use crate::expression_parser::parser::Parser;
-use crate::output::output_ast::{Expression, ExternalExpr, ReadVarExpr};
+use crate::output::output_ast::{Expression, ReadVarExpr};
 use crate::parse_util::{ParseLocation, ParseSourceFile, ParseSourceSpan};
 use crate::render3::util::R3Reference;
 use crate::render3::view::api::{
@@ -336,7 +336,7 @@ fn should_emit_constant_host_class_binding_as_host_attr() {
             if let Some(host_bindings_entry) = host_bindings {
                 // println!("Directive hostBindings: {:?}", host_bindings_entry.value);
                 // hostBindings should be a function
-                if let Expression::Fn(func) = &*host_bindings_entry.value {
+                if let Expression::Fn(_func) = &*host_bindings_entry.value {
                     // Verify statements in hostBindings contains classMap
                     // We can't easily check the content of statements without more complex matching,
                     // but we can check if it exists.

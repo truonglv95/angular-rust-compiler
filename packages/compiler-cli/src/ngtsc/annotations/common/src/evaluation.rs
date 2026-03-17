@@ -65,7 +65,7 @@ pub fn resolve_enum_value(
     expr_text: &str,
     field: &str,
     enum_symbol_name: &str,
-    is_core: bool,
+    _is_core: bool,
 ) -> Result<Option<i32>, String> {
     // Try to parse ViewEncapsulation locally
     if enum_symbol_name == "ViewEncapsulation" {
@@ -109,7 +109,7 @@ pub fn resolve_encapsulation_enum_value_locally(expr_text: &str) -> Option<ViewE
 }
 
 /// Check if a resolved value is a string array.
-pub fn is_string_array(values: &[String]) -> bool {
+pub fn is_string_array(_values: &[String]) -> bool {
     // All items are strings by definition in this representation
     true
 }

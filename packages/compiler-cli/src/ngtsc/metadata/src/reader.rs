@@ -1,23 +1,17 @@
 use super::util::extract_directive_metadata;
 use crate::ngtsc::metadata::DecoratorMetadata;
-use crate::ngtsc::reflection::{self, ClassDeclaration, Decorator};
+use crate::ngtsc::reflection::Decorator;
 use angular_compiler::output::output_ast::{Expression, ExternalExpr, ExternalReference};
-use angular_compiler::parse_util::{ParseLocation, ParseSourceFile, ParseSourceSpan};
 use angular_compiler::render3::view::api::{
-    R3DirectiveDependencyMetadata, R3PipeDependencyMetadata, R3TemplateDependencyKind,
-    R3TemplateDependencyMetadata,
+    R3DirectiveDependencyMetadata, R3TemplateDependencyKind, R3TemplateDependencyMetadata,
 };
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{
-    AssignmentTarget, CallExpression, Declaration, Expression as OxcExpression, ObjectPropertyKind,
-    PropertyKey, SimpleAssignmentTarget, Statement,
-};
+use oxc_ast::ast::{Declaration, Expression as OxcExpression, Statement};
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 pub struct ModuleMetadataReader {
     node_modules_path: PathBuf,
@@ -731,7 +725,7 @@ impl ModuleMetadataReader {
     pub fn extract_ts_metadata(&self, path: &Path) -> Option<Vec<R3TemplateDependencyMetadata>> {
         let content = match fs::read_to_string(path) {
             Ok(c) => c,
-            Err(e) => {
+            Err(_e) => {
                 // eprintln!("DEBUG: [ts_reader] Failed to read file {}: {}", path.display(), e);
                 return None;
             }

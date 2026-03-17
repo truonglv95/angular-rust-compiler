@@ -3,7 +3,7 @@ members = [
     "packages/compiler",
     "packages/compiler-cli",
     "packages/ts",
-    "packages/binding",
+    "packages/binding", "packages/rolldown-plugin-angular-rust",
 ]
 resolver = "2"
 

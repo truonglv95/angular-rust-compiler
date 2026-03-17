@@ -919,7 +919,7 @@ pub fn extract_directive_metadata<'a>(
                                 }
                             }
                             "queries" => {
-                                if let Expression::ArrayExpression(arr) = &prop.value {
+                                if let Expression::ArrayExpression(_arr) = &prop.value {
                                     // Legacy queries array parsing - disabled for now as we moved to Vec<QueryMetadata>
                                     // and this code was parsing Strings.
                                     /*
@@ -1251,7 +1251,7 @@ pub fn extract_ng_module_metadata<'a>(
                                 }
                                 "bootstrap" => {
                                     // Bootstrap is usually component identifiers
-                                    if let Some(val) = extract_string_array(&obj_prop.value) {
+                                    if let Some(_val) = extract_string_array(&obj_prop.value) {
                                         // meta.bootstrap = val; // NgModuleMeta doesn't have bootstrap field exposed publicly in struct?
                                         // api.rs definition does NOT have bootstrap field.
                                         // Wait, compile_ng_module needs bootstrap?
@@ -1269,7 +1269,7 @@ pub fn extract_ng_module_metadata<'a>(
                                     }
                                 }
                                 "id" => {
-                                    if let Some(val) = extract_string_value(&obj_prop.value) {
+                                    if let Some(_val) = extract_string_value(&obj_prop.value) {
                                         // meta.id = Some(val); // No id field in NgModuleMeta
                                     }
                                 }

@@ -327,7 +327,7 @@ impl PartialComponentLinker2 {
                                 if type_name.ends_with("Input") {
                                     let mut binding_name = prop_name.clone();
                                     let mut required = false;
-                                    let mut is_signal = false;
+                                    let is_signal = false;
                                     let mut transform_function = None;
                                     let mut alias = None;
 
@@ -406,7 +406,7 @@ impl PartialComponentLinker2 {
                 .map(|q| {
                     let q_obj = q.get_object()?;
                     let property_name = q_obj.get_string("propertyName")?;
-                    let is_signal = q_obj.get_bool("isSignal").unwrap_or(false);
+                    let _is_signal = q_obj.get_bool("isSignal").unwrap_or(false);
                     // eprintln!("[Linker Debug] Query {} isSignal: {}", property_name, is_signal);
                     let first = q_obj.get_bool("first").unwrap_or(false);
                     let predicate = if q_obj.has("predicate") {
@@ -486,7 +486,7 @@ impl PartialComponentLinker2 {
                 .map(|q| {
                     let q_obj = q.get_object()?;
                     let property_name = q_obj.get_string("propertyName")?;
-                    let is_signal = q_obj.get_bool("isSignal").unwrap_or(false);
+                    let _is_signal = q_obj.get_bool("isSignal").unwrap_or(false);
                     // DEBUG: Log view query details
 
                     let first = q_obj.get_bool("first").unwrap_or(false);
@@ -888,7 +888,7 @@ impl PartialComponentLinker2 {
                         let directive_ref;
                         let mut inputs = None;
                         let mut outputs = None;
-                        let mut is_forward_reference = false;
+                        let is_forward_reference = false;
 
                         if let Ok(d_obj) = d.get_object() {
                             // eprintln!("[Linker Debug] Processing hostDirective object");
@@ -1454,11 +1454,11 @@ fn convert_dependency_expression<TExpression: AstNode>(
                             // eprintln!("[Linker Debug] Argument is function expression");
                             match host.parse_return_value(arg) {
                                 Ok(ret_val) => {
-                                    let ret_str = host.print_node(&ret_val);
+                                    let _ret_str = host.print_node(&ret_val);
                                     // eprintln!("[Linker Debug] Parsed return value: {}", ret_str);
                                     return convert_dependency_expression(host, &ret_val);
                                 }
-                                Err(e) => {
+                                Err(_e) => {
                                     // eprintln!("[Linker Debug] Failed to parse return value: {}", e);
                                 }
                             }

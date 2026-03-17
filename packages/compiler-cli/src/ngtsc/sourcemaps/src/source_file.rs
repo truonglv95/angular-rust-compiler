@@ -44,7 +44,7 @@ impl SourceMapBuilder {
     pub fn add_mapping(
         &mut self,
         gen_line: u32,
-        gen_col: u32,
+        _gen_col: u32,
         src_line: u32,
         src_col: u32,
         source_idx: usize,

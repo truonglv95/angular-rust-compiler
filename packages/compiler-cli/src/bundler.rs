@@ -1,13 +1,119 @@
+use crate::cache::{AstCache, CachedAstBuilder};
 use crate::compile::parallel::parallel_compile;
 use crate::config::angular::AngularConfig;
+use crate::incremental::{
+    compute_changed_files, invalidate_changed, partition_files, update_analysis_cache,
+    update_versions, AnalysisCache, FileDependencyGraph, FileVersionMap,
+};
 use anyhow::Result;
+use dashmap::DashMap;
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{Argument, Expression as OxcExpression, Statement};
+use oxc_ast::ast::{Expression as OxcExpression, Statement};
 use oxc_parser::Parser;
 use oxc_span::{GetSpan, SourceType};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::hash::Hasher;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use xxhash_rust::xxh3::Xxh3;
 
+fn hash_directory_mtime(dir: &Path, hasher: &mut Xxh3) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        let mut paths: Vec<_> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
+        paths.sort(); // Consistent order
+        for path in paths {
+            if path.is_dir() {
+                hash_directory_mtime(&path, hasher);
+            } else if path.is_file() {
+                let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+                if ext == "ts"
+                    || ext == "html"
+                    || ext == "css"
+                    || ext == "scss"
+                    || ext == "js"
+                    || ext == "json"
+                {
+                    if let Ok(m) = std::fs::metadata(&path) {
+                        if let Ok(mtime) = m.modified() {
+                            hasher.write(path.to_string_lossy().as_bytes());
+                            if let Ok(duration) = mtime.duration_since(std::time::UNIX_EPOCH) {
+                                hasher.write_u64(duration.as_millis() as u64);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn compute_project_fingerprint(project_path: &Path) -> u64 {
+    let mut hasher = Xxh3::new();
+    let root_dir = project_path.parent().unwrap_or_else(|| Path::new("."));
+
+    // Hash angular.json
+    if let Ok(m) = std::fs::metadata(project_path) {
+        if let Ok(mtime) = m.modified() {
+            hasher.write(project_path.to_string_lossy().as_bytes());
+            if let Ok(duration) = mtime.duration_since(std::time::UNIX_EPOCH) {
+                hasher.write_u64(duration.as_millis() as u64);
+            }
+        }
+    }
+
+    // Scan src dir
+    let src_dir = root_dir.join("src");
+    hash_directory_mtime(&src_dir, &mut hasher);
+
+    hasher.finish()
+}
+
+pub fn hash_style_directory_mtime(dir: &Path, hasher: &mut Xxh3) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        let mut paths: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+        paths.sort();
+        for path in paths {
+            if path.is_dir() {
+                hash_style_directory_mtime(&path, hasher);
+            } else if let Some(ext) = path.extension() {
+                if ext == "scss" || ext == "sass" || ext == "css" {
+                    if let Ok(metadata) = path.metadata() {
+                        if let Ok(mtime) = metadata.modified() {
+                            let duration = mtime
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default();
+                            hasher.update(path.to_string_lossy().as_bytes());
+                            hasher.update(&duration.as_nanos().to_le_bytes());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn compute_style_fingerprint(project_path: &Path) -> u64 {
+    let mut hasher = Xxh3::new();
+    let root_dir = project_path.parent().unwrap_or_else(|| Path::new("."));
+
+    // Hash angular.json
+    if let Ok(m) = std::fs::metadata(project_path) {
+        if let Ok(mtime) = m.modified() {
+            hasher.write(project_path.to_string_lossy().as_bytes());
+            if let Ok(duration) = mtime.duration_since(std::time::UNIX_EPOCH) {
+                hasher.write_u64(duration.as_millis() as u64);
+            }
+        }
+    }
+
+    // Scan src dir for style files only
+    let src_dir = root_dir.join("src");
+    hash_style_directory_mtime(&src_dir, &mut hasher);
+
+    hasher.finish()
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct BundleResult {
     pub bundle_js: String,
     pub bundle_name: String,
@@ -25,79 +131,161 @@ pub struct BundleResult {
 
 /// Configuration for bundling - extracted from angular.json
 /// This avoids hardcoding paths like "/dist/" throughout the codebase
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct BundleConfig {
     pub source_root: String, // e.g., "src"
     pub output_dir: String,  // e.g., "dist"
 }
 
 /// Represents result of scanning a file for imports
-struct ImportScanResult {
-    static_imports: Vec<PathBuf>,
-    dynamic_imports: Vec<PathBuf>,
-    resources: Vec<PathBuf>,
+#[derive(Clone)]
+pub struct ImportScanResult {
+    pub static_imports: Vec<PathBuf>,
+    pub dynamic_imports: Vec<PathBuf>,
+    pub resources: Vec<PathBuf>,
 }
 
-/// Scans a TypeScript/JavaScript file for static and dynamic imports
-fn scan_imports(file_path: &Path, root_dir: &Path) -> Result<ImportScanResult> {
+pub type ScanCache = Arc<DashMap<PathBuf, ImportScanResult>>;
+pub type StyleCache = Arc<DashMap<u64, (String, HashMap<String, String>)>>;
+
+fn do_scan_imports(
+    file_path: &Path,
+    root_dir: &Path,
+    ast_cache: Option<&AstCache>,
+) -> Result<ImportScanResult> {
     let content = std::fs::read_to_string(file_path)?;
 
-    let allocator = Allocator::default();
-    let source_type = SourceType::from_path(file_path)
-        .unwrap_or_default()
-        .with_typescript(true);
-    let ret = Parser::new(&allocator, &content, source_type).parse();
-
-    let mut static_imports = Vec::new();
-    let mut dynamic_imports = Vec::new();
-    let mut resources = HashSet::new();
-
-    let file_dir = file_path.parent().unwrap_or(root_dir);
-
-    scan_resources(&ret.program, file_dir, root_dir, &mut resources);
-
-    for stmt in &ret.program.body {
-        // Static imports: import ... from '...'
-        if let Statement::ImportDeclaration(decl) = stmt {
-            let specifier = decl.source.value.as_str();
-
-            if let Some(resolved) = resolve_import(specifier, file_dir, root_dir) {
-                // eprintln!("Found static import: {:?} -> {:?}", specifier, resolved);
-                static_imports.push(resolved);
-            } else {
-                eprintln!(
-                    "Failed to resolve static import: '{}' in '{:?}' (root: {:?})",
-                    specifier, file_path, root_dir
-                );
-            }
+    // If we have a cache, build the self-referencing AST container
+    if let Some(ast_cache) = ast_cache {
+        let cached_ast = CachedAstBuilder {
+            source: content.clone(),
+            allocator: Allocator::default(),
+            program_builder: |source, allocator| {
+                let source_type = SourceType::from_path(file_path)
+                    .unwrap_or_default()
+                    .with_typescript(true);
+                Parser::new(allocator, source, source_type).parse().program
+            },
         }
+        .build();
 
-        // Export from: export ... from '...'
-        if let Statement::ExportNamedDeclaration(decl) = stmt {
-            if let Some(source) = &decl.source {
-                let specifier = source.value.as_str();
+        // borrow the program safely to scan
+        let result = cached_ast.with_program(|program| {
+            let mut static_imports = Vec::new();
+            let mut dynamic_imports = Vec::new();
+            let mut resources = HashSet::new();
+
+            let file_dir = file_path.parent().unwrap_or(root_dir);
+
+            scan_resources(program, file_dir, root_dir, &mut resources);
+
+            for stmt in &program.body {
+                // Static imports: import ... from '...'
+                if let Statement::ImportDeclaration(decl) = stmt {
+                    let specifier = decl.source.value.as_str();
+
+                    if let Some(resolved) = resolve_import(specifier, file_dir, root_dir) {
+                        static_imports.push(resolved);
+                    } else {
+                        eprintln!(
+                            "Failed to resolve static import: '{}' in '{:?}' (root: {:?})",
+                            specifier, file_path, root_dir
+                        );
+                    }
+                }
+
+                // Export from: export ... from '...'
+                if let Statement::ExportNamedDeclaration(decl) = stmt {
+                    if let Some(source) = &decl.source {
+                        let specifier = source.value.as_str();
+                        if let Some(resolved) = resolve_import(specifier, file_dir, root_dir) {
+                            static_imports.push(resolved);
+                        }
+                    }
+                }
+
+                if let Statement::ExportAllDeclaration(decl) = stmt {
+                    let specifier = decl.source.value.as_str();
+                    if let Some(resolved) = resolve_import(specifier, file_dir, root_dir) {
+                        static_imports.push(resolved);
+                    }
+                }
+            }
+
+            // Scan for dynamic imports: import('...')
+            scan_dynamic_imports_in_program(program, file_dir, root_dir, &mut dynamic_imports);
+
+            ImportScanResult {
+                static_imports,
+                dynamic_imports,
+                resources: resources.into_iter().collect(),
+            }
+        });
+
+        // Store in global AST cache *after* we are done borrowing
+        ast_cache.insert(file_path.to_path_buf(), cached_ast);
+
+        Ok(result)
+    } else {
+        // Fallback: Just parse without caching AST
+        let allocator = Allocator::default();
+        let source_type = SourceType::from_path(file_path)
+            .unwrap_or_default()
+            .with_typescript(true);
+        let ret = Parser::new(&allocator, &content, source_type).parse();
+
+        let mut static_imports = Vec::new();
+        let mut dynamic_imports = Vec::new();
+        let mut resources = HashSet::new();
+
+        let file_dir = file_path.parent().unwrap_or(root_dir);
+
+        scan_resources(&ret.program, file_dir, root_dir, &mut resources);
+
+        for stmt in &ret.program.body {
+            if let Statement::ImportDeclaration(decl) = stmt {
+                let specifier = decl.source.value.as_str();
+                if let Some(resolved) = resolve_import(specifier, file_dir, root_dir) {
+                    static_imports.push(resolved);
+                }
+            }
+            if let Statement::ExportNamedDeclaration(decl) = stmt {
+                if let Some(source) = &decl.source {
+                    let specifier = source.value.as_str();
+                    if let Some(resolved) = resolve_import(specifier, file_dir, root_dir) {
+                        static_imports.push(resolved);
+                    }
+                }
+            }
+            if let Statement::ExportAllDeclaration(decl) = stmt {
+                let specifier = decl.source.value.as_str();
                 if let Some(resolved) = resolve_import(specifier, file_dir, root_dir) {
                     static_imports.push(resolved);
                 }
             }
         }
+        scan_dynamic_imports_in_program(&ret.program, file_dir, root_dir, &mut dynamic_imports);
 
-        if let Statement::ExportAllDeclaration(decl) = stmt {
-            let specifier = decl.source.value.as_str();
-            if let Some(resolved) = resolve_import(specifier, file_dir, root_dir) {
-                static_imports.push(resolved);
-            }
-        }
+        Ok(ImportScanResult {
+            static_imports,
+            dynamic_imports,
+            resources: resources.into_iter().collect(),
+        })
     }
+}
 
-    // Scan for dynamic imports: import('...')
-    scan_dynamic_imports_in_program(&ret.program, file_dir, root_dir, &mut dynamic_imports);
-
-    Ok(ImportScanResult {
-        static_imports,
-        dynamic_imports,
-        resources: resources.into_iter().collect(),
-    })
+fn scan_imports(
+    file_path: &Path,
+    root_dir: &Path,
+    cache: &ScanCache,
+    ast_cache: Option<&AstCache>,
+) -> Result<ImportScanResult> {
+    if let Some(cached) = cache.get(file_path) {
+        return Ok(cached.clone());
+    }
+    let result = do_scan_imports(file_path, root_dir, ast_cache)?;
+    cache.insert(file_path.to_path_buf(), result.clone());
+    Ok(result)
 }
 
 /// Recursively scan for dynamic import() calls in the AST
@@ -338,7 +526,12 @@ fn scan_dynamic_imports_in_expr(
 }
 
 /// Topologically sort files based on imports
-fn sort_files_topologically(files: &[PathBuf], root_dir: &Path) -> Result<Vec<PathBuf>> {
+fn sort_files_topologically(
+    files: &[PathBuf],
+    root_dir: &Path,
+    cache: &ScanCache,
+    ast_cache: &AstCache,
+) -> Result<Vec<PathBuf>> {
     let mut adj: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
     let file_set: HashSet<&PathBuf> = files.iter().collect();
 
@@ -346,7 +539,7 @@ fn sort_files_topologically(files: &[PathBuf], root_dir: &Path) -> Result<Vec<Pa
         if !file.exists() {
             continue;
         }
-        let scan = scan_imports(file, root_dir)?;
+        let scan = scan_imports(file, root_dir, cache, Some(ast_cache))?;
         let mut deps = Vec::new();
         for dep in scan.static_imports {
             if file_set.contains(&dep) {
@@ -1781,11 +1974,12 @@ fn normalize_path(path: &Path) -> PathBuf {
     components.iter().collect()
 }
 
-/// Build the import graph starting from entry point
 fn build_import_graph(
     entry: &Path,
     root_dir: &Path,
     ignored_files: Option<&HashSet<PathBuf>>,
+    cache: &ScanCache,
+    ast_cache: Option<&AstCache>,
 ) -> Result<(HashSet<PathBuf>, HashSet<PathBuf>, HashSet<PathBuf>)> {
     let mut static_set = HashSet::new();
     let mut dynamic_set = HashSet::new();
@@ -1808,13 +2002,13 @@ fn build_import_graph(
         }
         visited.insert(file.clone());
 
-        if !file.exists() {
+        if !file.exists() || file.is_dir() {
             continue;
         }
 
         static_set.insert(file.clone());
 
-        let scan_result = scan_imports(&file, root_dir)?;
+        let scan_result = scan_imports(&file, root_dir, cache, ast_cache)?;
 
         // Add static imports to queue
         for static_import in scan_result.static_imports {
@@ -1836,10 +2030,104 @@ fn build_import_graph(
 
     Ok((static_set, dynamic_set, resources_set))
 }
+pub fn resolve_cache_dir(config_file: &Path) -> PathBuf {
+    let mut version = "unknown".to_string();
+    let mut project_name = "default-app".to_string();
 
-pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
+    let root_dir = config_file.parent().unwrap_or(Path::new("."));
+
+    // Read version from @angular/core
+    let core_pkg_path = root_dir.join("node_modules/@angular/core/package.json");
+    if let Ok(content) = std::fs::read_to_string(&core_pkg_path) {
+        if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(v) = pkg.get("version").and_then(|v| v.as_str()) {
+                version = v.to_string();
+            }
+        }
+    }
+
+    // Read project name from angular.json
+    if let Ok(content) = std::fs::read_to_string(config_file) {
+        if let Ok(angular_json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(projects) = angular_json.get("projects").and_then(|p| p.as_object()) {
+                if let Some(first_key) = projects.keys().next() {
+                    project_name = first_key.clone();
+                }
+            }
+        }
+    }
+
+    root_dir.join(format!(".angular/cache/{}/{}", version, project_name))
+}
+
+/// Seed the version_map by scanning the project src/ directory for .ts files
+/// and recording their current mtime+size. Called on JSON bundle cache hits so
+/// the first HMR trigger after a cached startup can do incremental compilation.
+fn seed_version_map_from_src(src_dir: &Path, version_map: &FileVersionMap) {
+    // Collect ALL .ts files first — then call update_versions once with the
+    // full list so the retain() inside update_versions doesn't erase entries
+    // added in previous iterations.
+    fn walk_dir(dir: &Path, files: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk_dir(&path, files);
+            } else if path.extension().map(|e| e == "ts").unwrap_or(false) {
+                files.push(path);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk_dir(src_dir, &mut files);
+    use crate::incremental::update_versions;
+    update_versions(&files, version_map);
+    eprintln!(
+        "[INCREMENTAL] seeded version_map with {} entries from {:?}",
+        version_map.len(),
+        src_dir
+    );
+}
+
+pub fn bundle_project(
+    project_path: &Path,
+    dev_mode: bool,
+    scan_cache: &ScanCache,
+    ast_cache: &AstCache,
+    style_cache: &StyleCache,
+    version_map: &FileVersionMap,
+    analysis_cache: &AnalysisCache,
+) -> Result<BundleResult> {
+    let t_init = std::time::Instant::now();
+    let fingerprint = compute_project_fingerprint(project_path);
+    eprintln!(
+        "[TIMING] compute_project_fingerprint: {:?}",
+        t_init.elapsed()
+    );
+    let cache_dir = resolve_cache_dir(project_path);
+    let cache_file = cache_dir.join(format!("bundle_{}.json", fingerprint));
+
+    if cache_file.exists() {
+        if let Ok(content) = std::fs::read_to_string(&cache_file) {
+            if let Ok(result) = serde_json::from_str::<BundleResult>(&content) {
+                // Even on cache hit, seed the version_map so the first HMR trigger
+                // can use incremental compilation instead of a full recompile.
+                if version_map.is_empty() {
+                    let root_dir = project_path.parent().unwrap_or_else(|| Path::new("."));
+                    let src_dir = root_dir.join("src");
+                    seed_version_map_from_src(&src_dir, version_map);
+                }
+                return Ok(result);
+            }
+        }
+    }
+
     // 1. Load configuration
+    let t_cfg = std::time::Instant::now();
     let config = AngularConfig::load(project_path)?;
+    eprintln!("[TIMING] AngularConfig::load: {:?}", t_cfg.elapsed());
     let (_name, project) = config
         .projects
         .iter()
@@ -1878,61 +2166,46 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
         return Err(anyhow::anyhow!("Entry file not found: {:?}", main_file));
     }
 
-    // Determine bundle name from main_file (entry point)
     let bundle_name = main_file
         .file_name()
         .and_then(|n| n.to_str())
         .map(|s| s.replace(".ts", ".js"))
         .unwrap_or_else(|| "main.js".to_string());
 
-    // eprintln!("Building from entry: {:?}", main_file);
-
-    // 3. Build import graph for MAIN bundle (no ignored files initially)
-    let (static_files, dynamic_files, resource_files) =
-        build_import_graph(&main_file, root_dir, None)?;
-
-    // eprintln!(
-    //     "Main Bundle: Static files: {}, Dynamic (lazy) entry points: {}",
-    //     static_files.len(),
-    //     dynamic_files.len()
-    // );
+    // 3. Build import graph for MAIN bundle
+    let t0 = std::time::Instant::now();
+    let (static_files, dynamic_files, _) =
+        build_import_graph(&main_file, root_dir, None, scan_cache, Some(ast_cache))?;
+    eprintln!(
+        "[TIMING] import_graph: {:?}  ({} static, {} dynamic)",
+        t0.elapsed(),
+        static_files.len(),
+        dynamic_files.len()
+    );
 
     // 4. Compile static files (Sources only) and read Libs
     let mut source_files = Vec::new();
     let mut lib_files = Vec::new();
 
     for path in &static_files {
-        if path.to_string_lossy().contains("node_modules") {
+        if path.as_path().to_string_lossy().contains("node_modules") {
             lib_files.push(path.clone());
         } else {
             source_files.push(path.clone());
         }
     }
 
+    eprintln!(
+        "[TIMING] source_files: {}, lib_files: {}",
+        source_files.len(),
+        lib_files.len()
+    );
+
     // Sort source files topologically
-    let sorted_source_files = sort_files_topologically(&source_files, root_dir)?;
-
-    // Compile source files
-    let raw_compiled = parallel_compile(&source_files, project_path, hmr)?;
-    let mut compiled_map: HashMap<PathBuf, String> = raw_compiled
-        .into_iter()
-        .map(|(p, c)| (normalize_path(&p), c))
-        .collect();
-
-    // Create ordered compiled contents
-
-    // Create ordered compiled contents
-    let mut compiled_contents: Vec<(std::path::PathBuf, String)> = Vec::new();
-
-    for path in &sorted_source_files {
-        // Construct lookup key: dist/{relative_source_path_with_js_ext}
-        let relative = path.strip_prefix(root_dir).unwrap_or(path);
-        let dist_key = Path::new("dist").join(relative.with_extension("js"));
-
-        if let Some(content) = compiled_map.remove(&dist_key) {
-            compiled_contents.push((path.clone(), content));
-        }
-    }
+    let t1 = std::time::Instant::now();
+    let sorted_source_files =
+        sort_files_topologically(&source_files, root_dir, scan_cache, ast_cache)?;
+    eprintln!("[TIMING] topo_sort: {:?}", t1.elapsed());
 
     // 5. Build chunks for dynamic imports (Calculate first to allow import rewriting)
     let mut chunks = HashMap::new();
@@ -1942,32 +2215,164 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
     let mut raw_files_map: HashMap<String, String> = HashMap::new();
     let mut module_to_chunk = HashMap::new();
 
+    use rayon::prelude::*;
     use xxhash_rust::xxh3::xxh3_64;
 
-    for dynamic_entry in &dynamic_files {
-        if !dynamic_entry.exists() {
+    // ── Phase A: Discovery - Build import graphs for all chunks ──────────────
+    // Each thread clones the scan cache to avoid contention.
+    let t_discovery = std::time::Instant::now();
+    let chunk_info: Vec<(PathBuf, Vec<PathBuf>)> = dynamic_files
+        .par_iter()
+        .filter(|entry| entry.exists())
+        .map(|dynamic_entry: &PathBuf| {
+            let (chunk_static_files, _, _) = build_import_graph(
+                dynamic_entry,
+                root_dir,
+                Some(&static_files),
+                scan_cache,
+                Some(ast_cache),
+            )?;
+            let chunk_files_vec: Vec<PathBuf> = chunk_static_files.into_iter().collect();
+            Ok((dynamic_entry.clone(), chunk_files_vec))
+        })
+        .collect::<Result<_>>()?;
+    eprintln!(
+        "[TIMING] chunk_discovery: {:?}  ({} chunks)",
+        t_discovery.elapsed(),
+        chunk_info.len()
+    );
+
+    // ── Phase B: Aggregation - Collect ALL unique source files ───────────────
+    let mut all_source_files_set = HashSet::new();
+    for path in &source_files {
+        all_source_files_set.insert(path.clone());
+    }
+    for (_, chunk_files) in &chunk_info {
+        for path in chunk_files {
+            if !path.to_string_lossy().contains("node_modules") {
+                all_source_files_set.insert(path.clone());
+            }
+        }
+    }
+    let all_source_files: Vec<PathBuf> = all_source_files_set.into_iter().collect();
+
+    // ── Phase C: Unified Parallel Compile (with incremental fast-path) ─────
+    let t_compile = std::time::Instant::now();
+
+    // ─ Phase 1: Detect physically changed files via mtime+size ─────────────
+    eprintln!(
+        "[INCREMENTAL] version_map has {} entries at start of bundle",
+        version_map.len()
+    );
+    let physically_changed = compute_changed_files(&all_source_files, version_map);
+
+    // ─ Phase 2: Propagate logical changes through dep graph ─────────────────
+    // Build reverse dep graph from the already-populated ScanCache.
+    let dep_graph = FileDependencyGraph::from_scan_cache(scan_cache);
+    let logical_changed =
+        dep_graph.compute_logical_changes(&physically_changed, &std::collections::HashSet::new());
+
+    // ─ Phase 3: Partition files into must-recompile vs can-reuse ────────────
+    let (should_recompile, can_reuse) =
+        partition_files(&all_source_files, &logical_changed, analysis_cache);
+
+    eprintln!(
+        "[TIMING][INCREMENTAL] physical_changes={} logical_changes={} recompile={} reuse={}",
+        physically_changed.len(),
+        logical_changed.len(),
+        should_recompile.len(),
+        can_reuse.len(),
+    );
+
+    // Invalidate stale analysis cache entries before compiling
+    invalidate_changed(&logical_changed, analysis_cache);
+
+    // Only run parallel_compile on the minimal set
+    let new_compiled: Vec<(PathBuf, String)> = if should_recompile.is_empty() {
+        vec![]
+    } else {
+        parallel_compile(&should_recompile, project_path, dev_mode)?
+    };
+
+    // Merge: freshly compiled (dist-path keys from CapturingFileSystem) + cached reuse.
+    // IMPORTANT: cached entries must also use dist-path keys so Phase D's
+    // `global_compiled_map.get(&dist_key)` lookup finds them.
+    let mut all_raw_compiled: Vec<(PathBuf, String)> = new_compiled.clone();
+    for path in &can_reuse {
+        if let Some(cached) = analysis_cache.get(path) {
+            // Convert source path → dist key to match the format Phase D expects.
+            let relative = path.strip_prefix(root_dir).unwrap_or(path.as_path());
+            let dist_key = Path::new("dist").join(relative.with_extension("js"));
+            all_raw_compiled.push((dist_key, cached.compiled_js.clone()));
+        }
+    }
+
+    eprintln!(
+        "[TIMING] parallel_compile (unified): {:?}  ({} files compiled, {} cached)",
+        t_compile.elapsed(),
+        should_recompile.len(),
+        can_reuse.len()
+    );
+
+    let mut global_compiled_map: HashMap<PathBuf, String> = all_raw_compiled
+        .into_iter()
+        .map(|(p, c)| (normalize_path(p.as_path()), c))
+        .collect();
+
+    // ── Phase D: Preparation - Distribute to Main Bundle Contents ─────────────
+    let mut compiled_contents: Vec<(std::path::PathBuf, String)> = Vec::new();
+    for path in &sorted_source_files {
+        let relative = path.strip_prefix(root_dir).unwrap_or(path);
+        let dist_key = Path::new("dist").join(relative.with_extension("js"));
+
+        if let Some(content) = global_compiled_map.get(&dist_key) {
+            compiled_contents.push((path.clone(), content.clone()));
+        } else {
+            let abs_key = normalize_path(&root_dir.join(&dist_key));
+            if let Some(content) = global_compiled_map.get(&abs_key) {
+                compiled_contents.push((path.clone(), content.clone()));
+            }
+        }
+    }
+
+    // ── Phase E: Chunks - Sequential post-processing ──────────────────────────
+    // Pull from global_compiled_map instead of recompiling.
+    let t_phase_b = std::time::Instant::now();
+    for (dynamic_entry, chunk_files_vec) in chunk_info {
+        if chunk_files_vec.is_empty() {
             continue;
         }
-        let chunk_name = dynamic_entry
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("chunk");
 
-        // Pass main bundle files as ignored files so we don't duplicate them in chunks
-        let (chunk_static_files, _, _) =
-            build_import_graph(dynamic_entry, root_dir, Some(&static_files))?;
-        let chunk_files_vec: Vec<PathBuf> = chunk_static_files.into_iter().collect();
+        let mut raw_chunk_compiled = Vec::new();
+        for file_path in &chunk_files_vec {
+            let relative = file_path.strip_prefix(root_dir).unwrap_or(file_path);
+            let dist_key = Path::new("dist").join(relative.with_extension("js"));
+
+            if let Some(content) = global_compiled_map.get(&dist_key) {
+                raw_chunk_compiled.push((dist_key, content.clone()));
+            } else {
+                let abs_key = normalize_path(&root_dir.join(&dist_key));
+                if let Some(content) = global_compiled_map.get(&abs_key) {
+                    raw_chunk_compiled.push((abs_key, content.clone()));
+                }
+            }
+        }
 
         if chunk_files_vec.is_empty() {
             continue;
         }
 
-        let raw_chunk_compiled = parallel_compile(&chunk_files_vec, project_path, hmr)?;
         let chunk_compiled: Vec<(PathBuf, String)> = raw_chunk_compiled
             .into_iter()
             .map(|(p, c)| (normalize_path(&p), c))
             .collect();
         let mut chunk_content = String::new();
+
+        let chunk_name = dynamic_entry
+            .as_path()
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("chunk");
 
         // Header for chunk
         chunk_content.push_str(&format!("// Quantum Chunk: {}\n", chunk_name));
@@ -1988,7 +2393,7 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
         let entry_compiled_path = {
             let entry_rel = dynamic_entry
                 .strip_prefix(root_dir)
-                .unwrap_or(dynamic_entry);
+                .unwrap_or(dynamic_entry.as_path());
             let entry_dist = Path::new(&bundle_config.output_dir).join(entry_rel);
             normalize_path(&entry_dist.with_extension("js"))
         };
@@ -2015,7 +2420,7 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
                     &mut chunk_counters,
                     &bundle_config,
                 )
-                .unwrap_or_else(|_| content.clone());
+                .unwrap_or_else(|_| content.to_string());
 
                 // Format path as source path (like ngtsc output): src/app/... instead of dist/src/app/...
                 let relative_path_str = path
@@ -2081,7 +2486,7 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
         // Get entry file source path for comment
         let entry_source_path = dynamic_entry
             .strip_prefix(root_dir)
-            .unwrap_or(dynamic_entry)
+            .unwrap_or(dynamic_entry.as_path())
             .to_string_lossy()
             .to_string();
 
@@ -2119,7 +2524,7 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
         // Store the full relative source path for import resolution
         let source_path = dynamic_entry
             .strip_prefix(root_dir)
-            .unwrap_or(dynamic_entry)
+            .unwrap_or(dynamic_entry.as_path())
             .to_string_lossy()
             .to_string();
         chunk_names.insert(hashed_name.clone(), source_path);
@@ -2129,6 +2534,7 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
         // Map all source files in this chunk to the hashed name
         for file_path in &chunk_files_vec {
             let rel_path = file_path
+                .as_path()
                 .strip_prefix(root_dir)
                 .unwrap_or(file_path)
                 .to_string_lossy()
@@ -2136,8 +2542,13 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
             module_to_chunk.insert(rel_path, hashed_name.clone());
         }
     }
+    eprintln!(
+        "[TIMING] post_process_chunks (Phase B): {:?}",
+        t_phase_b.elapsed()
+    );
 
     // Populate raw_files_map BEFORE stripping (for dev mode)
+    let t_raw_files = std::time::Instant::now();
     for (path, content) in &compiled_contents {
         let relative_path = path.strip_prefix(root_dir).unwrap_or(path);
         // Convert source path to dist key: src/main.ts -> dist/src/main.js
@@ -2145,8 +2556,50 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
             "dist/{}",
             relative_path.with_extension("js").to_string_lossy()
         );
-        raw_files_map.insert(dist_key, content.clone());
+
+        let mut raw_content = content.clone();
+
+        // Fix: Ensure /* @vite-ignore */ comment exists in HMR dynamic imports for dev mode.
+        let mut edits = Vec::new();
+        let mut search_idx = 0;
+        let mut added_fix = false;
+        while let Some(idx) = raw_content[search_idx..].find("ɵɵgetReplaceMetadataURL") {
+            let actual_idx = search_idx + idx;
+            let lookback_start = actual_idx.saturating_sub(100);
+            let lookback_slice = &raw_content[lookback_start..actual_idx];
+
+            if let Some(import_rel_idx) = lookback_slice.rfind("import(") {
+                let import_start = lookback_start + import_rel_idx;
+                let import_end = import_start + 7; // "import(" length
+
+                // Check if comment already exists between import_end and actual_idx
+                let gap = &raw_content[import_end..actual_idx];
+                if !gap.contains("@vite-ignore") {
+                    edits.push((import_end, import_end, "/* @vite-ignore */ ".to_string()));
+                    added_fix = true;
+                }
+            }
+            search_idx = actual_idx + "ɵɵgetReplaceMetadataURL".len();
+        }
+
+        if added_fix {
+            edits.sort_by(|a, b| b.0.cmp(&a.0));
+            edits.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
+            let mut new_raw = raw_content.clone();
+            for (start, end, replacement) in edits {
+                if start < new_raw.len() && end <= new_raw.len() {
+                    new_raw.replace_range(start..end, &replacement);
+                }
+            }
+            raw_content = new_raw;
+        }
+
+        raw_files_map.insert(dist_key, raw_content);
     }
+    eprintln!(
+        "[TIMING] populate_raw_files_map: {:?}",
+        t_raw_files.elapsed()
+    );
 
     // 6. Build main bundle and files map
     let mut parts = Vec::new();
@@ -2157,6 +2610,7 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
     let dynamic_import_regex =
         regex::Regex::new(r#"(import\s*\(\s*['"])([^'"]+)(['"]\s*\))"#).unwrap();
 
+    let t3 = std::time::Instant::now();
     for (path, content) in &compiled_contents {
         // Strip internal imports and rewrite external ones with unique aliases
         let internal_files_set: HashSet<PathBuf> = source_files.iter().cloned().collect();
@@ -2316,6 +2770,7 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
             parts.push(format!("// {}\n{}\n", source_path, rewritten_content));
         }
     }
+    eprintln!("[TIMING] bundle_main_processing: {:?}", t3.elapsed());
 
     // Bundle content - no polyfills here, they go to separate polyfills.js
     let mut bundle_js = String::new();
@@ -2326,6 +2781,7 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
     // Map main bundle static files to main bundle name
     for file_path in &static_files {
         let rel_path = file_path
+            .as_path()
             .strip_prefix(root_dir)
             .unwrap_or(file_path)
             .to_string_lossy()
@@ -2350,47 +2806,78 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
 
     // 7. Process Styles
     let mut styles_css = None;
-    if let Some(options) = build_options {
-        if let Some(styles) = &options.styles {
-            let mut combined_css = String::new();
-            for style in styles {
-                let path = root_dir.join(style);
-                if path.exists() {
-                    let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-                    let content = if extension == "scss" || extension == "sass" {
-                        let mut options = grass::Options::default();
-                        options = options.load_path(root_dir);
-                        options = options.load_path(root_dir.join("node_modules"));
+    let style_fingerprint = compute_style_fingerprint(project_path);
+    if let Some(cached) = style_cache.get(&style_fingerprint) {
+        eprintln!(
+            "[TIMING] Style cache HIT (fingerprint: {:x})",
+            style_fingerprint
+        );
+        styles_css = Some(cached.0.clone());
+        for (k, v) in &cached.1 {
+            files_map.insert(k.clone(), v.clone());
+        }
+    } else {
+        eprintln!(
+            "[TIMING] Style cache MISS (fingerprint: {:x})",
+            style_fingerprint
+        );
+        if let Some(options) = build_options {
+            if let Some(styles) = &options.styles {
+                let mut combined_css = String::new();
+                let mut style_files_cache: HashMap<String, String> = HashMap::new();
+                for style in styles {
+                    let path = root_dir.join(style);
+                    if path.exists() {
+                        let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+                        let content = if extension == "scss" || extension == "sass" {
+                            let mut options = grass::Options::default();
+                            options = options.load_path(root_dir);
+                            options = options.load_path(root_dir.join("node_modules"));
 
-                        if let Some(parent) = root_dir.parent() {
-                            options = options.load_path(parent.join("node_modules"));
-                        }
-
-                        match grass::from_path(&path, &options) {
-                            Ok(css) => css,
-                            Err(e) => {
-                                eprintln!("[Bundler] SCSS compilation failed for {}: {}", style, e);
-                                // Fallback: try to compile without imports if possible or just return raw
-                                std::fs::read_to_string(&path)?
+                            if let Some(parent) = root_dir.parent() {
+                                options = options.load_path(parent.join("node_modules"));
                             }
-                        }
-                    } else {
-                        let raw_content = std::fs::read_to_string(&path)?;
-                        if extension == "css" {
-                            inline_css_imports(&raw_content, root_dir, &path)
-                        } else {
-                            raw_content
-                        }
-                    };
 
-                    files_map.insert(style.clone(), content.clone());
-                    combined_css.push_str(&format!("/* {} */\n", style));
-                    combined_css.push_str(&content);
-                    combined_css.push_str("\n");
+                            let t_scss = std::time::Instant::now();
+                            match grass::from_path(&path, &options) {
+                                Ok(css) => {
+                                    eprintln!("[TIMING] SCSS {}: {:?}", style, t_scss.elapsed());
+                                    css
+                                }
+                                Err(e) => {
+                                    eprintln!(
+                                        "[TIMING] SCSS (Error) {}: {:?}",
+                                        style,
+                                        t_scss.elapsed()
+                                    );
+                                    eprintln!(
+                                        "[Bundler] SCSS compilation failed for {}: {}",
+                                        style, e
+                                    );
+                                    // Fallback: try to compile without imports if possible or just return raw
+                                    std::fs::read_to_string(&path)?
+                                }
+                            }
+                        } else {
+                            let raw_content = std::fs::read_to_string(&path)?;
+                            if extension == "css" {
+                                inline_css_imports(&raw_content, root_dir, &path)
+                            } else {
+                                raw_content
+                            }
+                        };
+
+                        style_files_cache.insert(style.clone(), content.clone());
+                        files_map.insert(style.clone(), content.clone());
+                        combined_css.push_str(&format!("/* {} */\n", style));
+                        combined_css.push_str(&content);
+                        combined_css.push_str("\n");
+                    }
                 }
-            }
-            if !combined_css.is_empty() {
-                styles_css = Some(combined_css);
+                if !combined_css.is_empty() {
+                    styles_css = Some(combined_css.clone());
+                    style_cache.insert(style_fingerprint, (combined_css, style_files_cache));
+                }
             }
         }
     }
@@ -2472,7 +2959,7 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
 
     let external_imports: Vec<String> = external_import_collector.into_iter().collect();
 
-    Ok(BundleResult {
+    let result = BundleResult {
         bundle_js,
         bundle_name,
         styles_css,
@@ -2485,7 +2972,55 @@ pub fn bundle_project(project_path: &Path, hmr: bool) -> Result<BundleResult> {
         chunk_names,
         module_to_chunk,
         external_imports,
-    })
+    };
+
+    // Persist incremental state: populate analysis_cache with source_path → compiled_js.
+    // Use the same dist_key lookup that Phase D already uses successfully, so
+    // the key format is guaranteed to match.
+    let source_keyed_for_cache: Vec<(PathBuf, String)> = all_source_files
+        .iter()
+        .filter_map(|src| {
+            let relative = src.strip_prefix(root_dir).unwrap_or(src);
+            let dist_key = Path::new("dist").join(relative.with_extension("js"));
+            let js = global_compiled_map.get(&dist_key).or_else(|| {
+                let abs_key = normalize_path(&root_dir.join(&dist_key));
+                global_compiled_map.get(&abs_key)
+            })?;
+            Some((src.clone(), js.clone()))
+        })
+        .collect();
+
+    update_analysis_cache(&source_keyed_for_cache, &all_source_files, analysis_cache);
+    eprintln!(
+        "[INCREMENTAL] calling update_versions for {} files -> version_map will have {} entries",
+        all_source_files.len(),
+        all_source_files.len()
+    );
+    update_versions(&all_source_files, version_map);
+    eprintln!(
+        "[INCREMENTAL] update_versions done: version_map now has {} entries",
+        version_map.len()
+    );
+
+    std::fs::create_dir_all(&cache_dir).ok();
+    // Only persist the JSON bundle cache when the result looks valid.
+    // An empty or tiny main.js (< 1KB) indicates a broken incremental bundle
+    // (e.g. 45 cached files missing from the output), which must not be cached.
+    let main_js_size = result
+        .chunks
+        .get("main")
+        .and_then(|name| result.raw_files.get(name.as_str()))
+        .map(|s| s.len())
+        .unwrap_or(0);
+    if main_js_size >= 1024 {
+        if let Ok(content) = serde_json::to_string(&result) {
+            std::fs::write(&cache_file, content).ok();
+        }
+    } else {
+        eprintln!("[INCREMENTAL] Skipping JSON cache write: main.js is {}B (too small, likely broken bundle)", main_js_size);
+    }
+
+    Ok(result)
 }
 
 fn inline_css_imports(
@@ -2608,6 +3143,130 @@ fn inline_css_imports(
     processed_lines.join("\n")
 }
 
+/// Fast pre-scan: traverse the full import graph using OXC only (no Angular compilation).
+/// Returns all external (non-relative, non-absolute) package specifiers found in source files.
+/// This enables Vite's `optimizeDeps.include` to be populated correctly before full compilation,
+/// eliminating the cold-start force-reload cycle.
+///
+/// Typically completes in ~1-2s vs ~10s for `bundle_project`.
+pub fn scan_external_imports(
+    project_path: &Path,
+    ast_cache: Option<&AstCache>,
+) -> Result<Vec<String>> {
+    let t0 = std::time::Instant::now();
+    let fingerprint = compute_project_fingerprint(project_path);
+    let cache_dir = resolve_cache_dir(project_path);
+    let cache_file = cache_dir.join(format!("imports_{}.json", fingerprint));
+
+    if cache_file.exists() {
+        if let Ok(content) = std::fs::read_to_string(&cache_file) {
+            if let Ok(imports) = serde_json::from_str::<Vec<String>>(&content) {
+                return Ok(imports);
+            }
+        }
+    }
+
+    // 1. Load config to find entry point same way bundle_project does
+    let config = AngularConfig::load(project_path)?;
+    let (_name, project) = config
+        .projects
+        .iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No project found in angular.json"))?;
+
+    let build_options = project
+        .architect
+        .as_ref()
+        .and_then(|a| a.get("build"))
+        .and_then(|t| t.options.as_ref());
+
+    let root_dir = project_path.parent().unwrap_or_else(|| Path::new("."));
+
+    let main_file = build_options
+        .and_then(|o| o.main.as_ref())
+        .map(|m| root_dir.join(m))
+        .unwrap_or_else(|| root_dir.join("src/main.ts"));
+
+    if !main_file.exists() {
+        return Err(anyhow::anyhow!("Entry file not found: {:?}", main_file));
+    }
+
+    let scan_cache = Arc::new(DashMap::new());
+
+    // 2. Build the full import graph from the entry point (OXC scan only, no Angular compile)
+    let (static_files, dynamic_files, _resource_files) =
+        build_import_graph(&main_file, root_dir, None, &scan_cache, ast_cache)?;
+
+    // Also scan all dynamic entry points (lazy chunks)
+    let mut all_dynamic_children: HashSet<PathBuf> = HashSet::new();
+    for dyn_entry in &dynamic_files {
+        if dyn_entry.exists() {
+            if let Ok((dyn_static, _, _)) = build_import_graph(
+                dyn_entry,
+                root_dir,
+                Some(&static_files),
+                &scan_cache,
+                ast_cache,
+            ) {
+                all_dynamic_children.extend(dyn_static);
+            }
+        }
+    }
+
+    // 3. Collect all external specifiers from every file in the graph
+    let mut external: HashSet<String> = HashSet::new();
+
+    let all_files: HashSet<PathBuf> = static_files
+        .into_iter()
+        .chain(dynamic_files)
+        .chain(all_dynamic_children)
+        .collect();
+
+    for file in &all_files {
+        // Only process source files (not node_modules — those are already external)
+        if file.to_string_lossy().contains("node_modules") {
+            continue;
+        }
+        let content = match std::fs::read_to_string(file) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let allocator = Allocator::default();
+        let source_type = SourceType::from_path(file)
+            .unwrap_or_default()
+            .with_typescript(true);
+        let ret = Parser::new(&allocator, &content, source_type).parse();
+
+        for stmt in &ret.program.body {
+            let specifier = match stmt {
+                Statement::ImportDeclaration(d) => Some(d.source.value.as_str()),
+                Statement::ExportNamedDeclaration(d) => d.source.as_ref().map(|s| s.value.as_str()),
+                Statement::ExportAllDeclaration(d) => Some(d.source.value.as_str()),
+                _ => None,
+            };
+            if let Some(s) = specifier {
+                // External: not relative and not absolute path
+                if !s.starts_with('.') && !s.starts_with('/') && !s.is_empty() {
+                    // Keep full specifier (e.g. "@angular/material/button") so Vite can
+                    // pre-bundle sub-entry-point packages correctly.
+                    // Only strip non-subpath version qualifiers (bare package + path is kept as-is).
+                    external.insert(s.to_string());
+                }
+            }
+        }
+    }
+
+    let external_imports: Vec<String> = external.into_iter().collect();
+
+    std::fs::create_dir_all(&cache_dir).ok();
+    if let Ok(content) = serde_json::to_string(&external_imports) {
+        std::fs::write(&cache_file, content).ok();
+    }
+
+    eprintln!("[TIMING] scan_external_imports: {:?}", t0.elapsed());
+    Ok(external_imports)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2702,9 +3361,17 @@ mod tests {
             "export const unique = 'unique';",
         );
 
+        let test_cache = Arc::new(DashMap::new());
+
         // 1. Build Main Graph
-        let (main_static, main_dynamic, _) =
-            build_import_graph(&root_dir.join("main.ts"), &root_dir, None).unwrap();
+        let (main_static, main_dynamic, _) = build_import_graph(
+            &root_dir.join("main.ts"),
+            &root_dir,
+            None,
+            &test_cache,
+            None,
+        )
+        .unwrap();
 
         assert!(main_static.contains(&root_dir.join("main.ts")));
         assert!(main_static.contains(&root_dir.join("shared.ts")));
@@ -2720,7 +3387,8 @@ mod tests {
         // main_static contains absolute paths.
 
         let (lazy_static, _, _) =
-            build_import_graph(lazy_entry, &root_dir, Some(&main_static)).unwrap();
+            build_import_graph(lazy_entry, &root_dir, Some(&main_static), &test_cache, None)
+                .unwrap();
 
         assert!(lazy_static.contains(&root_dir.join("lazy.ts")));
         assert!(lazy_static.contains(&root_dir.join("unique.ts")));

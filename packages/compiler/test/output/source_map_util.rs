@@ -66,11 +66,10 @@ pub fn original_position_for(
     let mappings: Vec<&str> = source_map.mappings.split(';').collect();
 
     // State
-    let mut current_gen_line = 0;
     // let mut current_gen_col = 0; // Reset every line? No, relative to previous segment
-    let mut source_idx = 0;
-    let mut source_line = 0; // 0-based in mappings
-    let mut source_col = 0;
+    let mut _source_idx = 0;
+    let mut _source_line = 0; // 0-based in mappings
+    let mut _source_col = 0;
     // let mut name_idx = 0;
 
     // Iterate lines
@@ -104,7 +103,7 @@ pub fn original_position_for(
             // 0: gen col (relative)
             current_gen_col += values[0];
 
-            let mut current_segment_matches = false;
+            let mut _current_segment_matches = false;
             if (line_idx as u32) == gen_line {
                 // We are on the target line.
                 // Check if this segment covers the target column.
@@ -113,7 +112,7 @@ pub fn original_position_for(
                 // But simplified: exact match or closest preceding?
                 // The Mozilla implementation uses greatest lower bound.
                 if (current_gen_col as u32) <= gen_col {
-                    current_segment_matches = true;
+                    _current_segment_matches = true;
                 } else {
                     // This segment is after the target column, and we were looking for the greatest lower bound.
                     // So the PREVIOUS segment was the one suitable.
@@ -124,11 +123,11 @@ pub fn original_position_for(
 
             if values.len() >= 4 {
                 // 1: source idx (relative)
-                source_idx += values[1];
+                _source_idx += values[1];
                 // 2: source line (relative)
-                source_line += values[2];
+                _source_line += values[2];
                 // 3: source col (relative)
-                source_col += values[3];
+                _source_col += values[3];
 
                 // 4: name idx (relative) - optional
                 // if values.len() >= 5 { name_idx += values[4]; }

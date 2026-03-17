@@ -4,6 +4,7 @@ use super::capturing_fs::CapturingFileSystem;
 use crate::ngtsc::core::NgCompilerOptions;
 use crate::ngtsc::file_system::NodeJSFileSystem;
 use crate::ngtsc::program::NgtscProgram;
+use std::sync::Arc;
 use std::time::Instant;
 
 pub fn parallel_compile(
@@ -11,7 +12,7 @@ pub fn parallel_compile(
     project_path: &Path,
     hmr: bool,
 ) -> anyhow::Result<Vec<(PathBuf, String)>> {
-    let start = Instant::now();
+    let _start = Instant::now();
     // println!(
     //     "Compiling {} files in parallel (via NgCompiler)...",
     //     files.len()
@@ -31,9 +32,8 @@ pub fn parallel_compile(
 
     // Use CapturingFileSystem to intercept writes
     let fs = NodeJSFileSystem::new(); // case-sensitive by default or system dependent
-    let capturing_fs = CapturingFileSystem::new(fs);
-
-    let mut program = NgtscProgram::new(root_names, options, &capturing_fs);
+    let capturing_fs = Arc::new(CapturingFileSystem::new(fs));
+    let mut program = NgtscProgram::new(root_names, options, capturing_fs.clone());
 
     // Initial analysis
     // eprintln!("Analyzing structure... Files: {}", files.len());

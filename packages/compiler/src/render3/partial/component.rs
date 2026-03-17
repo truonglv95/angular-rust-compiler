@@ -8,7 +8,7 @@ use crate::output::output_ast::{
     Expression, ExternalExpr, InvokeFunctionExpr, LiteralArrayExpr, LiteralExpr, LiteralValue,
     ReadPropExpr,
 };
-use crate::parse_util::{ParseLocation, ParseSourceFile, ParseSourceSpan};
+use crate::parse_util::{ParseLocation, ParseSourceSpan};
 use crate::render3::r3_identifiers::Identifiers as R3;
 use crate::render3::util::{generate_forward_ref, R3CompiledExpression};
 use crate::render3::view::api::{

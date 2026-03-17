@@ -66,3 +66,8 @@ export class CheckboxTestComponent {
     this.task.subtasks.forEach((t) => (t.completed = completed));
   }
 }
+// HMR TEST UPDATE
+console.log('HMR WORKED! The file was updated.');
+
+// FINAL HMR TEST 100
+console.log('HMR WORKED V100!');

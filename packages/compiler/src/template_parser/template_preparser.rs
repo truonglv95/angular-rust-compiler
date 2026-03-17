@@ -119,7 +119,7 @@ fn normalize_ng_content_select(select_attr: Option<String>) -> String {
 mod tests {
     use super::*;
     use crate::ml_parser::ast::{Attribute, Element};
-    use crate::parse_util::{ParseLocation, ParseSourceFile, ParseSourceSpan};
+    use crate::parse_util::{ParseLocation, ParseSourceSpan};
 
     fn create_element(name: &str, attrs: Vec<Attribute>) -> Element {
         let source_span = ParseSourceSpan::new(

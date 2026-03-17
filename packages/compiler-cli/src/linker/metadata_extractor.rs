@@ -186,14 +186,14 @@ pub fn extract_metadata_from_linked(
                 // eprintln!("[Rust] Processed module: {}", module_path);
                 for m in &modules {
                     // eprintln!("[Rust]   Extracted NgModule: {}", m.name);
-                    for e in &m.exports {
+                    for _e in &m.exports {
                         // eprintln!(
                         //     "[Rust]     Export: {} (Source: {:?})",
                         //     e.exported_name, e.source_path
                         // );
                     }
                 }
-                for d in &directives {
+                for _d in &directives {
                     // eprintln!(
                     //     "[Rust]   Extracted Directive: {} (Selector: {})",
                     //     d.name, d.selector

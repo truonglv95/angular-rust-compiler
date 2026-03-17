@@ -82,10 +82,6 @@ fn add_trailing_statements<'a>(
     let parse_result = parser.parse();
 
     if !parse_result.errors.is_empty() {
-        eprintln!(
-            "[AST Transformer] Parse Error in trailing statements: {:?}",
-            parse_result.errors
-        );
         return;
     }
 
@@ -122,15 +118,10 @@ fn add_trailing_statements<'a>(
     }
 
     if let Some(idx) = class_idx {
-        // eprintln!("[AST Transformer] Class found at index {}, inserting statements.", idx);
         for (i, stmt) in parse_result.program.body.into_iter().enumerate() {
             program.body.insert(idx + 1 + i, stmt);
         }
     } else {
-        eprintln!(
-            "[AST Transformer] Class {} NOT found in AST!",
-            component_name
-        );
     }
 }
 
@@ -379,7 +370,7 @@ fn add_static_properties_to_class<'a>(
         }
 
         // Handle failed definitions
-        for (def_name, def_expr_str) in failed_defs.iter().zip(definitions.iter()) {
+        for (_def_name, _def_expr_str) in failed_defs.iter().zip(definitions.iter()) {
             // zip might mismatch if failed_defs indices don't align?
             // Actually add_properties_to_class_body returns list of boolean failures?
             // Let's change return type of add_properties... to return definitions that failed.
@@ -466,7 +457,7 @@ fn add_properties_to_class_body<'a>(
 ) -> (bool, Vec<String>) {
     // Returns (fac_ok, failed_definitions_names)
     let ast = AstBuilder::new(allocator);
-    let mut f_ok = false;
+    let _f_ok = false;
     let mut f_ok = false;
     let mut failed_defs = Vec::new();
 
@@ -757,15 +748,6 @@ fn ensure_imports<'a>(
             }
         }
     }
-}
-
-/// Ensure import * as i0 from '@angular/core' exists
-fn ensure_angular_core_import<'a>(allocator: &'a Allocator, program: &mut Program<'a>) {
-    ensure_imports(
-        allocator,
-        program,
-        &[("i0".to_string(), "@angular/core".to_string())],
-    );
 }
 
 #[cfg(test)]
